@@ -110,6 +110,97 @@ const debugStyles = css`
   justify-content: space-between;
 `;
 
+const oledContainerStyles = css`
+  display: flex;
+  align-items: flex-start;
+  padding: 20px 0;
+`;
+
+const oledScreenStyles = css`
+  width: calc(4 * 44px - 4px); // 4 buttons wide minus gap
+  height: calc(3 * 44px - 4px); // 3 buttons high minus gap
+  background: #000;
+  border-radius: 4px;
+  border: 2px solid #1a1a1a;
+  box-shadow:
+    inset 0 0 20px rgba(0, 0, 0, 0.8),
+    0 2px 8px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  color: #0ff;
+  font-size: 11px;
+  overflow: hidden;
+`;
+
+const oledRowStyles = css`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 33.33%;
+`;
+
+const oledLabelStyles = css`
+  color: rgba(0, 255, 255, 0.5);
+  font-size: 9px;
+  text-transform: uppercase;
+`;
+
+const oledValueStyles = css`
+  color: #0ff;
+  font-size: 12px;
+  font-weight: 500;
+  text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
+`;
+
+const rotaryEncoderStyles = css`
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+  border: 3px solid #333;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    inset 0 2px 4px rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  cursor: pointer;
+  position: relative;
+
+  &::before {
+    content: "";
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, #222, #181818);
+    border: 2px solid #2a2a2a;
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    width: 4px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    top: 12px;
+  }
+`;
+
+const rotaryKnobStyles = css`
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #3a3a3a, #252525);
+  border: 1px solid #444;
+  z-index: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+`;
+
 interface PatternLoop {
   start: number;
   length: number;
@@ -139,6 +230,8 @@ interface GridProps {
   channelsPlayingNow: boolean[]; // Which channels have a note playing at current step
   isPulseBeat: boolean; // True every 4 beats for queued pattern animation
   isPlaying: boolean; // Whether the sequencer is currently playing
+  onTogglePlay: () => void; // Toggle play/stop
+  onResetPlayhead: () => void; // Reset playhead to beginning
 }
 
 export const Grid = memo(
@@ -160,6 +253,8 @@ export const Grid = memo(
     channelsPlayingNow,
     isPulseBeat,
     isPlaying,
+    onTogglePlay,
+    onResetPlayhead,
   }: GridProps) => {
     // Store row offset per channel
     const [rowOffsets, setRowOffsets] = useState<number[]>(() =>
@@ -264,7 +359,27 @@ export const Grid = memo(
       [gridState, startRow, startCol, endRow, endCol],
     );
 
-    // Listen for modifier keys
+    // Keyboard grid mapping: 8 columns x 4 rows (bottom 4 rows of visible grid)
+    // Column keys: 1-8 (top row), QWERTYU (second row), ASDFGHJ (third row), ZXCVBNM (fourth row)
+    const keyToGridPosition = useCallback((key: string): { row: number; col: number } | null => {
+      const keyMap: Record<string, { row: number; col: number }> = {
+        // Row 0 (top of keyboard = row 4 of grid, which is visible row 4)
+        "1": { row: 4, col: 0 }, "2": { row: 4, col: 1 }, "3": { row: 4, col: 2 }, "4": { row: 4, col: 3 },
+        "5": { row: 4, col: 4 }, "6": { row: 4, col: 5 }, "7": { row: 4, col: 6 }, "8": { row: 4, col: 7 },
+        // Row 1 (Q row = row 5 of grid)
+        "q": { row: 5, col: 0 }, "w": { row: 5, col: 1 }, "e": { row: 5, col: 2 }, "r": { row: 5, col: 3 },
+        "t": { row: 5, col: 4 }, "y": { row: 5, col: 5 }, "u": { row: 5, col: 6 }, "i": { row: 5, col: 7 },
+        // Row 2 (A row = row 6 of grid)
+        "a": { row: 6, col: 0 }, "s": { row: 6, col: 1 }, "d": { row: 6, col: 2 }, "f": { row: 6, col: 3 },
+        "g": { row: 6, col: 4 }, "h": { row: 6, col: 5 }, "j": { row: 6, col: 6 }, "k": { row: 6, col: 7 },
+        // Row 3 (Z row = row 7 of grid, bottom row)
+        "z": { row: 7, col: 0 }, "x": { row: 7, col: 1 }, "c": { row: 7, col: 2 }, "v": { row: 7, col: 3 },
+        "b": { row: 7, col: 4 }, "n": { row: 7, col: 5 }, "m": { row: 7, col: 6 }, ",": { row: 7, col: 7 },
+      };
+      return keyMap[key.toLowerCase()] || null;
+    }, []);
+
+    // Listen for modifier keys and grid toggle keys
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === "Shift") {
@@ -278,6 +393,45 @@ export const Grid = memo(
         }
         if (e.key === "Meta") {
           setMetaPressed(true);
+        }
+
+        // Handle spacebar for play/stop toggle
+        if (e.key === " " || e.code === "Space") {
+          e.preventDefault();
+          onTogglePlay();
+          return;
+        }
+
+        // Handle backspace for reset playhead
+        if (e.key === "Backspace") {
+          e.preventDefault();
+          onResetPlayhead();
+          return;
+        }
+
+        // Handle grid toggle keys (only when not in shift mode)
+        if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          const gridPos = keyToGridPosition(e.key);
+          if (gridPos) {
+            e.preventDefault();
+            // Convert visible row/col to actual row/col
+            const visibleRow = gridPos.row;
+            const visibleCol = gridPos.col;
+            const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+            const actualCol = startCol + visibleCol;
+
+            const isActive =
+              actualRow < gridState.length &&
+              actualCol < (gridState[actualRow]?.length ?? 0) &&
+              gridState[actualRow][actualCol];
+
+            onToggleCell(actualRow, actualCol);
+
+            // Play note when not playing (preview sound)
+            if (!isPlaying) {
+              onPlayNote(actualRow, currentChannel);
+            }
+          }
         }
       };
 
@@ -304,7 +458,7 @@ export const Grid = memo(
         window.removeEventListener("keydown", handleKeyDown);
         window.removeEventListener("keyup", handleKeyUp);
       };
-    }, []);
+    }, [keyToGridPosition, startRow, startCol, gridState, onToggleCell, onPlayNote, isPlaying, currentChannel, onTogglePlay, onResetPlayhead]);
 
     const handleCellMouseDown = useCallback(
       (row: number, col: number, currentActive: boolean) => {
@@ -616,6 +770,37 @@ export const Grid = memo(
             <span>
               Beats: {startCol} - {endCol}
             </span>
+          </Box>
+        </Box>
+        {/* OLED Screen and Rotary Encoder */}
+        <Box css={oledContainerStyles}>
+          <Box
+            css={css`
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+            `}
+          >
+            <Box css={oledScreenStyles}>
+              <Box css={oledRowStyles}>
+                <span css={oledLabelStyles}>CH</span>
+                <span css={oledValueStyles}>{currentChannel + 1}</span>
+              </Box>
+              <Box css={oledRowStyles}>
+                <span css={oledLabelStyles}>PAT</span>
+                <span css={oledValueStyles}>{currentPattern + 1}</span>
+              </Box>
+              <Box css={oledRowStyles}>
+                <span css={oledLabelStyles}>LOOP</span>
+                <span css={oledValueStyles}>
+                  {currentLoop.start + 1}-{currentLoop.start + currentLoop.length}
+                </span>
+              </Box>
+            </Box>
+            {/* Rotary Encoder */}
+            <Box css={rotaryEncoderStyles}>
+              <Box css={rotaryKnobStyles} />
+            </Box>
           </Box>
         </Box>
       </Box>

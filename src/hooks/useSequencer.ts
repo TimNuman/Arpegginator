@@ -241,6 +241,19 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     setQueuedPatterns(Array.from({ length: NUM_CHANNELS }, () => null));
   }, []);
 
+  const pause = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsPlaying(false);
+    // Don't reset currentStep - keep playhead position
+  }, []);
+
+  const resetPlayhead = useCallback(() => {
+    setCurrentStep(-1);
+  }, []);
+
   useEffect(() => {
     if (isPlaying && intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -310,6 +323,8 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     clearAllChannels,
     play,
     stop,
+    pause,
+    resetPlayhead,
     setBpm,
     currentLoop,
     setPatternLoop,

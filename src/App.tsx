@@ -86,6 +86,8 @@ function App() {
     clearGrid,
     play,
     stop,
+    pause,
+    resetPlayhead,
     setBpm,
     currentLoop,
     setPatternLoop,
@@ -106,6 +108,19 @@ function App() {
     stop();
     stopAllNotes();
   }, [stop, stopAllNotes]);
+
+  const handlePause = useCallback(() => {
+    pause();
+    stopAllNotes();
+  }, [pause, stopAllNotes]);
+
+  const handleTogglePlay = useCallback(() => {
+    if (isPlaying) {
+      handlePause();
+    } else {
+      play();
+    }
+  }, [isPlaying, handlePause, play]);
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -146,6 +161,8 @@ function App() {
           channelsPlayingNow={channelsPlayingNow}
           isPulseBeat={isPulseBeat}
           isPlaying={isPlaying}
+          onTogglePlay={handleTogglePlay}
+          onResetPlayhead={resetPlayhead}
         />
       </Box>
     </ThemeProvider>
