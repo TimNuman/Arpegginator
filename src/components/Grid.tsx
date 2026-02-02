@@ -68,8 +68,37 @@ const verticalStripContainerStyles = css`
 
 const horizontalStripContainerStyles = css`
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
   padding: 0 20px;
+`;
+
+const modifierKeysContainerStyles = css`
+  display: flex;
+  gap: 4px;
+`;
+
+const modifierKeyStyles = css`
+  width: 40px;
+  height: 24px;
+  border-radius: 4px;
+  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s ease;
+`;
+
+const modifierKeyActiveStyles = css`
+  background: linear-gradient(145deg, #4a4a4a, #3a3a3a);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 `;
 
 const debugStyles = css`
@@ -138,7 +167,9 @@ export const Grid = memo(
     );
     const [colOffset, setColOffset] = useState(0);
     const [shiftPressed, setShiftPressed] = useState(false);
+    const [ctrlPressed, setCtrlPressed] = useState(false);
     const [altPressed, setAltPressed] = useState(false);
+    const [metaPressed, setMetaPressed] = useState(false);
     const [loopStartClick, setLoopStartClick] = useState<number | null>(null);
 
     const rowOffset = rowOffsets[currentChannel];
@@ -233,14 +264,20 @@ export const Grid = memo(
       [gridState, startRow, startCol, endRow, endCol],
     );
 
-    // Listen for shift and alt keys
+    // Listen for modifier keys
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === "Shift") {
           setShiftPressed(true);
         }
+        if (e.key === "Control") {
+          setCtrlPressed(true);
+        }
         if (e.key === "Alt") {
           setAltPressed(true);
+        }
+        if (e.key === "Meta") {
+          setMetaPressed(true);
         }
       };
 
@@ -248,9 +285,15 @@ export const Grid = memo(
         if (e.key === "Shift") {
           setShiftPressed(false);
         }
+        if (e.key === "Control") {
+          setCtrlPressed(false);
+        }
         if (e.key === "Alt") {
           setAltPressed(false);
           setLoopStartClick(null); // Cancel loop selection when alt is released
+        }
+        if (e.key === "Meta") {
+          setMetaPressed(false);
         }
       };
 
@@ -521,11 +564,45 @@ export const Grid = memo(
             })}
           </Box>
           <Box css={horizontalStripContainerStyles}>
+            <Box css={modifierKeysContainerStyles}>
+              <Box
+                css={[
+                  modifierKeyStyles,
+                  shiftPressed && modifierKeyActiveStyles,
+                ]}
+              >
+                shift
+              </Box>
+              <Box
+                css={[
+                  modifierKeyStyles,
+                  ctrlPressed && modifierKeyActiveStyles,
+                ]}
+              >
+                ctrl
+              </Box>
+              <Box
+                css={[
+                  modifierKeyStyles,
+                  altPressed && modifierKeyActiveStyles,
+                ]}
+              >
+                opt
+              </Box>
+              <Box
+                css={[
+                  modifierKeyStyles,
+                  metaPressed && modifierKeyActiveStyles,
+                ]}
+              >
+                cmd
+              </Box>
+            </Box>
             <TouchStrip
               orientation="horizontal"
               value={colOffset}
               onChange={setColOffset}
-              length={gridWidth}
+              length={buttonSize * 8}
               thickness={24}
               totalItems={TOTAL_COLS}
               visibleItems={VISIBLE_COLS}
