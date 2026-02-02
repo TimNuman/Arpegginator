@@ -1,0 +1,155 @@
+import { useCallback } from 'react';
+import { css, Global } from '@emotion/react';
+import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import { Grid } from './components/Grid';
+import { Transport } from './components/Transport';
+import { useMidi } from './hooks/useMidi';
+import { useSequencer, CHANNEL_COLORS } from './hooks/useSequencer';
+
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+  },
+});
+
+const globalStyles = css`
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(180deg, #0a0a0a 0%, #1a0a1a 100%);
+    min-height: 100vh;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+`;
+
+const appContainerStyles = css`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px 20px;
+`;
+
+const titleStyles = css`
+  color: #fff;
+  font-size: 32px;
+  font-weight: 300;
+  letter-spacing: 8px;
+  margin-bottom: 30px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #ff3366, #66ffcc, #3366ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
+
+// Row number equals MIDI note number directly (0-127)
+const getRowNote = (row: number): number => {
+  return row;
+};
+
+function App() {
+  const { isEnabled, outputs, selectedOutput, setSelectedOutput, playNote, stopNote, stopAllNotes } =
+    useMidi();
+
+  const handleStepTrigger = useCallback(
+    (channel: number, row: number, _step: number) => {
+      const note = getRowNote(row);
+      // Use channel + 1 for MIDI channel (1-8)
+      playNote(note, 100, channel + 1);
+      setTimeout(() => stopNote(note, channel + 1), 100);
+    },
+    [playNote, stopNote]
+  );
+
+  const {
+    gridState,
+    currentChannel,
+    setCurrentChannel,
+    currentPattern,
+    currentPatterns,
+    setChannelPattern,
+    queuedPatterns,
+    channelsHaveNotes,
+    allPatternsHaveNotes,
+    channelsPlayingNow,
+    isPulseBeat,
+    isPlaying,
+    bpm,
+    currentStep,
+    toggleCell,
+    clearGrid,
+    play,
+    stop,
+    setBpm,
+    currentLoop,
+    setPatternLoop,
+  } = useSequencer({
+    onStepTrigger: handleStepTrigger,
+  });
+
+  const handlePlayNote = useCallback(
+    (note: number, channel: number) => {
+      // Use channel + 1 for MIDI channel (1-8)
+      playNote(note, 100, channel + 1);
+      setTimeout(() => stopNote(note, channel + 1), 100);
+    },
+    [playNote, stopNote]
+  );
+
+  const handleStop = useCallback(() => {
+    stop();
+    stopAllNotes();
+  }, [stop, stopAllNotes]);
+
+  return (
+    <ThemeProvider theme={darkTheme}>
+      <CssBaseline />
+      <Global styles={globalStyles} />
+      <Box css={appContainerStyles}>
+        <Box component="h1" css={titleStyles}>
+          ARP3
+        </Box>
+        <Transport
+          isPlaying={isPlaying}
+          bpm={bpm}
+          onPlay={play}
+          onStop={handleStop}
+          onClear={clearGrid}
+          onBpmChange={setBpm}
+          midiOutputs={outputs}
+          selectedOutput={selectedOutput}
+          onOutputChange={setSelectedOutput}
+          midiEnabled={isEnabled}
+        />
+        <Grid
+          gridState={gridState}
+          currentStep={currentStep}
+          onToggleCell={toggleCell}
+          channelColor={CHANNEL_COLORS[currentChannel]}
+          currentChannel={currentChannel}
+          onChannelChange={setCurrentChannel}
+          currentPattern={currentPattern}
+          currentPatterns={currentPatterns}
+          onPatternChange={setChannelPattern}
+          queuedPatterns={queuedPatterns}
+          channelsHaveNotes={channelsHaveNotes}
+          onPlayNote={handlePlayNote}
+          allPatternsHaveNotes={allPatternsHaveNotes}
+          currentLoop={currentLoop}
+          onSetPatternLoop={setPatternLoop}
+          channelsPlayingNow={channelsPlayingNow}
+          isPulseBeat={isPulseBeat}
+          isPlaying={isPlaying}
+        />
+      </Box>
+    </ThemeProvider>
+  );
+}
+
+export default App;
