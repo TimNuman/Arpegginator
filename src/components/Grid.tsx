@@ -266,7 +266,8 @@ export const Grid = memo(
     const [shiftPressed, setShiftPressed] = useState(false);
     const [altPressed, setAltPressed] = useState(false);
     const [metaPressed, setMetaPressed] = useState(false);
-    const [loopStartClick, setLoopStartClick] = useState<number | null>(null);
+    // Track loop selection start (persists while Alt is held)
+    const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(null);
 
     // Track held key for note length input: { row, col, key }
     const [heldNote, setHeldNote] = useState<{ row: number; col: number; key: string } | null>(null);
@@ -287,6 +288,8 @@ export const Grid = memo(
     // Track drag mode: null = not dragging, true = turning on, false = turning off
     const dragMode = useRef<boolean | null>(null);
     const visitedCells = useRef<Set<string>>(new Set());
+    // Track loop drag start position
+    const loopDragStart = useRef<number | null>(null);
 
     // Calculate actual row/col start indices from offset values
     const maxRowOffset = TOTAL_ROWS - VISIBLE_ROWS;
@@ -456,7 +459,8 @@ export const Grid = memo(
         }
         if (e.key === "Alt") {
           setAltPressed(false);
-          setLoopStartClick(null); // Cancel loop selection when alt is released
+          loopDragStart.current = null; // Cancel loop drag when alt is released
+          setLoopSelectionStart(null); // Cancel loop selection when alt is released
         }
         if (e.key === "Meta") {
           setMetaPressed(false);
@@ -574,24 +578,41 @@ export const Grid = memo(
 
     const handleMouseUp = useCallback(() => {
       dragMode.current = null;
+      loopDragStart.current = null;
       visitedCells.current.clear();
     }, []);
 
-    const handleLoopClick = useCallback(
+    const handleLoopMouseDown = useCallback(
       (col: number) => {
-        if (loopStartClick === null) {
-          // First click - set start
-          setLoopStartClick(col);
+        if (loopSelectionStart === null) {
+          // First click - set the start
+          setLoopSelectionStart(col);
+          loopDragStart.current = col;
+          // Set a single-column loop at this position initially
+          onSetPatternLoop(currentChannel, currentPattern, col, 1);
         } else {
-          // Second click - set end and create loop
-          const start = Math.min(loopStartClick, col);
-          const end = Math.max(loopStartClick, col);
+          // Subsequent click - set the end (can be before start)
+          const start = Math.min(loopSelectionStart, col);
+          const end = Math.max(loopSelectionStart, col);
           const length = end - start + 1;
           onSetPatternLoop(currentChannel, currentPattern, start, length);
-          setLoopStartClick(null);
+          // Keep loopSelectionStart set so further clicks continue to adjust
+          loopDragStart.current = loopSelectionStart;
         }
       },
-      [loopStartClick, currentChannel, currentPattern, onSetPatternLoop],
+      [currentChannel, currentPattern, onSetPatternLoop, loopSelectionStart],
+    );
+
+    const handleLoopDragEnter = useCallback(
+      (col: number) => {
+        if (loopDragStart.current === null) return;
+
+        const start = Math.min(loopDragStart.current, col);
+        const end = Math.max(loopDragStart.current, col);
+        const length = end - start + 1;
+        onSetPatternLoop(currentChannel, currentPattern, start, length);
+      },
+      [currentChannel, currentPattern, onSetPatternLoop],
     );
 
     return (
@@ -695,8 +716,11 @@ export const Grid = memo(
                     const isActive = isNoteStart || isNoteContinuation;
 
                     // Check if the playhead is currently within this note's duration
+                    // Only if the note start is within the loop (note must be triggered to play)
+                    const noteStartInLoop = noteStartCol >= currentLoop.start && noteStartCol < loopEnd;
                     const isNoteCurrentlyPlaying = isActive &&
                       noteStartCol >= 0 &&
+                      noteStartInLoop &&
                       loopedStep >= noteStartCol &&
                       loopedStep <= noteEndCol;
 
@@ -759,9 +783,9 @@ export const Grid = memo(
                     const isBeatMarker =
                       isInLoop && Math.floor(actualCol / 4) % 2 === 0;
 
-                    // Check if this is the pending loop start click
+                    // Check if this is the loop selection start (for visual feedback)
                     const isPendingLoopStart =
-                      loopStartClick !== null && actualCol === loopStartClick;
+                      loopSelectionStart !== null && actualCol === loopSelectionStart;
 
                     // Check for off-screen note indicator (only if cell is not already active)
                     const offScreenCount = isActive
@@ -786,11 +810,11 @@ export const Grid = memo(
                       : channelColor;
 
                     // Handle click - either loop setting (Alt), shift note length, or normal toggle
-                    // Disable when ctrl is pressed (ctrl mode shows pattern selector)
+                    // Disable when meta is pressed (meta mode shows pattern selector)
                     const handleClick = () => {
-                      if (metaPressed) return; // Don't toggle notes in ctrl mode
+                      if (metaPressed) return; // Don't toggle notes in meta mode
                       if (altPressed) {
-                        handleLoopClick(actualCol);
+                        handleLoopMouseDown(actualCol);
                       } else {
                         handleCellMouseDown(actualRow, actualCol, isActive, shiftPressed);
                       }
@@ -806,19 +830,24 @@ export const Grid = memo(
                         dimmed={isDimmed}
                         glowIntensity={offScreenIntensity}
                         isLoopBoundary={isLoopBoundary && !isActive}
+                        isLoopBoundaryPulsing={isLoopBoundary && !isActive && altPressed}
                         isBeatMarker={
                           isBeatMarker && !isActive && !isLoopBoundary
                         }
+                        isInLoop={isInLoop && !isActive && !isLoopBoundary && !isBeatMarker}
                         isPendingLoopStart={isPendingLoopStart}
                         isNoteStart={isNoteStart}
                         isNoteContinuation={isNoteContinuation}
                         isNoteCurrentlyPlaying={isNoteCurrentlyPlaying}
                         onToggle={handleClick}
-                        onDragEnter={() =>
-                          !metaPressed &&
-                          !altPressed &&
-                          handleCellDragEnter(actualRow, actualCol, isActive, shiftPressed)
-                        }
+                        onDragEnter={() => {
+                          if (metaPressed) return;
+                          if (altPressed) {
+                            handleLoopDragEnter(actualCol);
+                          } else {
+                            handleCellDragEnter(actualRow, actualCol, isActive, shiftPressed);
+                          }
+                        }}
                       />
                     );
                   })}

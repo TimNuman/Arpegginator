@@ -1,4 +1,42 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
+
+// Animation duration in ms
+const PULSE_DURATION_MS = 800;
+const PULSE_ANIMATION_NAME = 'loopBoundaryPulseGlobal';
+
+// Store the page load time to sync all animations
+const pageLoadTime = performance.now();
+
+let globalStylesInjected = false;
+
+const injectGlobalPulseAnimation = () => {
+  if (globalStylesInjected) return;
+  globalStylesInjected = true;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes ${PULSE_ANIMATION_NAME} {
+      0%, 100% {
+        opacity: 0.3;
+      }
+      50% {
+        opacity: 1;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+};
+
+// Call immediately on module load to ensure animation is available
+injectGlobalPulseAnimation();
+
+// Calculate a negative animation-delay to sync all elements to the same point in the animation cycle
+const getSyncedAnimationDelay = (): number => {
+  const elapsed = performance.now() - pageLoadTime;
+  const positionInCycle = elapsed % PULSE_DURATION_MS;
+  // Negative delay to "fast-forward" to the current point in the global cycle
+  return -positionInCycle;
+};
 
 // Parse hex color to RGB, handling both #RRGGBB and #RRGGBBAA formats
 const parseHexColor = (hex: string): { r: number; g: number; b: number; a: number } => {
@@ -37,7 +75,9 @@ interface GridButtonProps {
   dimmed?: boolean;
   glowIntensity?: number; // 0-1, controls glow strength
   isLoopBoundary?: boolean; // First or last column of loop (20% white)
-  isBeatMarker?: boolean; // Every 4th column (10% white)
+  isLoopBoundaryPulsing?: boolean; // Loop boundary should pulsate (when holding Alt)
+  isBeatMarker?: boolean; // Every 4th column (10% white) - the "on" beats
+  isInLoop?: boolean; // Whether this cell is within the loop region
   isPendingLoopStart?: boolean; // First click of loop selection
   isNoteStart?: boolean; // True if this is the start of a note
   isNoteContinuation?: boolean; // True if this is a continuation of a note (within note length)
@@ -46,16 +86,19 @@ interface GridButtonProps {
   onDragEnter: () => void;
 }
 
-export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isBeatMarker = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, onToggle, onDragEnter }: GridButtonProps) => {
+export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, onToggle, onDragEnter }: GridButtonProps) => {
   const glowColor = rowColor.length === 7 ? rowColor : rowColor.slice(0, 7); // Strip alpha for glow
   const isPlaying = active && isPlayhead; // Note is playing right now
 
   // Calculate base brightness from loop boundaries, beat markers, and C notes
-  // Priority: loop boundary (20%) > beat marker (10%) > C note (+10%)
+  // Priority: loop boundary (20%) > beat marker (10%) > in loop off-beat (5%) > C note (+10%)
   let baseBrightness = 0;
   if (isLoopBoundary) {
     baseBrightness = 0.2;
   } else if (isBeatMarker) {
+    baseBrightness = 0.15;
+  } else if (isInLoop) {
+    // "Off" beats inside loop get a subtle brightness
     baseBrightness = 0.1;
   }
   if (isCNote) {
@@ -127,6 +170,12 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
     boxShadow = 'inset 0 0 5px rgba(0, 0, 0, 0.5)';
   }
 
+  // Calculate synced animation delay when pulsing is enabled
+  const animationDelay = useMemo(
+    () => (isLoopBoundaryPulsing ? getSyncedAnimationDelay() : 0),
+    [isLoopBoundaryPulsing]
+  );
+
   return (
     <div
       onMouseDown={(e) => {
@@ -147,7 +196,11 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
         height: 40,
         margin: 2,
         borderRadius: 4,
-        transition: 'all 0.05s ease',
+        animation: isLoopBoundaryPulsing
+          ? `${PULSE_ANIMATION_NAME} ${PULSE_DURATION_MS}ms ease-in-out infinite`
+          : undefined,
+        animationDelay: isLoopBoundaryPulsing ? `${animationDelay}ms` : undefined,
+        transition: isLoopBoundaryPulsing ? 'none' : 'all 0.05s ease',
         border: '1px solid rgba(255, 255, 255, 0.1)',
         cursor: 'pointer',
         touchAction: 'none',
