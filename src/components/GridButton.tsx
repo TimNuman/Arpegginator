@@ -86,13 +86,13 @@ interface GridButtonProps {
   isOffScreenPlaying?: boolean; // True if an off-screen note is currently playing
   metaOverlayColor?: string; // Color for meta mode overlay border (empty pattern slots)
   disableTransition?: boolean; // Disable CSS transitions (for scrolling text)
+  isSelected?: boolean; // True if this note is selected for arrow key movement
   onToggle: () => void;
   onDragEnter: () => void;
 }
 
-export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, isOffScreenIndicator = false, isOffScreenPlaying = false, metaOverlayColor, disableTransition = false, onToggle, onDragEnter }: GridButtonProps) => {
+export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, isOffScreenIndicator = false, isOffScreenPlaying = false, metaOverlayColor, disableTransition = false, isSelected = false, onToggle, onDragEnter }: GridButtonProps) => {
   const glowColor = rowColor.length === 7 ? rowColor : rowColor.slice(0, 7); // Strip alpha for glow
-  const isPlaying = active && isPlayhead; // Note is playing right now
 
   // Calculate base brightness from loop boundaries, beat markers, and C notes
   // Priority: loop boundary (20%) > beat marker (10%) > in loop off-beat (5%) > C note (+10%)
@@ -114,9 +114,21 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
   // Note continuations use 50% opacity when not playing
   const continuationOpacity = 0.5;
 
+  // Calculate darkening for unselected notes (35% darker)
+  const unselectedDarkening = 0.35;
+  const darkenedColor = {
+    r: Math.round(parsedColor.r * (1 - unselectedDarkening)),
+    g: Math.round(parsedColor.g * (1 - unselectedDarkening)),
+    b: Math.round(parsedColor.b * (1 - unselectedDarkening)),
+  };
+
+  // Determine if this is an active note that should be affected by selection state
+  const isActiveNote = active && (isNoteStart || isNoteContinuation);
+  const shouldDarken = isActiveNote && !isSelected && !isNoteCurrentlyPlaying;
+
   let bgColor: string;
   if (isNoteStart && isNoteCurrentlyPlaying) {
-    // Note start while playing - bright white
+    // Note start while playing - bright white (selected or not)
     bgColor = '#ffffff';
   } else if (isNoteContinuation && isNoteCurrentlyPlaying) {
     // Continuation while playing - brighter channel color with white mixed in
@@ -137,15 +149,17 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
     const combinedAlpha = Math.min(1, offScreenOpacity + baseWhite);
     bgColor = `rgba(${r}, ${g}, ${b}, ${combinedAlpha})`;
   } else if (isNoteStart && active) {
-    // Note start (not playing) - full channel color
+    // Note start (not playing) - use darkened color if unselected
+    const colorToUse = shouldDarken ? darkenedColor : parsedColor;
     if (parsedColor.a < 1 && baseBrightness > 0) {
-      bgColor = blendColorOverWhite(parsedColor, baseBrightness);
+      bgColor = blendColorOverWhite({ ...colorToUse, a: parsedColor.a }, baseBrightness);
     } else {
-      bgColor = rowColor;
+      bgColor = `rgb(${colorToUse.r}, ${colorToUse.g}, ${colorToUse.b})`;
     }
   } else if (isNoteContinuation && active) {
-    // Note continuation (not playing) - dimmer channel color
-    bgColor = `rgba(${parsedColor.r}, ${parsedColor.g}, ${parsedColor.b}, ${continuationOpacity})`;
+    // Note continuation (not playing) - dimmer channel color, darkened if unselected
+    const colorToUse = shouldDarken ? darkenedColor : parsedColor;
+    bgColor = `rgba(${colorToUse.r}, ${colorToUse.g}, ${colorToUse.b}, ${continuationOpacity})`;
   } else if (active) {
     // Other active states
     if (parsedColor.a < 1 && baseBrightness > 0) {

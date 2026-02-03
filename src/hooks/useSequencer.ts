@@ -221,6 +221,33 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     [currentChannel, currentPattern],
   );
 
+  // Move a note from one position to another
+  const moveNote = useCallback(
+    (fromRow: number, fromCol: number, toRow: number, toCol: number) => {
+      setChannels((prev) => {
+        const newChannels = prev.map((ch, chIdx) =>
+          chIdx === currentChannel
+            ? ch.map((pattern, pIdx) =>
+                pIdx === currentPattern ? pattern.map((r) => [...r]) : pattern,
+              )
+            : ch,
+        );
+        const grid = newChannels[currentChannel][currentPattern];
+        const noteLength = grid[fromRow][fromCol];
+        if (noteLength > 0) {
+          // Clear the old position
+          grid[fromRow][fromCol] = 0;
+          // Truncate any overlapping note at the new position
+          truncateOverlappingNote(grid[toRow], toCol);
+          // Set the note at the new position
+          grid[toRow][toCol] = noteLength;
+        }
+        return newChannels;
+      });
+    },
+    [currentChannel, currentPattern],
+  );
+
   const clearGrid = useCallback(() => {
     setChannels((prev) => {
       const newChannels = prev.map((ch, chIdx) =>
@@ -471,6 +498,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     currentStep,
     toggleCell,
     setNote,
+    moveNote,
     copyPatternTo,
     clearGrid,
     clearAllChannels,

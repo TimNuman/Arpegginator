@@ -115,6 +115,7 @@ function App() {
     currentStep,
     toggleCell,
     setNote,
+    moveNote,
     copyPatternTo,
     clearGrid,
     play,
@@ -227,6 +228,7 @@ function App() {
           onToggleMute={toggleMute}
           onToggleSolo={toggleSolo}
           onCopyPattern={copyPatternTo}
+          onMoveNote={moveNote}
         />
       </Box>
     </ThemeProvider>

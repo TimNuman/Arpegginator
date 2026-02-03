@@ -202,6 +202,46 @@ const rotaryKnobStyles = css`
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 `;
 
+const arrowButtonContainerStyles = css`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 12px;
+  gap: 2px;
+`;
+
+const arrowButtonRowStyles = css`
+  display: flex;
+  gap: 2px;
+`;
+
+const arrowButtonStyles = css`
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+  border: 1px solid #333;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s ease;
+  user-select: none;
+
+  &:hover {
+    background: linear-gradient(145deg, #3a3a3a, #2a2a2a);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  &:active {
+    background: linear-gradient(145deg, #4a4a4a, #3a3a3a);
+    color: rgba(255, 255, 255, 1);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+  }
+`;
+
 interface PatternLoop {
   start: number;
   length: number;
@@ -239,6 +279,7 @@ interface GridProps {
   onToggleMute: (channel: number) => void; // Toggle mute for a channel
   onToggleSolo: (channel: number) => void; // Toggle solo for a channel
   onCopyPattern: (targetPattern: number) => void; // Copy current pattern to target
+  onMoveNote: (fromRow: number, fromCol: number, toRow: number, toCol: number) => void; // Move a note from one position to another
 }
 
 export const Grid = memo(
@@ -268,6 +309,7 @@ export const Grid = memo(
     onToggleMute,
     onToggleSolo,
     onCopyPattern,
+    onMoveNote,
   }: GridProps) => {
     // Store row offset per channel
     const [rowOffsets, setRowOffsets] = useState<number[]>(() =>
@@ -280,8 +322,10 @@ export const Grid = memo(
     const [metaPressed, setMetaPressed] = useState(false);
     // Scrolling text state
     const [scrollOffset, setScrollOffset] = useState(0);
-    const scrollingTextMessage = "Hi there!";
+    const [scrollingTextMessage, setScrollingTextMessage] = useState<string | null>(null);
     const scrollingTextColor = "#00ffff"; // Cyan color for text
+    // Selected note state (row, col) - for arrow key movement
+    const [selectedNote, setSelectedNote] = useState<{ row: number; col: number } | null>(null);
     // Track loop selection start (persists while Alt is held)
     const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(
       null,
@@ -517,7 +561,6 @@ export const Grid = memo(
         }
         if (e.key === "Meta") {
           setMetaPressed(true);
-          setScrollOffset(-VISIBLE_COLS); // Start with text off-screen to the right
         }
 
         // Handle spacebar for play/stop toggle
@@ -532,6 +575,73 @@ export const Grid = memo(
           e.preventDefault();
           onResetPlayhead();
           return;
+        }
+
+        // Handle arrow keys for moving selected note
+        if (selectedNote && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+          e.preventDefault();
+          const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+          if (noteLength > 0) {
+            let newRow = selectedNote.row;
+            let newCol = selectedNote.col;
+
+            switch (e.key) {
+              case "ArrowUp":
+                newRow = Math.min(TOTAL_ROWS - 1, selectedNote.row + 1);
+                break;
+              case "ArrowDown":
+                newRow = Math.max(0, selectedNote.row - 1);
+                break;
+              case "ArrowLeft":
+                newCol = Math.max(0, selectedNote.col - 1);
+                break;
+              case "ArrowRight":
+                newCol = Math.min(TOTAL_COLS - 1, selectedNote.col + 1);
+                break;
+            }
+
+            if (newRow !== selectedNote.row || newCol !== selectedNote.col) {
+              onMoveNote(selectedNote.row, selectedNote.col, newRow, newCol);
+              setSelectedNote({ row: newRow, col: newCol });
+              // Play note when moving (preview sound)
+              if (!isPlaying) {
+                onPlayNote(newRow, currentChannel);
+              }
+            }
+          }
+          return;
+        }
+
+        // Handle Cmd+key to select note at that position
+        if (e.metaKey && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.repeat) {
+          const gridPos = keyToGridPosition(e.key);
+          if (gridPos) {
+            e.preventDefault();
+            const visibleRow = gridPos.row;
+            const visibleCol = gridPos.col;
+            const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+            const actualCol = startCol + visibleCol;
+
+            // Check if there's a note at this position (either note start or continuation)
+            const noteAtCell = gridState[actualRow]?.[actualCol] ?? 0;
+            if (noteAtCell > 0) {
+              // This is a note start
+              setSelectedNote({ row: actualRow, col: actualCol });
+            } else {
+              // Check if this is part of a note continuation
+              for (let c = actualCol - 1; c >= 0; c--) {
+                const prevNote = gridState[actualRow]?.[c] ?? 0;
+                if (prevNote > 0 && c + prevNote > actualCol) {
+                  // Found the note start
+                  setSelectedNote({ row: actualRow, col: c });
+                  break;
+                } else if (prevNote > 0) {
+                  break; // Different note, stop searching
+                }
+              }
+            }
+            return;
+          }
         }
 
         // Handle grid toggle keys (only when not in shift mode)
@@ -559,6 +669,8 @@ export const Grid = memo(
 
               // Set note at the start position with the calculated length
               onSetNote(actualRow, startColNote, noteLength);
+              // Auto-select the new note
+              setSelectedNote({ row: actualRow, col: startColNote });
 
               // Play note when not playing (preview sound)
               if (!isPlaying) {
@@ -600,7 +712,13 @@ export const Grid = memo(
           heldNote.key.toLowerCase() === e.key.toLowerCase()
         ) {
           // Released the held key without pressing a second key - toggle single note
+          const wasActive = (gridState[heldNote.row]?.[heldNote.col] ?? 0) > 0;
           onToggleCell(heldNote.row, heldNote.col);
+
+          // Auto-select the new note if we just created it
+          if (!wasActive) {
+            setSelectedNote({ row: heldNote.row, col: heldNote.col });
+          }
 
           // Play note when not playing (preview sound)
           if (!isPlaying) {
@@ -631,31 +749,36 @@ export const Grid = memo(
       onTogglePlay,
       onResetPlayhead,
       heldNote,
+      selectedNote,
+      onMoveNote,
     ]);
 
-    // Scrolling text animation when Meta (Cmd) is pressed
+    // Scrolling text animation when a message is set
     useEffect(() => {
-      if (!metaPressed) return;
+      if (!scrollingTextMessage) return;
+
+      // Start with text off-screen to the right
+      setScrollOffset(-VISIBLE_COLS);
 
       const messageWidth = getMessageWidth(scrollingTextMessage);
 
       const interval = setInterval(() => {
         setScrollOffset((prev) => {
           const next = prev + 1;
-          // Loop back when message has fully scrolled off the left
-          // Start from -VISIBLE_COLS (off right), end at messageWidth (off left)
+          // Clear message when it has fully scrolled off the left
           if (next >= messageWidth) {
-            return -VISIBLE_COLS;
+            setScrollingTextMessage(null);
+            return 0;
           }
           return next;
         });
       }, 30);
 
       return () => clearInterval(interval);
-    }, [metaPressed]);
+    }, [scrollingTextMessage]);
 
-    // Compute scrolling text grid when meta is pressed
-    const scrollingTextGrid = metaPressed
+    // Compute scrolling text grid when a message is active
+    const scrollingTextGrid = scrollingTextMessage
       ? renderScrollingText(
           scrollingTextMessage,
           scrollOffset,
@@ -670,7 +793,29 @@ export const Grid = memo(
         col: number,
         currentActive: boolean,
         isShiftClick: boolean,
+        isMetaClick: boolean,
       ) => {
+        // Cmd+click: select the note (find the note start if clicking on continuation)
+        if (isMetaClick && currentActive) {
+          // Find the note start (could be this cell or an earlier cell)
+          let noteStartCol = col;
+          for (let c = col - 1; c >= 0; c--) {
+            const prevNote = gridState[row]?.[c] ?? 0;
+            if (prevNote > 0 && c + prevNote > col) {
+              noteStartCol = c;
+              break;
+            } else if (prevNote > 0) {
+              break; // Found a different note, stop searching
+            }
+          }
+          // Check if this cell itself is a note start
+          if ((gridState[row]?.[col] ?? 0) > 0) {
+            noteStartCol = col;
+          }
+          setSelectedNote({ row, col: noteStartCol });
+          return;
+        }
+
         if (isShiftClick) {
           // Shift-click: find the first note to the left on this row and extend it
           let foundNoteCol = -1;
@@ -684,6 +829,7 @@ export const Grid = memo(
             // Extend the found note to the current position
             const noteLength = col - foundNoteCol + 1;
             onSetNote(row, foundNoteCol, noteLength);
+            setSelectedNote({ row, col: foundNoteCol }); // Auto-select extended note
             dragMode.current = true;
             visitedCells.current.clear();
             visitedCells.current.add(`${row}-${col}`);
@@ -702,6 +848,10 @@ export const Grid = memo(
         visitedCells.current.clear();
         visitedCells.current.add(`${row}-${col}`);
         onToggleCell(row, col);
+        // Auto-select new note
+        if (turningOn) {
+          setSelectedNote({ row, col });
+        }
         // Play note when not playing (preview sound)
         if (!isPlaying) {
           onPlayNote(row, currentChannel);
@@ -943,8 +1093,14 @@ export const Grid = memo(
                     // But NOT for actual notes on screen (isNoteStart or isNoteContinuation)
                     const showGridStyling = !isNoteStart && !isNoteContinuation;
 
-                    // Scrolling text mode (Meta/Cmd pressed) - takes priority over everything
-                    if (metaPressed && scrollingTextGrid) {
+                    // Check if this cell is part of the selected note
+                    const isCellSelected = selectedNote !== null &&
+                      selectedNote.row === actualRow &&
+                      ((isNoteStart && selectedNote.col === actualCol) ||
+                       (isNoteContinuation && noteStartCol === selectedNote.col));
+
+                    // Scrolling text mode - takes priority over everything
+                    if (scrollingTextGrid) {
                       const isTextPixel =
                         scrollingTextGrid[visibleRow]?.[visibleCol] ?? false;
                       return (
@@ -1145,7 +1301,7 @@ export const Grid = memo(
                     // Handle click - either loop setting (Alt), shift note length, or normal toggle
                     // Disable when meta is pressed (meta mode shows pattern selector)
                     const handleClick = () => {
-                      if (ctrlPressed) return; // Don't toggle notes in meta mode
+                      if (ctrlPressed) return; // Don't toggle notes in ctrl mode
                       if (altPressed) {
                         handleLoopMouseDown(actualCol);
                       } else {
@@ -1154,6 +1310,7 @@ export const Grid = memo(
                           actualCol,
                           isActive,
                           shiftPressed,
+                          metaPressed,
                         );
                       }
                     };
@@ -1199,6 +1356,7 @@ export const Grid = memo(
                           showOffScreenIndicator && !ctrlPressed
                         }
                         isOffScreenPlaying={offScreenPlaying && !ctrlPressed}
+                        isSelected={isCellSelected && !ctrlPressed}
                         onToggle={handleClick}
                         onDragEnter={() => {
                           if (ctrlPressed) return;
@@ -1301,6 +1459,85 @@ export const Grid = memo(
             {/* Rotary Encoder */}
             <Box css={rotaryEncoderStyles}>
               <Box css={rotaryKnobStyles} />
+            </Box>
+            {/* Arrow Keys */}
+            <Box css={arrowButtonContainerStyles}>
+              <Box css={arrowButtonRowStyles}>
+                <Box
+                  css={arrowButtonStyles}
+                  onClick={() => {
+                    if (selectedNote) {
+                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      if (noteLength > 0) {
+                        const newRow = Math.min(TOTAL_ROWS - 1, selectedNote.row + 1);
+                        if (newRow !== selectedNote.row) {
+                          onMoveNote(selectedNote.row, selectedNote.col, newRow, selectedNote.col);
+                          setSelectedNote({ row: newRow, col: selectedNote.col });
+                          if (!isPlaying) onPlayNote(newRow, currentChannel);
+                        }
+                      }
+                    }
+                  }}
+                >
+                  ▲
+                </Box>
+              </Box>
+              <Box css={arrowButtonRowStyles}>
+                <Box
+                  css={arrowButtonStyles}
+                  onClick={() => {
+                    if (selectedNote) {
+                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      if (noteLength > 0) {
+                        const newCol = Math.max(0, selectedNote.col - 1);
+                        if (newCol !== selectedNote.col) {
+                          onMoveNote(selectedNote.row, selectedNote.col, selectedNote.row, newCol);
+                          setSelectedNote({ row: selectedNote.row, col: newCol });
+                          if (!isPlaying) onPlayNote(selectedNote.row, currentChannel);
+                        }
+                      }
+                    }
+                  }}
+                >
+                  ◀
+                </Box>
+                <Box
+                  css={arrowButtonStyles}
+                  onClick={() => {
+                    if (selectedNote) {
+                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      if (noteLength > 0) {
+                        const newRow = Math.max(0, selectedNote.row - 1);
+                        if (newRow !== selectedNote.row) {
+                          onMoveNote(selectedNote.row, selectedNote.col, newRow, selectedNote.col);
+                          setSelectedNote({ row: newRow, col: selectedNote.col });
+                          if (!isPlaying) onPlayNote(newRow, currentChannel);
+                        }
+                      }
+                    }
+                  }}
+                >
+                  ▼
+                </Box>
+                <Box
+                  css={arrowButtonStyles}
+                  onClick={() => {
+                    if (selectedNote) {
+                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      if (noteLength > 0) {
+                        const newCol = Math.min(TOTAL_COLS - 1, selectedNote.col + 1);
+                        if (newCol !== selectedNote.col) {
+                          onMoveNote(selectedNote.row, selectedNote.col, selectedNote.row, newCol);
+                          setSelectedNote({ row: selectedNote.row, col: newCol });
+                          if (!isPlaying) onPlayNote(selectedNote.row, currentChannel);
+                        }
+                      }
+                    }
+                  }}
+                >
+                  ▶
+                </Box>
+              </Box>
             </Box>
           </Box>
         </Box>
