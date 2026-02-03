@@ -24,7 +24,7 @@ const createDefaultLoops = (): PatternLoop[][] => {
 };
 
 const createEmptyGrid = (): GridState => {
-  return Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 };
 
 // Each channel has multiple patterns
@@ -38,7 +38,7 @@ const createEmptyChannels = (): GridState[][] => {
 };
 
 interface UseSequencerOptions {
-  onStepTrigger: (channel: number, row: number, step: number) => void;
+  onStepTrigger: (channel: number, row: number, step: number, noteLength: number) => void;
 }
 
 export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
@@ -115,8 +115,27 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
               )
             : ch,
         );
-        newChannels[currentChannel][currentPattern][row][col] =
-          !newChannels[currentChannel][currentPattern][row][col];
+        // Toggle: 0 -> 1 (default length), >0 -> 0
+        const currentValue = newChannels[currentChannel][currentPattern][row][col];
+        newChannels[currentChannel][currentPattern][row][col] = currentValue > 0 ? 0 : 1;
+        return newChannels;
+      });
+    },
+    [currentChannel, currentPattern],
+  );
+
+  // Set a note with a specific length (used for keyboard note-length input)
+  const setNote = useCallback(
+    (row: number, col: number, length: number) => {
+      setChannels((prev) => {
+        const newChannels = prev.map((ch, chIdx) =>
+          chIdx === currentChannel
+            ? ch.map((pattern, pIdx) =>
+                pIdx === currentPattern ? pattern.map((r) => [...r]) : pattern,
+              )
+            : ch,
+        );
+        newChannels[currentChannel][currentPattern][row][col] = length;
         return newChannels;
       });
     },
@@ -189,10 +208,13 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         }
 
         // Trigger notes (use current pattern, switch happens after)
+        // A note triggers if: there's a note at this step, OR we're within a previous note's length
         if (channelStep >= loop.start && channelStep < loopEnd) {
           for (let row = 0; row < ROWS; row++) {
-            if (channelsRef.current[ch][patternIdx][row][channelStep]) {
-              onStepTrigger(ch, row, channelStep);
+            const noteLength = channelsRef.current[ch][patternIdx][row][channelStep];
+            if (noteLength > 0) {
+              // Note starts here - pass the length for proper note duration
+              onStepTrigger(ch, row, channelStep, noteLength);
             }
           }
         }
@@ -275,15 +297,16 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
 
   // Check which channels have notes (in any pattern)
   const channelsHaveNotes = channels.map((ch) =>
-    ch.some((pattern) => pattern.some((row) => row.some((cell) => cell))),
+    ch.some((pattern) => pattern.some((row) => row.some((cell) => cell > 0))),
   );
 
   // Check which patterns have notes for each channel (2D array: [channel][pattern] -> boolean)
   const allPatternsHaveNotes = channels.map((ch) =>
-    ch.map((pattern) => pattern.some((row) => row.some((cell) => cell))),
+    ch.map((pattern) => pattern.some((row) => row.some((cell) => cell > 0))),
   );
 
   // Check which channels are playing a note at the current step
+  // A channel is playing if there's a note starting at this step, or if we're within a note's length
   const channelsPlayingNow = channels.map((ch, chIdx) => {
     if (currentStep < 0) return false;
     const patternIdx = currentPatterns[chIdx];
@@ -292,8 +315,19 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
       loop.start +
       ((((currentStep - loop.start) % loop.length) + loop.length) %
         loop.length);
-    // Check if any row has a note at this step in the active pattern
-    return ch[patternIdx].some((row) => row[channelStep]);
+    // Check if any row has a note starting at this step, or we're within a note's length
+    return ch[patternIdx].some((row) => {
+      // Check if note starts at this step
+      if (row[channelStep] > 0) return true;
+      // Check if we're within a previous note's length
+      for (let col = loop.start; col < channelStep; col++) {
+        const noteLength = row[col];
+        if (noteLength > 0 && col + noteLength > channelStep) {
+          return true;
+        }
+      }
+      return false;
+    });
   });
 
   // Current pattern's loop (for the current channel)
@@ -319,6 +353,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     bpm,
     currentStep,
     toggleCell,
+    setNote,
     clearGrid,
     clearAllChannels,
     play,

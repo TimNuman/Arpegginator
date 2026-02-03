@@ -5,7 +5,10 @@ export interface GridCell {
   color: string;
 }
 
-export type GridState = boolean[][];
+// Note value: 0 = no note, positive number = note length in steps
+export type NoteValue = number;
+
+export type GridState = NoteValue[][];
 
 export interface TransportState {
   isPlaying: boolean;

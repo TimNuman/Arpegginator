@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { css, Global } from '@emotion/react';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { Grid } from './components/Grid';
@@ -57,12 +57,20 @@ function App() {
   const { isEnabled, outputs, selectedOutput, setSelectedOutput, playNote, stopNote, stopAllNotes } =
     useMidi();
 
+  // Use a ref for BPM so handleStepTrigger can access current value without re-creating
+  const bpmRef = useRef(120);
+
   const handleStepTrigger = useCallback(
-    (channel: number, row: number, _step: number) => {
+    (channel: number, row: number, _step: number, noteLength: number) => {
       const note = getRowNote(row);
       // Use channel + 1 for MIDI channel (1-8)
       playNote(note, 100, channel + 1);
-      setTimeout(() => stopNote(note, channel + 1), 100);
+      // Calculate note duration based on BPM and note length
+      // One step = one 16th note = (60 / bpm / 4) seconds
+      const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;
+      // Shorten the last step by 10% to create a small gap between consecutive notes
+      const noteDurationMs = stepDurationMs * (noteLength - 0.1);
+      setTimeout(() => stopNote(note, channel + 1), noteDurationMs);
     },
     [playNote, stopNote]
   );
@@ -83,6 +91,7 @@ function App() {
     bpm,
     currentStep,
     toggleCell,
+    setNote,
     clearGrid,
     play,
     stop,
@@ -94,6 +103,9 @@ function App() {
   } = useSequencer({
     onStepTrigger: handleStepTrigger,
   });
+
+  // Keep bpmRef in sync with actual BPM
+  bpmRef.current = bpm;
 
   const handlePlayNote = useCallback(
     (note: number, channel: number) => {
@@ -146,6 +158,7 @@ function App() {
           gridState={gridState}
           currentStep={currentStep}
           onToggleCell={toggleCell}
+          onSetNote={setNote}
           channelColor={CHANNEL_COLORS[currentChannel]}
           currentChannel={currentChannel}
           onChannelChange={setCurrentChannel}

@@ -39,11 +39,14 @@ interface GridButtonProps {
   isLoopBoundary?: boolean; // First or last column of loop (20% white)
   isBeatMarker?: boolean; // Every 4th column (10% white)
   isPendingLoopStart?: boolean; // First click of loop selection
+  isNoteStart?: boolean; // True if this is the start of a note
+  isNoteContinuation?: boolean; // True if this is a continuation of a note (within note length)
+  isNoteCurrentlyPlaying?: boolean; // True if the playhead is within this note's duration
   onToggle: () => void;
   onDragEnter: () => void;
 }
 
-export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isBeatMarker = false, isPendingLoopStart = false, onToggle, onDragEnter }: GridButtonProps) => {
+export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isBeatMarker = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, onToggle, onDragEnter }: GridButtonProps) => {
   const glowColor = rowColor.length === 7 ? rowColor : rowColor.slice(0, 7); // Strip alpha for glow
   const isPlaying = active && isPlayhead; // Note is playing right now
 
@@ -59,20 +62,41 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
     baseBrightness += 0.1;
   }
 
+  const parsedColor = parseHexColor(rowColor);
+
+  // Note continuations use 50% opacity when not playing
+  const continuationOpacity = 0.5;
+
   let bgColor: string;
-  if (isPlaying) {
-    bgColor = '#ffffff'; // Bright white when playing
-  } else if (active) {
-    // Blend the active color with the background indicators
-    const parsedColor = parseHexColor(rowColor);
+  if (isNoteStart && isNoteCurrentlyPlaying) {
+    // Note start while playing - bright white
+    bgColor = '#ffffff';
+  } else if (isNoteContinuation && isNoteCurrentlyPlaying) {
+    // Continuation while playing - brighter channel color with white mixed in
+    const whiteMix = 0.2; // 20% white mixed in
+    const r = Math.round(parsedColor.r + (255 - parsedColor.r) * whiteMix);
+    const g = Math.round(parsedColor.g + (255 - parsedColor.g) * whiteMix);
+    const b = Math.round(parsedColor.b + (255 - parsedColor.b) * whiteMix);
+    bgColor = `rgba(${r}, ${g}, ${b}, 0.7)`;
+  } else if (isNoteStart && active) {
+    // Note start (not playing) - full channel color
     if (parsedColor.a < 1 && baseBrightness > 0) {
-      // Semi-transparent color on indicator - blend them
+      bgColor = blendColorOverWhite(parsedColor, baseBrightness);
+    } else {
+      bgColor = rowColor;
+    }
+  } else if (isNoteContinuation && active) {
+    // Note continuation (not playing) - dimmer channel color
+    bgColor = `rgba(${parsedColor.r}, ${parsedColor.g}, ${parsedColor.b}, ${continuationOpacity})`;
+  } else if (active) {
+    // Other active states (off-screen indicators, etc.)
+    if (parsedColor.a < 1 && baseBrightness > 0) {
       bgColor = blendColorOverWhite(parsedColor, baseBrightness);
     } else {
       bgColor = rowColor;
     }
   } else if (isPendingLoopStart) {
-    bgColor = 'rgba(255, 255, 255, 0.4)'; // 40% white for pending loop start
+    bgColor = 'rgba(255, 255, 255, 0.4)';
   } else if (isPlayhead) {
     bgColor = 'rgba(255, 255, 255, 0.15)';
   } else if (baseBrightness > 0) {
@@ -81,15 +105,18 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
     bgColor = 'rgba(30, 30, 30, 0.9)';
   }
 
-  // Scale glow sizes by intensity
-  const glowSize1 = Math.round(10 * glowIntensity);
-  const glowSize2 = Math.round(10 * glowIntensity);
-  const playingGlow1 = Math.round(30 * glowIntensity);
-  const playingGlow2 = Math.round(60 * glowIntensity);
+  // Glow is directly tied to color/opacity
+  // Continuations always have reduced glow to match their reduced opacity
+  const effectiveGlowIntensity = isNoteContinuation ? continuationOpacity * glowIntensity : glowIntensity;
+  const glowSize1 = Math.round(5 * effectiveGlowIntensity);
+  const glowSize2 = Math.round(5 * effectiveGlowIntensity);
+  const playingGlow1 = Math.round(8 * glowIntensity);
+  const playingGlow2 = Math.round(15 * glowIntensity);
 
   let boxShadow: string;
-  if (isPlaying) {
-    boxShadow = `0 0 ${playingGlow1}px ${glowColor}, 0 0 ${playingGlow2}px ${glowColor}, inset 0 0 15px rgba(255, 255, 255, 0.5)`;
+  if (isNoteStart && isNoteCurrentlyPlaying) {
+    // Note start playing - full glow
+    boxShadow = `0 0 ${playingGlow1}px ${glowColor}, 0 0 ${playingGlow2}px ${glowColor}, inset 0 0 8px rgba(255, 255, 255, 0.3)`;
   } else if (active) {
     boxShadow = glowIntensity > 0
       ? `0 0 ${glowSize1}px ${glowColor}, inset 0 0 ${glowSize2}px rgba(255, 255, 255, ${0.2 * glowIntensity})`

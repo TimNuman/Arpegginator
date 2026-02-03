@@ -210,6 +210,7 @@ interface GridProps {
   gridState: GridState;
   currentStep: number;
   onToggleCell: (row: number, col: number) => void;
+  onSetNote: (row: number, col: number, length: number) => void;
   channelColor: string;
   currentChannel: number;
   onChannelChange: (channel: number) => void;
@@ -239,6 +240,7 @@ export const Grid = memo(
     gridState,
     currentStep,
     onToggleCell,
+    onSetNote,
     channelColor,
     currentChannel,
     onChannelChange,
@@ -262,10 +264,13 @@ export const Grid = memo(
     );
     const [colOffset, setColOffset] = useState(0);
     const [shiftPressed, setShiftPressed] = useState(false);
-    const [ctrlPressed, setCtrlPressed] = useState(false);
     const [altPressed, setAltPressed] = useState(false);
     const [metaPressed, setMetaPressed] = useState(false);
     const [loopStartClick, setLoopStartClick] = useState<number | null>(null);
+
+    // Track held key for note length input: { row, col, key }
+    const [heldNote, setHeldNote] = useState<{ row: number; col: number; key: string } | null>(null);
+
 
     const rowOffset = rowOffsets[currentChannel];
     const setRowOffset = useCallback(
@@ -321,7 +326,7 @@ export const Grid = memo(
         // Check for notes above visible area (higher MIDI notes)
         if (isTopEdge) {
           for (let row = endRow + 1; row < TOTAL_ROWS; row++) {
-            if (gridState[row]?.[actualCol]) {
+            if (gridState[row]?.[actualCol] > 0) {
               count++;
             }
           }
@@ -330,7 +335,7 @@ export const Grid = memo(
         // Check for notes below visible area (lower MIDI notes)
         if (isBottomEdge) {
           for (let row = 0; row < startRow; row++) {
-            if (gridState[row]?.[actualCol]) {
+            if (gridState[row]?.[actualCol] > 0) {
               count++;
             }
           }
@@ -339,7 +344,7 @@ export const Grid = memo(
         // Check for notes to the right of visible area
         if (isRightEdge) {
           for (let col = endCol + 1; col < TOTAL_COLS; col++) {
-            if (gridState[actualRow]?.[col]) {
+            if (gridState[actualRow]?.[col] > 0) {
               count++;
             }
           }
@@ -348,7 +353,7 @@ export const Grid = memo(
         // Check for notes to the left of visible area
         if (isLeftEdge) {
           for (let col = 0; col < startCol; col++) {
-            if (gridState[actualRow]?.[col]) {
+            if (gridState[actualRow]?.[col] > 0) {
               count++;
             }
           }
@@ -385,9 +390,6 @@ export const Grid = memo(
         if (e.key === "Shift") {
           setShiftPressed(true);
         }
-        if (e.key === "Control") {
-          setCtrlPressed(true);
-        }
         if (e.key === "Alt") {
           setAltPressed(true);
         }
@@ -410,7 +412,7 @@ export const Grid = memo(
         }
 
         // Handle grid toggle keys (only when not in shift mode)
-        if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
           const gridPos = keyToGridPosition(e.key);
           if (gridPos) {
             e.preventDefault();
@@ -420,16 +422,28 @@ export const Grid = memo(
             const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
             const actualCol = startCol + visibleCol;
 
-            const isActive =
-              actualRow < gridState.length &&
-              actualCol < (gridState[actualRow]?.length ?? 0) &&
-              gridState[actualRow][actualCol];
+            // Check if we already have a held note on the same row
+            if (heldNote && keyToGridPosition(heldNote.key)?.row === gridPos.row) {
+              // Second key on same row - create note with length
+              const heldPos = keyToGridPosition(heldNote.key)!;
+              const heldCol = startCol + heldPos.col;
+              const startColNote = Math.min(heldCol, actualCol);
+              const endColNote = Math.max(heldCol, actualCol);
+              const noteLength = endColNote - startColNote + 1;
 
-            onToggleCell(actualRow, actualCol);
+              // Set note at the start position with the calculated length
+              onSetNote(actualRow, startColNote, noteLength);
 
-            // Play note when not playing (preview sound)
-            if (!isPlaying) {
-              onPlayNote(actualRow, currentChannel);
+              // Play note when not playing (preview sound)
+              if (!isPlaying) {
+                onPlayNote(actualRow, currentChannel);
+              }
+
+              // Clear held note
+              setHeldNote(null);
+            } else {
+              // First key press - hold this note
+              setHeldNote({ row: actualRow, col: actualCol, key: e.key });
             }
           }
         }
@@ -438,9 +452,7 @@ export const Grid = memo(
       const handleKeyUp = (e: KeyboardEvent) => {
         if (e.key === "Shift") {
           setShiftPressed(false);
-        }
-        if (e.key === "Control") {
-          setCtrlPressed(false);
+          // Don't clear shiftNoteStart - allow click without shift to complete the note
         }
         if (e.key === "Alt") {
           setAltPressed(false);
@@ -448,6 +460,20 @@ export const Grid = memo(
         }
         if (e.key === "Meta") {
           setMetaPressed(false);
+        }
+
+        // Handle grid key release - if this is the held note and no second key was pressed, toggle it
+        const gridPos = keyToGridPosition(e.key);
+        if (gridPos && heldNote && heldNote.key.toLowerCase() === e.key.toLowerCase()) {
+          // Released the held key without pressing a second key - toggle single note
+          onToggleCell(heldNote.row, heldNote.col);
+
+          // Play note when not playing (preview sound)
+          if (!isPlaying) {
+            onPlayNote(heldNote.row, currentChannel);
+          }
+
+          setHeldNote(null);
         }
       };
 
@@ -458,10 +484,36 @@ export const Grid = memo(
         window.removeEventListener("keydown", handleKeyDown);
         window.removeEventListener("keyup", handleKeyUp);
       };
-    }, [keyToGridPosition, startRow, startCol, gridState, onToggleCell, onPlayNote, isPlaying, currentChannel, onTogglePlay, onResetPlayhead]);
+    }, [keyToGridPosition, startRow, startCol, gridState, onToggleCell, onSetNote, onPlayNote, isPlaying, currentChannel, onTogglePlay, onResetPlayhead, heldNote]);
 
     const handleCellMouseDown = useCallback(
-      (row: number, col: number, currentActive: boolean) => {
+      (row: number, col: number, currentActive: boolean, isShiftClick: boolean) => {
+        if (isShiftClick) {
+          // Shift-click: find the first note to the left on this row and extend it
+          let foundNoteCol = -1;
+          for (let c = col - 1; c >= 0; c--) {
+            if (gridState[row]?.[c] > 0) {
+              foundNoteCol = c;
+              break;
+            }
+          }
+          if (foundNoteCol >= 0) {
+            // Extend the found note to the current position
+            const noteLength = col - foundNoteCol + 1;
+            onSetNote(row, foundNoteCol, noteLength);
+            dragMode.current = true;
+            visitedCells.current.clear();
+            visitedCells.current.add(`${row}-${col}`);
+            // Play note when not playing (preview sound)
+            if (!isPlaying) {
+              onPlayNote(row, currentChannel);
+            }
+            return;
+          }
+          // No note found to the left, fall through to normal toggle
+        }
+
+        // Normal click - toggle single note
         const turningOn = !currentActive;
         dragMode.current = turningOn;
         visitedCells.current.clear();
@@ -472,11 +524,11 @@ export const Grid = memo(
           onPlayNote(row, currentChannel);
         }
       },
-      [onToggleCell, onPlayNote, currentChannel, isPlaying],
+      [onToggleCell, onSetNote, onPlayNote, currentChannel, isPlaying, gridState],
     );
 
     const handleCellDragEnter = useCallback(
-      (row: number, col: number, currentActive: boolean) => {
+      (row: number, col: number, currentActive: boolean, isShiftDrag: boolean) => {
         if (dragMode.current === null) return;
 
         const cellKey = `${row}-${col}`;
@@ -484,6 +536,31 @@ export const Grid = memo(
 
         visitedCells.current.add(cellKey);
 
+        // Shift-drag: find the first note to the left on this row and extend it, or create one
+        if (isShiftDrag) {
+          let foundNoteCol = -1;
+          for (let c = col - 1; c >= 0; c--) {
+            if (gridState[row]?.[c] > 0) {
+              foundNoteCol = c;
+              break;
+            }
+          }
+          if (foundNoteCol >= 0) {
+            // Extend existing note
+            const noteLength = col - foundNoteCol + 1;
+            onSetNote(row, foundNoteCol, noteLength);
+          } else {
+            // No note found - create a new single note at this position
+            onSetNote(row, col, 1);
+            // Play note when not playing (preview sound)
+            if (!isPlaying) {
+              onPlayNote(row, currentChannel);
+            }
+          }
+          return;
+        }
+
+        // Normal drag - toggle cells
         if (currentActive !== dragMode.current) {
           onToggleCell(row, col);
           // Play note when not playing (preview sound)
@@ -492,7 +569,7 @@ export const Grid = memo(
           }
         }
       },
-      [onToggleCell, onPlayNote, currentChannel, isPlaying],
+      [onToggleCell, onSetNote, onPlayNote, currentChannel, isPlaying, gridState],
     );
 
     const handleMouseUp = useCallback(() => {
@@ -577,20 +654,60 @@ export const Grid = memo(
                       isQueued ||
                       isNextEmpty;
 
+                    // Calculate the playhead position within this channel's loop (needed for note highlight)
+                    const loopEnd = currentLoop.start + currentLoop.length;
+                    const loopedStep =
+                      currentStep >= 0
+                        ? currentLoop.start +
+                          ((((currentStep - currentLoop.start) %
+                            currentLoop.length) +
+                            currentLoop.length) %
+                            currentLoop.length)
+                        : -1;
+
                     // Normal mode pattern info
-                    const isActive =
+                    // Check if note starts at this cell
+                    const noteAtCell =
                       actualRow < gridState.length &&
-                      actualCol < (gridState[actualRow]?.length ?? 0) &&
-                      gridState[actualRow][actualCol];
+                      actualCol < (gridState[actualRow]?.length ?? 0)
+                        ? gridState[actualRow][actualCol]
+                        : 0;
+                    const isNoteStart = noteAtCell > 0;
+
+                    // Check if this cell is within a previous note's length (note continuation)
+                    // Also track the note's start and end for "currently playing" highlight
+                    let isNoteContinuation = false;
+                    let noteStartCol = isNoteStart ? actualCol : -1;
+                    let noteEndCol = isNoteStart ? actualCol + noteAtCell - 1 : -1;
+
+                    if (!isNoteStart && actualRow < gridState.length) {
+                      for (let c = 0; c < actualCol; c++) {
+                        const prevNote = gridState[actualRow]?.[c] ?? 0;
+                        if (prevNote > 0 && c + prevNote > actualCol) {
+                          isNoteContinuation = true;
+                          noteStartCol = c;
+                          noteEndCol = c + prevNote - 1;
+                          break;
+                        }
+                      }
+                    }
+
+                    const isActive = isNoteStart || isNoteContinuation;
+
+                    // Check if the playhead is currently within this note's duration
+                    const isNoteCurrentlyPlaying = isActive &&
+                      noteStartCol >= 0 &&
+                      loopedStep >= noteStartCol &&
+                      loopedStep <= noteEndCol;
 
                     // C notes are at rows 0, 12, 24, 36 (C2, C3, C4, C5)
                     const isCNote = actualRow % 12 === 0;
 
-                    // Dim pattern buttons when shift is pressed
-                    const isDimmed = shiftPressed;
+                    // Dim pattern buttons when ctrl is pressed
+                    const isDimmed = metaPressed;
 
-                    // In shift mode with a visible shift button, show that instead
-                    if (shiftPressed && shouldShowShiftButton) {
+                    // In ctrl mode with a visible channel/pattern button, show that instead
+                    if (metaPressed && shouldShowShiftButton) {
                       let displayColor: string;
                       let glowIntensity: number;
 
@@ -631,7 +748,6 @@ export const Grid = memo(
                     }
 
                     // Check if this column is a loop boundary (start or end)
-                    const loopEnd = currentLoop.start + currentLoop.length;
                     const isLoopStart = actualCol === currentLoop.start;
                     const isLoopEnd = actualCol === loopEnd - 1;
                     const isLoopBoundary = isLoopStart || isLoopEnd;
@@ -642,16 +758,6 @@ export const Grid = memo(
                       actualCol >= currentLoop.start && actualCol < loopEnd;
                     const isBeatMarker =
                       isInLoop && Math.floor(actualCol / 4) % 2 === 0;
-
-                    // Calculate the playhead position within this channel's loop
-                    const loopedStep =
-                      currentStep >= 0
-                        ? currentLoop.start +
-                          ((((currentStep - currentLoop.start) %
-                            currentLoop.length) +
-                            currentLoop.length) %
-                            currentLoop.length)
-                        : -1;
 
                     // Check if this is the pending loop start click
                     const isPendingLoopStart =
@@ -679,14 +785,14 @@ export const Grid = memo(
                       ? channelColor + opacityHex
                       : channelColor;
 
-                    // Handle click - either loop setting (Alt) or normal toggle
-                    // Disable when shift is pressed (shift mode shows pattern selector)
+                    // Handle click - either loop setting (Alt), shift note length, or normal toggle
+                    // Disable when ctrl is pressed (ctrl mode shows pattern selector)
                     const handleClick = () => {
-                      if (shiftPressed) return; // Don't toggle notes in shift mode
+                      if (metaPressed) return; // Don't toggle notes in ctrl mode
                       if (altPressed) {
                         handleLoopClick(actualCol);
                       } else {
-                        handleCellMouseDown(actualRow, actualCol, isActive);
+                        handleCellMouseDown(actualRow, actualCol, isActive, shiftPressed);
                       }
                     };
 
@@ -704,11 +810,14 @@ export const Grid = memo(
                           isBeatMarker && !isActive && !isLoopBoundary
                         }
                         isPendingLoopStart={isPendingLoopStart}
+                        isNoteStart={isNoteStart}
+                        isNoteContinuation={isNoteContinuation}
+                        isNoteCurrentlyPlaying={isNoteCurrentlyPlaying}
                         onToggle={handleClick}
                         onDragEnter={() =>
-                          !shiftPressed &&
+                          !metaPressed &&
                           !altPressed &&
-                          handleCellDragEnter(actualRow, actualCol, isActive)
+                          handleCellDragEnter(actualRow, actualCol, isActive, shiftPressed)
                         }
                       />
                     );
@@ -726,14 +835,6 @@ export const Grid = memo(
                 ]}
               >
                 shift
-              </Box>
-              <Box
-                css={[
-                  modifierKeyStyles,
-                  ctrlPressed && modifierKeyActiveStyles,
-                ]}
-              >
-                ctrl
               </Box>
               <Box
                 css={[
