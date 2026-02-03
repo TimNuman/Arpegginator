@@ -891,6 +891,24 @@ export const Grid = memo(
                     // Dim pattern buttons when ctrl is pressed
                     const isDimmed = metaPressed;
 
+                    // Check if this column is a loop boundary (start or end)
+                    const isLoopStart = actualCol === currentLoop.start;
+                    const isLoopEnd = actualCol === loopEnd - 1;
+                    const isLoopBoundary = isLoopStart || isLoopEnd;
+
+                    // Beat marker for alternating groups of 4 columns (0-3 on, 4-7 off, 8-11 on, etc.)
+                    // Only show within the loop region
+                    const isInLoop =
+                      actualCol >= currentLoop.start && actualCol < loopEnd;
+                    const isBeatMarker =
+                      isInLoop && Math.floor(actualCol / 4) % 2 === 0;
+
+                    // For grid styling props, we want to show them for:
+                    // - Empty cells (not active)
+                    // - Off-screen indicators (showOffScreenIndicator)
+                    // But NOT for actual notes on screen (isNoteStart or isNoteContinuation)
+                    const showGridStyling = !isNoteStart && !isNoteContinuation;
+
                     // In meta mode, first column shows mute/solo buttons
                     if (metaPressed && visibleCol === 0) {
                       const isMuted = mutedChannels[channelIndex];
@@ -946,8 +964,12 @@ export const Grid = memo(
                       );
                     }
 
-                    // In ctrl mode with a visible channel/pattern button, show that instead
-                    if (metaPressed && shouldShowShiftButton) {
+                    // In meta mode, show pattern buttons for all columns (except col 0 which is mute/solo)
+                    // For patterns with notes, selected, or queued: show solid button
+                    // For empty patterns: show semi-transparent overlay on top of the normal grid cell
+                    if (metaPressed && patternIndex >= 0) {
+                      const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
+
                       let displayColor: string;
                       let glowIntensity: number;
 
@@ -962,17 +984,42 @@ export const Grid = memo(
                         displayColor = shiftColor + hex;
                         glowIntensity = intensity;
                       } else if (patternHasNotes) {
-                        displayColor = shiftColor + "59";
-                        glowIntensity = 0.35;
+                        displayColor = shiftColor + "B3"; // 70% opacity - brighter for patterns with notes
+                        glowIntensity = 0.7;
                       } else {
-                        displayColor = shiftColor + "1A";
-                        glowIntensity = 0.1;
+                        // Empty pattern - very transparent
+                        displayColor = shiftColor + "0D"; // ~5% opacity
+                        glowIntensity = 0.05;
                       }
 
                       const handleSelect = () => {
                         onChannelChange(channelIndex);
                         onPatternChange(channelIndex, patternIndex);
                       };
+
+                      // For empty patterns, show the underlying note with an overlay
+                      if (isEmptyPattern) {
+                        return (
+                          <GridButton
+                            key={`${visibleRow}-${visibleCol}`}
+                            active={isActive}
+                            isPlayhead={actualCol === loopedStep}
+                            rowColor={isActive ? channelColor : displayColor}
+                            isCNote={isCNote}
+                            dimmed={true}
+                            glowIntensity={isActive ? 0.15 : glowIntensity}
+                            isLoopBoundary={isLoopBoundary && showGridStyling}
+                            isBeatMarker={isBeatMarker && showGridStyling && !isLoopBoundary}
+                            isInLoop={isInLoop && showGridStyling && !isLoopBoundary && !isBeatMarker}
+                            isNoteStart={isNoteStart}
+                            isNoteContinuation={isNoteContinuation}
+                            isNoteCurrentlyPlaying={isNoteCurrentlyPlaying}
+                            onToggle={handleSelect}
+                            onDragEnter={() => {}}
+                            metaOverlayColor={displayColor}
+                          />
+                        );
+                      }
 
                       return (
                         <GridButton
@@ -986,18 +1033,6 @@ export const Grid = memo(
                         />
                       );
                     }
-
-                    // Check if this column is a loop boundary (start or end)
-                    const isLoopStart = actualCol === currentLoop.start;
-                    const isLoopEnd = actualCol === loopEnd - 1;
-                    const isLoopBoundary = isLoopStart || isLoopEnd;
-
-                    // Beat marker for alternating groups of 4 columns (0-3 on, 4-7 off, 8-11 on, etc.)
-                    // Only show within the loop region
-                    const isInLoop =
-                      actualCol >= currentLoop.start && actualCol < loopEnd;
-                    const isBeatMarker =
-                      isInLoop && Math.floor(actualCol / 4) % 2 === 0;
 
                     // Check if this is the loop selection start (for visual feedback)
                     const isPendingLoopStart =
@@ -1052,12 +1087,6 @@ export const Grid = memo(
                         );
                       }
                     };
-
-                    // For grid styling props, we want to show them for:
-                    // - Empty cells (not active)
-                    // - Off-screen indicators (showOffScreenIndicator)
-                    // But NOT for actual notes on screen (isNoteStart or isNoteContinuation)
-                    const showGridStyling = !isNoteStart && !isNoteContinuation;
 
                     return (
                       <GridButton
