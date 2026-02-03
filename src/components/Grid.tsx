@@ -237,6 +237,7 @@ interface GridProps {
   soloedChannels: boolean[]; // Which channels are soloed
   onToggleMute: (channel: number) => void; // Toggle mute for a channel
   onToggleSolo: (channel: number) => void; // Toggle solo for a channel
+  onCopyPattern: (targetPattern: number) => void; // Copy current pattern to target
 }
 
 export const Grid = memo(
@@ -265,6 +266,7 @@ export const Grid = memo(
     soloedChannels,
     onToggleMute,
     onToggleSolo,
+    onCopyPattern,
   }: GridProps) => {
     // Store row offset per channel
     const [rowOffsets, setRowOffsets] = useState<number[]>(() =>
@@ -993,6 +995,12 @@ export const Grid = memo(
                       }
 
                       const handleSelect = () => {
+                        // Shift+Cmd+click on empty pattern = copy current pattern
+                        if (shiftPressed && isEmptyPattern && channelIndex === currentChannel) {
+                          onCopyPattern(patternIndex);
+                          onPatternChange(channelIndex, patternIndex);
+                          return;
+                        }
                         onChannelChange(channelIndex);
                         onPatternChange(channelIndex, patternIndex);
                       };

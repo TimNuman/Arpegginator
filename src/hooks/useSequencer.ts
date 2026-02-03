@@ -200,6 +200,27 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     [currentChannel, currentPattern],
   );
 
+  // Copy current pattern to a target pattern slot in the same channel
+  const copyPatternTo = useCallback(
+    (targetPattern: number) => {
+      setChannels((prev) => {
+        const newChannels = prev.map((ch, chIdx) =>
+          chIdx === currentChannel
+            ? ch.map((pattern, pIdx) => {
+                if (pIdx === targetPattern) {
+                  // Deep copy the current pattern to the target
+                  return prev[currentChannel][currentPattern].map((row) => [...row]);
+                }
+                return pattern;
+              })
+            : ch,
+        );
+        return newChannels;
+      });
+    },
+    [currentChannel, currentPattern],
+  );
+
   const clearGrid = useCallback(() => {
     setChannels((prev) => {
       const newChannels = prev.map((ch, chIdx) =>
@@ -450,6 +471,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     currentStep,
     toggleCell,
     setNote,
+    copyPatternTo,
     clearGrid,
     clearAllChannels,
     play,
