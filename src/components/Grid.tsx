@@ -5,6 +5,7 @@ import { GridButton } from "./GridButton";
 import { TouchStrip } from "./TouchStrip";
 import type { GridState } from "../types/grid";
 import { CHANNEL_COLORS } from "../hooks/useSequencer";
+import { renderScrollingText, getMessageWidth } from "../utils/pixelFont";
 
 // Total grid size (can be larger than visible)
 const TOTAL_ROWS = 128; // Full MIDI range (0-127)
@@ -275,7 +276,12 @@ export const Grid = memo(
     const [colOffset, setColOffset] = useState(0);
     const [shiftPressed, setShiftPressed] = useState(false);
     const [altPressed, setAltPressed] = useState(false);
+    const [ctrlPressed, setCtrlPressed] = useState(false);
     const [metaPressed, setMetaPressed] = useState(false);
+    // Scrolling text state
+    const [scrollOffset, setScrollOffset] = useState(0);
+    const scrollingTextMessage = "Hi there!";
+    const scrollingTextColor = "#00ffff"; // Cyan color for text
     // Track loop selection start (persists while Alt is held)
     const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(
       null,
@@ -316,7 +322,7 @@ export const Grid = memo(
     // Calculate grid dimensions for strip length
     const buttonSize = 44; // 40px button + 4px margin
     const gridHeight = VISIBLE_ROWS * buttonSize;
-    const gridWidth = VISIBLE_COLS * buttonSize;
+    // const gridWidth = VISIBLE_COLS * buttonSize;
 
     // Calculate visible range (accounting for inverted rows)
     const endRow = startRow + VISIBLE_ROWS - 1;
@@ -506,8 +512,12 @@ export const Grid = memo(
         if (e.key === "Alt") {
           setAltPressed(true);
         }
+        if (e.key === "Control") {
+          setCtrlPressed(true);
+        }
         if (e.key === "Meta") {
           setMetaPressed(true);
+          setScrollOffset(-VISIBLE_COLS); // Start with text off-screen to the right
         }
 
         // Handle spacebar for play/stop toggle
@@ -575,6 +585,9 @@ export const Grid = memo(
           loopDragStart.current = null; // Cancel loop drag when alt is released
           setLoopSelectionStart(null); // Cancel loop selection when alt is released
         }
+        if (e.key === "Control") {
+          setCtrlPressed(false);
+        }
         if (e.key === "Meta") {
           setMetaPressed(false);
         }
@@ -619,6 +632,37 @@ export const Grid = memo(
       onResetPlayhead,
       heldNote,
     ]);
+
+    // Scrolling text animation when Meta (Cmd) is pressed
+    useEffect(() => {
+      if (!metaPressed) return;
+
+      const messageWidth = getMessageWidth(scrollingTextMessage);
+
+      const interval = setInterval(() => {
+        setScrollOffset((prev) => {
+          const next = prev + 1;
+          // Loop back when message has fully scrolled off the left
+          // Start from -VISIBLE_COLS (off right), end at messageWidth (off left)
+          if (next >= messageWidth) {
+            return -VISIBLE_COLS;
+          }
+          return next;
+        });
+      }, 30);
+
+      return () => clearInterval(interval);
+    }, [metaPressed]);
+
+    // Compute scrolling text grid when meta is pressed
+    const scrollingTextGrid = metaPressed
+      ? renderScrollingText(
+          scrollingTextMessage,
+          scrollOffset,
+          VISIBLE_COLS,
+          VISIBLE_ROWS,
+        )
+      : null;
 
     const handleCellMouseDown = useCallback(
       (
@@ -805,7 +849,8 @@ export const Grid = memo(
                     const patternsForChannel =
                       allPatternsHaveNotes[channelIndex];
                     const patternHasNotes =
-                      patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
+                      patternIndex >= 0 &&
+                      (patternsForChannel?.[patternIndex] ?? false);
                     const currentPatternForChannel =
                       currentPatterns[channelIndex];
                     const isSelectedPattern =
@@ -814,24 +859,11 @@ export const Grid = memo(
                     const isActivePattern =
                       patternIndex === currentPatternForChannel;
                     const isQueued =
-                      patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
+                      patternIndex >= 0 &&
+                      queuedPatterns[channelIndex] === patternIndex;
                     const isPlayingNow =
                       isActivePattern && channelsPlayingNow[channelIndex];
                     const isPulsing = isQueued && isPulseBeat;
-                    const patternsWithNotesCount =
-                      patternsForChannel?.filter(Boolean).length ?? 0;
-                    const nextEmptyIndex = patternsWithNotesCount;
-                    const isNextEmpty =
-                      patternIndex >= 0 &&
-                      patternIndex === nextEmptyIndex &&
-                      patternIndex < (patternsForChannel?.length ?? 0);
-                    const shouldShowShiftButton =
-                      patternIndex >= 0 && (
-                        patternHasNotes ||
-                        isSelectedPattern ||
-                        isQueued ||
-                        isNextEmpty
-                      );
 
                     // Calculate the playhead position within this channel's loop (needed for note highlight)
                     const loopEnd = currentLoop.start + currentLoop.length;
@@ -891,7 +923,7 @@ export const Grid = memo(
                     const isCNote = actualRow % 12 === 0;
 
                     // Dim pattern buttons when ctrl is pressed
-                    const isDimmed = metaPressed;
+                    const isDimmed = ctrlPressed;
 
                     // Check if this column is a loop boundary (start or end)
                     const isLoopStart = actualCol === currentLoop.start;
@@ -911,8 +943,26 @@ export const Grid = memo(
                     // But NOT for actual notes on screen (isNoteStart or isNoteContinuation)
                     const showGridStyling = !isNoteStart && !isNoteContinuation;
 
+                    // Scrolling text mode (Meta/Cmd pressed) - takes priority over everything
+                    if (metaPressed && scrollingTextGrid) {
+                      const isTextPixel =
+                        scrollingTextGrid[visibleRow]?.[visibleCol] ?? false;
+                      return (
+                        <GridButton
+                          key={`${visibleRow}-${visibleCol}`}
+                          active={isTextPixel}
+                          isPlayhead={false}
+                          rowColor={scrollingTextColor}
+                          glowIntensity={isTextPixel ? 1 : 0}
+                          disableTransition
+                          onToggle={() => {}}
+                          onDragEnter={() => {}}
+                        />
+                      );
+                    }
+
                     // In meta mode, first column shows mute/solo buttons
-                    if (metaPressed && visibleCol === 0) {
+                    if (ctrlPressed && visibleCol === 0) {
                       const isMuted = mutedChannels[channelIndex];
                       const isSoloed = soloedChannels[channelIndex];
                       const anySoloed = soloedChannels.some((s) => s);
@@ -969,8 +1019,9 @@ export const Grid = memo(
                     // In meta mode, show pattern buttons for all columns (except col 0 which is mute/solo)
                     // For patterns with notes, selected, or queued: show solid button
                     // For empty patterns: show semi-transparent overlay on top of the normal grid cell
-                    if (metaPressed && patternIndex >= 0) {
-                      const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
+                    if (ctrlPressed && patternIndex >= 0) {
+                      const isEmptyPattern =
+                        !patternHasNotes && !isSelectedPattern && !isQueued;
 
                       let displayColor: string;
                       let glowIntensity: number;
@@ -996,7 +1047,11 @@ export const Grid = memo(
 
                       const handleSelect = () => {
                         // Shift+Cmd+click on empty pattern = copy current pattern
-                        if (shiftPressed && isEmptyPattern && channelIndex === currentChannel) {
+                        if (
+                          shiftPressed &&
+                          isEmptyPattern &&
+                          channelIndex === currentChannel
+                        ) {
                           onCopyPattern(patternIndex);
                           onPatternChange(channelIndex, patternIndex);
                           return;
@@ -1017,8 +1072,15 @@ export const Grid = memo(
                             dimmed={true}
                             glowIntensity={isActive ? 0.15 : glowIntensity}
                             isLoopBoundary={isLoopBoundary && showGridStyling}
-                            isBeatMarker={isBeatMarker && showGridStyling && !isLoopBoundary}
-                            isInLoop={isInLoop && showGridStyling && !isLoopBoundary && !isBeatMarker}
+                            isBeatMarker={
+                              isBeatMarker && showGridStyling && !isLoopBoundary
+                            }
+                            isInLoop={
+                              isInLoop &&
+                              showGridStyling &&
+                              !isLoopBoundary &&
+                              !isBeatMarker
+                            }
                             isNoteStart={isNoteStart}
                             isNoteContinuation={isNoteContinuation}
                             isNoteCurrentlyPlaying={isNoteCurrentlyPlaying}
@@ -1083,7 +1145,7 @@ export const Grid = memo(
                     // Handle click - either loop setting (Alt), shift note length, or normal toggle
                     // Disable when meta is pressed (meta mode shows pattern selector)
                     const handleClick = () => {
-                      if (metaPressed) return; // Don't toggle notes in meta mode
+                      if (ctrlPressed) return; // Don't toggle notes in meta mode
                       if (altPressed) {
                         handleLoopMouseDown(actualCol);
                       } else {
@@ -1105,29 +1167,41 @@ export const Grid = memo(
                         isCNote={isCNote}
                         dimmed={isDimmed}
                         glowIntensity={offScreenIntensity}
-                        isLoopBoundary={isLoopBoundary && showGridStyling && !metaPressed}
+                        isLoopBoundary={
+                          isLoopBoundary && showGridStyling && !ctrlPressed
+                        }
                         isLoopBoundaryPulsing={
-                          isLoopBoundary && showGridStyling && altPressed && !metaPressed
+                          isLoopBoundary &&
+                          showGridStyling &&
+                          altPressed &&
+                          !ctrlPressed
                         }
                         isBeatMarker={
-                          isBeatMarker && showGridStyling && !isLoopBoundary && !metaPressed
+                          isBeatMarker &&
+                          showGridStyling &&
+                          !isLoopBoundary &&
+                          !ctrlPressed
                         }
                         isInLoop={
                           isInLoop &&
                           showGridStyling &&
                           !isLoopBoundary &&
                           !isBeatMarker &&
-                          !metaPressed
+                          !ctrlPressed
                         }
-                        isPendingLoopStart={isPendingLoopStart && !metaPressed}
-                        isNoteStart={isNoteStart && !metaPressed}
-                        isNoteContinuation={isNoteContinuation && !metaPressed}
-                        isNoteCurrentlyPlaying={isNoteCurrentlyPlaying && !metaPressed}
-                        isOffScreenIndicator={showOffScreenIndicator && !metaPressed}
-                        isOffScreenPlaying={offScreenPlaying && !metaPressed}
+                        isPendingLoopStart={isPendingLoopStart && !ctrlPressed}
+                        isNoteStart={isNoteStart && !ctrlPressed}
+                        isNoteContinuation={isNoteContinuation && !ctrlPressed}
+                        isNoteCurrentlyPlaying={
+                          isNoteCurrentlyPlaying && !ctrlPressed
+                        }
+                        isOffScreenIndicator={
+                          showOffScreenIndicator && !ctrlPressed
+                        }
+                        isOffScreenPlaying={offScreenPlaying && !ctrlPressed}
                         onToggle={handleClick}
                         onDragEnter={() => {
-                          if (metaPressed) return;
+                          if (ctrlPressed) return;
                           if (altPressed) {
                             handleLoopDragEnter(actualCol);
                           } else {
@@ -1155,6 +1229,14 @@ export const Grid = memo(
                 ]}
               >
                 shift
+              </Box>
+              <Box
+                css={[
+                  modifierKeyStyles,
+                  ctrlPressed && modifierKeyActiveStyles,
+                ]}
+              >
+                ctrl
               </Box>
               <Box
                 css={[modifierKeyStyles, altPressed && modifierKeyActiveStyles]}

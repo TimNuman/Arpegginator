@@ -85,11 +85,12 @@ interface GridButtonProps {
   isOffScreenIndicator?: boolean; // True if this shows an off-screen note (dimmed, shows grid styling underneath)
   isOffScreenPlaying?: boolean; // True if an off-screen note is currently playing
   metaOverlayColor?: string; // Color for meta mode overlay border (empty pattern slots)
+  disableTransition?: boolean; // Disable CSS transitions (for scrolling text)
   onToggle: () => void;
   onDragEnter: () => void;
 }
 
-export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, isOffScreenIndicator = false, isOffScreenPlaying = false, metaOverlayColor, onToggle, onDragEnter }: GridButtonProps) => {
+export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, isOffScreenIndicator = false, isOffScreenPlaying = false, metaOverlayColor, disableTransition = false, onToggle, onDragEnter }: GridButtonProps) => {
   const glowColor = rowColor.length === 7 ? rowColor : rowColor.slice(0, 7); // Strip alpha for glow
   const isPlaying = active && isPlayhead; // Note is playing right now
 
@@ -206,6 +207,9 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
         e.preventDefault();
         onToggle();
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+      }}
       style={{
         width: 40,
         height: 40,
@@ -215,7 +219,7 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
           ? `${PULSE_ANIMATION_NAME} ${PULSE_DURATION_MS}ms ease-in-out infinite`
           : undefined,
         animationDelay: isLoopBoundaryPulsing ? `${animationDelay}ms` : undefined,
-        transition: isLoopBoundaryPulsing ? 'none' : 'all 0.05s ease',
+        transition: (isLoopBoundaryPulsing || disableTransition) ? 'none' : 'all 0.05s ease',
         border: metaOverlayColor
           ? `1px solid ${metaOverlayColor}`
           : '1px solid rgba(255, 255, 255, 0.1)',
