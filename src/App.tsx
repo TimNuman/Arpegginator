@@ -54,11 +54,33 @@ const getRowNote = (row: number): number => {
 };
 
 function App() {
-  const { isEnabled, outputs, selectedOutput, setSelectedOutput, playNote, stopNote, stopAllNotes } =
-    useMidi();
-
   // Use a ref for BPM so handleStepTrigger can access current value without re-creating
   const bpmRef = useRef(120);
+
+  // Refs for transport callbacks to avoid circular dependencies
+  const playExternalRef = useRef<() => void>(() => {});
+  const stopExternalRef = useRef<() => void>(() => {});
+  const externalTickRef = useRef<() => void>(() => {});
+  const setBpmRef = useRef<(bpm: number) => void>(() => {});
+
+  const {
+    isEnabled,
+    outputs,
+    inputs,
+    selectedOutput,
+    selectedInput,
+    setSelectedOutput,
+    setSelectedInput,
+    playNote,
+    stopNote,
+    stopAllNotes,
+  } = useMidi({
+    onStart: () => playExternalRef.current(),
+    onStop: () => stopExternalRef.current(),
+    onContinue: () => playExternalRef.current(),
+    onClock: () => externalTickRef.current(),
+    onTempoChange: (bpm) => setBpmRef.current(bpm),
+  });
 
   const handleStepTrigger = useCallback(
     (channel: number, row: number, _step: number, noteLength: number) => {
@@ -100,12 +122,25 @@ function App() {
     setBpm,
     currentLoop,
     setPatternLoop,
+    // External sync
+    externalTick,
+    playExternal,
+    stopExternal,
   } = useSequencer({
     onStepTrigger: handleStepTrigger,
   });
 
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
+
+  // Keep transport refs in sync for MIDI sync callbacks
+  playExternalRef.current = playExternal;
+  stopExternalRef.current = () => {
+    stopExternal();
+    stopAllNotes();
+  };
+  externalTickRef.current = externalTick;
+  setBpmRef.current = setBpm; // Update BPM display from external clock
 
   const handlePlayNote = useCallback(
     (note: number, channel: number) => {
@@ -150,8 +185,11 @@ function App() {
           onClear={clearGrid}
           onBpmChange={setBpm}
           midiOutputs={outputs}
+          midiInputs={inputs}
           selectedOutput={selectedOutput}
+          selectedInput={selectedInput}
           onOutputChange={setSelectedOutput}
+          onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
         <Grid

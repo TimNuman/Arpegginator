@@ -276,6 +276,33 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     setCurrentStep(-1);
   }, []);
 
+  // External tick for MIDI clock sync - advances sequencer without internal timer
+  const externalTick = useCallback(() => {
+    if (!isPlaying) return;
+    tick();
+  }, [isPlaying, tick]);
+
+  // Start playback without internal timer (for external sync)
+  const playExternal = useCallback(() => {
+    // Clear any existing internal timer
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsPlaying(true);
+  }, []);
+
+  // Stop without resetting (for external sync continue support)
+  const stopExternal = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsPlaying(false);
+    setCurrentStep(-1);
+    setQueuedPatterns(Array.from({ length: NUM_CHANNELS }, () => null));
+  }, []);
+
   useEffect(() => {
     if (isPlaying && intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -363,6 +390,10 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     setBpm,
     currentLoop,
     setPatternLoop,
+    // External sync functions
+    externalTick,
+    playExternal,
+    stopExternal,
   };
 };
 

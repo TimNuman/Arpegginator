@@ -3,7 +3,7 @@ import { Box, IconButton, Slider, Typography, Select, MenuItem, FormControl, Inp
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { Output } from 'webmidi';
+import { Output, Input } from 'webmidi';
 
 const transportStyles = css`
   display: flex;
@@ -47,6 +47,11 @@ const playButtonStyles = css`
 
   &:hover {
     background: linear-gradient(145deg, #44ff77, #33dd55);
+  }
+
+  &.Mui-disabled {
+    background: linear-gradient(145deg, #444, #333);
+    color: rgba(255, 255, 255, 0.3);
   }
 `;
 
@@ -125,8 +130,11 @@ interface TransportProps {
   onClear: () => void;
   onBpmChange: (bpm: number) => void;
   midiOutputs: Output[];
+  midiInputs: Input[];
   selectedOutput: Output | null;
+  selectedInput: Input | null;
   onOutputChange: (output: Output | null) => void;
+  onInputChange: (input: Input | null) => void;
   midiEnabled: boolean;
 }
 
@@ -138,18 +146,26 @@ export const Transport = ({
   onClear,
   onBpmChange,
   midiOutputs,
+  midiInputs,
   selectedOutput,
+  selectedInput,
   onOutputChange,
+  onInputChange,
   midiEnabled,
 }: TransportProps) => {
+  // In slave mode (MIDI input selected), show disabled play button when playing
+  const isSlaveMode = selectedInput !== null;
+  const showDisabledPlayButton = isPlaying && isSlaveMode;
+
   return (
     <Box css={transportStyles}>
       <Box css={controlGroupStyles}>
         <IconButton
-          css={isPlaying ? stopButtonStyles : playButtonStyles}
-          onClick={isPlaying ? onStop : onPlay}
+          css={showDisabledPlayButton ? playButtonStyles : (isPlaying ? stopButtonStyles : playButtonStyles)}
+          onClick={showDisabledPlayButton ? undefined : (isPlaying ? onStop : onPlay)}
+          disabled={showDisabledPlayButton}
         >
-          {isPlaying ? <StopIcon /> : <PlayArrowIcon />}
+          {showDisabledPlayButton ? <PlayArrowIcon /> : (isPlaying ? <StopIcon /> : <PlayArrowIcon />)}
         </IconButton>
         <IconButton css={clearButtonStyles} onClick={onClear}>
           <DeleteOutlineIcon />
@@ -164,6 +180,7 @@ export const Transport = ({
           min={40}
           max={240}
           onChange={(_, value) => onBpmChange(value as number)}
+          disabled={isSlaveMode}
         />
         <Typography css={bpmValueStyles}>{bpm}</Typography>
       </Box>
@@ -185,6 +202,28 @@ export const Transport = ({
           {midiOutputs.map((output) => (
             <MenuItem key={output.id} value={output.id}>
               {output.name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <FormControl css={midiSelectStyles} size="small">
+        <InputLabel>MIDI Input (Sync)</InputLabel>
+        <Select
+          value={selectedInput?.id || ''}
+          label="MIDI Input (Sync)"
+          onChange={(e) => {
+            const input = midiInputs.find((i) => i.id === e.target.value) || null;
+            onInputChange(input);
+          }}
+          disabled={!midiEnabled}
+        >
+          <MenuItem value="">
+            <em>None</em>
+          </MenuItem>
+          {midiInputs.map((input) => (
+            <MenuItem key={input.id} value={input.id}>
+              {input.name}
             </MenuItem>
           ))}
         </Select>
