@@ -142,6 +142,18 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     [isPlaying],
   );
 
+  // Helper to truncate any note that would overlap with a new note at col
+  const truncateOverlappingNote = (gridRow: number[], col: number) => {
+    // Look for any note starting before col that extends into col
+    for (let c = 0; c < col; c++) {
+      const noteLength = gridRow[c];
+      if (noteLength > 0 && c + noteLength > col) {
+        // This note overlaps - truncate it to end just before col
+        gridRow[c] = col - c;
+      }
+    }
+  };
+
   const toggleCell = useCallback(
     (row: number, col: number) => {
       setChannels((prev) => {
@@ -154,7 +166,14 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         );
         // Toggle: 0 -> 1 (default length), >0 -> 0
         const currentValue = newChannels[currentChannel][currentPattern][row][col];
-        newChannels[currentChannel][currentPattern][row][col] = currentValue > 0 ? 0 : 1;
+        if (currentValue > 0) {
+          // Turning off
+          newChannels[currentChannel][currentPattern][row][col] = 0;
+        } else {
+          // Turning on - truncate any overlapping note first
+          truncateOverlappingNote(newChannels[currentChannel][currentPattern][row], col);
+          newChannels[currentChannel][currentPattern][row][col] = 1;
+        }
         return newChannels;
       });
     },
@@ -172,6 +191,8 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
               )
             : ch,
         );
+        // Truncate any overlapping note first
+        truncateOverlappingNote(newChannels[currentChannel][currentPattern][row], col);
         newChannels[currentChannel][currentPattern][row][col] = length;
         return newChannels;
       });
