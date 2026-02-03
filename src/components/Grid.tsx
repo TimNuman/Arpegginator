@@ -267,11 +267,16 @@ export const Grid = memo(
     const [altPressed, setAltPressed] = useState(false);
     const [metaPressed, setMetaPressed] = useState(false);
     // Track loop selection start (persists while Alt is held)
-    const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(null);
+    const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(
+      null,
+    );
 
     // Track held key for note length input: { row, col, key }
-    const [heldNote, setHeldNote] = useState<{ row: number; col: number; key: string } | null>(null);
-
+    const [heldNote, setHeldNote] = useState<{
+      row: number;
+      col: number;
+      key: string;
+    } | null>(null);
 
     const rowOffset = rowOffsets[currentChannel];
     const setRowOffset = useCallback(
@@ -367,25 +372,120 @@ export const Grid = memo(
       [gridState, startRow, startCol, endRow, endCol],
     );
 
+    // Check if any off-screen note is currently playing for this edge cell
+    // Takes the current looped step and loop boundaries to determine playback
+    const isOffScreenNotePlaying = useCallback(
+      (
+        visibleRow: number,
+        visibleCol: number,
+        loopedStep: number,
+        loopStart: number,
+        loopEnd: number,
+      ): boolean => {
+        const isTopEdge = visibleRow === 0;
+        const isBottomEdge = visibleRow === VISIBLE_ROWS - 1;
+        const isLeftEdge = visibleCol === 0;
+        const isRightEdge = visibleCol === VISIBLE_COLS - 1;
+
+        if (!isTopEdge && !isBottomEdge && !isLeftEdge && !isRightEdge) {
+          return false;
+        }
+
+        const actualCol = startCol + visibleCol;
+        const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+
+        // Helper to check if a note at (row, col) with given length is playing
+        const isNotePlaying = (row: number, noteCol: number): boolean => {
+          const noteLength = gridState[row]?.[noteCol] ?? 0;
+          if (noteLength <= 0) return false;
+
+          const noteEndCol = noteCol + noteLength - 1;
+          // Note must start within the loop to be triggered
+          const noteStartInLoop = noteCol >= loopStart && noteCol < loopEnd;
+          return (
+            noteStartInLoop && loopedStep >= noteCol && loopedStep <= noteEndCol
+          );
+        };
+
+        // Check for playing notes above visible area (higher MIDI notes)
+        if (isTopEdge) {
+          for (let row = endRow + 1; row < TOTAL_ROWS; row++) {
+            if (isNotePlaying(row, actualCol)) return true;
+          }
+        }
+
+        // Check for playing notes below visible area (lower MIDI notes)
+        if (isBottomEdge) {
+          for (let row = 0; row < startRow; row++) {
+            if (isNotePlaying(row, actualCol)) return true;
+          }
+        }
+
+        // Check for playing notes to the right of visible area
+        if (isRightEdge) {
+          for (let col = endCol + 1; col < TOTAL_COLS; col++) {
+            if (isNotePlaying(actualRow, col)) return true;
+          }
+        }
+
+        // Check for playing notes to the left of visible area
+        if (isLeftEdge) {
+          for (let col = 0; col < startCol; col++) {
+            if (isNotePlaying(actualRow, col)) return true;
+          }
+        }
+
+        return false;
+      },
+      [gridState, startRow, startCol, endRow, endCol],
+    );
+
     // Keyboard grid mapping: 8 columns x 4 rows (bottom 4 rows of visible grid)
     // Column keys: 1-8 (top row), QWERTYU (second row), ASDFGHJ (third row), ZXCVBNM (fourth row)
-    const keyToGridPosition = useCallback((key: string): { row: number; col: number } | null => {
-      const keyMap: Record<string, { row: number; col: number }> = {
-        // Row 0 (top of keyboard = row 4 of grid, which is visible row 4)
-        "1": { row: 4, col: 0 }, "2": { row: 4, col: 1 }, "3": { row: 4, col: 2 }, "4": { row: 4, col: 3 },
-        "5": { row: 4, col: 4 }, "6": { row: 4, col: 5 }, "7": { row: 4, col: 6 }, "8": { row: 4, col: 7 },
-        // Row 1 (Q row = row 5 of grid)
-        "q": { row: 5, col: 0 }, "w": { row: 5, col: 1 }, "e": { row: 5, col: 2 }, "r": { row: 5, col: 3 },
-        "t": { row: 5, col: 4 }, "y": { row: 5, col: 5 }, "u": { row: 5, col: 6 }, "i": { row: 5, col: 7 },
-        // Row 2 (A row = row 6 of grid)
-        "a": { row: 6, col: 0 }, "s": { row: 6, col: 1 }, "d": { row: 6, col: 2 }, "f": { row: 6, col: 3 },
-        "g": { row: 6, col: 4 }, "h": { row: 6, col: 5 }, "j": { row: 6, col: 6 }, "k": { row: 6, col: 7 },
-        // Row 3 (Z row = row 7 of grid, bottom row)
-        "z": { row: 7, col: 0 }, "x": { row: 7, col: 1 }, "c": { row: 7, col: 2 }, "v": { row: 7, col: 3 },
-        "b": { row: 7, col: 4 }, "n": { row: 7, col: 5 }, "m": { row: 7, col: 6 }, ",": { row: 7, col: 7 },
-      };
-      return keyMap[key.toLowerCase()] || null;
-    }, []);
+    const keyToGridPosition = useCallback(
+      (key: string): { row: number; col: number } | null => {
+        const keyMap: Record<string, { row: number; col: number }> = {
+          // Row 0 (top of keyboard = row 4 of grid, which is visible row 4)
+          "1": { row: 4, col: 0 },
+          "2": { row: 4, col: 1 },
+          "3": { row: 4, col: 2 },
+          "4": { row: 4, col: 3 },
+          "5": { row: 4, col: 4 },
+          "6": { row: 4, col: 5 },
+          "7": { row: 4, col: 6 },
+          "8": { row: 4, col: 7 },
+          // Row 1 (Q row = row 5 of grid)
+          q: { row: 5, col: 0 },
+          w: { row: 5, col: 1 },
+          e: { row: 5, col: 2 },
+          r: { row: 5, col: 3 },
+          t: { row: 5, col: 4 },
+          y: { row: 5, col: 5 },
+          u: { row: 5, col: 6 },
+          i: { row: 5, col: 7 },
+          // Row 2 (A row = row 6 of grid)
+          a: { row: 6, col: 0 },
+          s: { row: 6, col: 1 },
+          d: { row: 6, col: 2 },
+          f: { row: 6, col: 3 },
+          g: { row: 6, col: 4 },
+          h: { row: 6, col: 5 },
+          j: { row: 6, col: 6 },
+          k: { row: 6, col: 7 },
+          // Row 3 (Z row = row 7 of grid, bottom row)
+          z: { row: 7, col: 0 },
+          x: { row: 7, col: 1 },
+          c: { row: 7, col: 2 },
+          v: { row: 7, col: 3 },
+          b: { row: 7, col: 4 },
+          n: { row: 7, col: 5 },
+          m: { row: 7, col: 6 },
+          ",": { row: 7, col: 7 },
+        };
+        return keyMap[key.toLowerCase()] || null;
+      },
+      [],
+    );
 
     // Listen for modifier keys and grid toggle keys
     useEffect(() => {
@@ -426,7 +526,10 @@ export const Grid = memo(
             const actualCol = startCol + visibleCol;
 
             // Check if we already have a held note on the same row
-            if (heldNote && keyToGridPosition(heldNote.key)?.row === gridPos.row) {
+            if (
+              heldNote &&
+              keyToGridPosition(heldNote.key)?.row === gridPos.row
+            ) {
               // Second key on same row - create note with length
               const heldPos = keyToGridPosition(heldNote.key)!;
               const heldCol = startCol + heldPos.col;
@@ -468,7 +571,11 @@ export const Grid = memo(
 
         // Handle grid key release - if this is the held note and no second key was pressed, toggle it
         const gridPos = keyToGridPosition(e.key);
-        if (gridPos && heldNote && heldNote.key.toLowerCase() === e.key.toLowerCase()) {
+        if (
+          gridPos &&
+          heldNote &&
+          heldNote.key.toLowerCase() === e.key.toLowerCase()
+        ) {
           // Released the held key without pressing a second key - toggle single note
           onToggleCell(heldNote.row, heldNote.col);
 
@@ -488,10 +595,28 @@ export const Grid = memo(
         window.removeEventListener("keydown", handleKeyDown);
         window.removeEventListener("keyup", handleKeyUp);
       };
-    }, [keyToGridPosition, startRow, startCol, gridState, onToggleCell, onSetNote, onPlayNote, isPlaying, currentChannel, onTogglePlay, onResetPlayhead, heldNote]);
+    }, [
+      keyToGridPosition,
+      startRow,
+      startCol,
+      gridState,
+      onToggleCell,
+      onSetNote,
+      onPlayNote,
+      isPlaying,
+      currentChannel,
+      onTogglePlay,
+      onResetPlayhead,
+      heldNote,
+    ]);
 
     const handleCellMouseDown = useCallback(
-      (row: number, col: number, currentActive: boolean, isShiftClick: boolean) => {
+      (
+        row: number,
+        col: number,
+        currentActive: boolean,
+        isShiftClick: boolean,
+      ) => {
         if (isShiftClick) {
           // Shift-click: find the first note to the left on this row and extend it
           let foundNoteCol = -1;
@@ -528,11 +653,23 @@ export const Grid = memo(
           onPlayNote(row, currentChannel);
         }
       },
-      [onToggleCell, onSetNote, onPlayNote, currentChannel, isPlaying, gridState],
+      [
+        onToggleCell,
+        onSetNote,
+        onPlayNote,
+        currentChannel,
+        isPlaying,
+        gridState,
+      ],
     );
 
     const handleCellDragEnter = useCallback(
-      (row: number, col: number, currentActive: boolean, isShiftDrag: boolean) => {
+      (
+        row: number,
+        col: number,
+        currentActive: boolean,
+        isShiftDrag: boolean,
+      ) => {
         if (dragMode.current === null) return;
 
         const cellKey = `${row}-${col}`;
@@ -573,7 +710,14 @@ export const Grid = memo(
           }
         }
       },
-      [onToggleCell, onSetNote, onPlayNote, currentChannel, isPlaying, gridState],
+      [
+        onToggleCell,
+        onSetNote,
+        onPlayNote,
+        currentChannel,
+        isPlaying,
+        gridState,
+      ],
     );
 
     const handleMouseUp = useCallback(() => {
@@ -699,7 +843,9 @@ export const Grid = memo(
                     // Also track the note's start and end for "currently playing" highlight
                     let isNoteContinuation = false;
                     let noteStartCol = isNoteStart ? actualCol : -1;
-                    let noteEndCol = isNoteStart ? actualCol + noteAtCell - 1 : -1;
+                    let noteEndCol = isNoteStart
+                      ? actualCol + noteAtCell - 1
+                      : -1;
 
                     if (!isNoteStart && actualRow < gridState.length) {
                       for (let c = 0; c < actualCol; c++) {
@@ -717,8 +863,11 @@ export const Grid = memo(
 
                     // Check if the playhead is currently within this note's duration
                     // Only if the note start is within the loop (note must be triggered to play)
-                    const noteStartInLoop = noteStartCol >= currentLoop.start && noteStartCol < loopEnd;
-                    const isNoteCurrentlyPlaying = isActive &&
+                    const noteStartInLoop =
+                      noteStartCol >= currentLoop.start &&
+                      noteStartCol < loopEnd;
+                    const isNoteCurrentlyPlaying =
+                      isActive &&
                       noteStartCol >= 0 &&
                       noteStartInLoop &&
                       loopedStep >= noteStartCol &&
@@ -785,13 +934,25 @@ export const Grid = memo(
 
                     // Check if this is the loop selection start (for visual feedback)
                     const isPendingLoopStart =
-                      loopSelectionStart !== null && actualCol === loopSelectionStart;
+                      loopSelectionStart !== null &&
+                      actualCol === loopSelectionStart;
 
                     // Check for off-screen note indicator (only if cell is not already active)
                     const offScreenCount = isActive
                       ? 0
                       : getOffScreenNoteCount(visibleRow, visibleCol);
                     const showOffScreenIndicator = offScreenCount > 0;
+
+                    // Check if any off-screen note is currently playing
+                    const offScreenPlaying = showOffScreenIndicator
+                      ? isOffScreenNotePlaying(
+                          visibleRow,
+                          visibleCol,
+                          loopedStep,
+                          currentLoop.start,
+                          loopEnd,
+                        )
+                      : false;
 
                     // Off-screen indicators are shown at 20% opacity of the pattern color
                     const offScreenOpacity = 0.2;
@@ -816,9 +977,20 @@ export const Grid = memo(
                       if (altPressed) {
                         handleLoopMouseDown(actualCol);
                       } else {
-                        handleCellMouseDown(actualRow, actualCol, isActive, shiftPressed);
+                        handleCellMouseDown(
+                          actualRow,
+                          actualCol,
+                          isActive,
+                          shiftPressed,
+                        );
                       }
                     };
+
+                    // For grid styling props, we want to show them for:
+                    // - Empty cells (not active)
+                    // - Off-screen indicators (showOffScreenIndicator)
+                    // But NOT for actual notes on screen (isNoteStart or isNoteContinuation)
+                    const showGridStyling = !isNoteStart && !isNoteContinuation;
 
                     return (
                       <GridButton
@@ -829,23 +1001,37 @@ export const Grid = memo(
                         isCNote={isCNote}
                         dimmed={isDimmed}
                         glowIntensity={offScreenIntensity}
-                        isLoopBoundary={isLoopBoundary && !isActive}
-                        isLoopBoundaryPulsing={isLoopBoundary && !isActive && altPressed}
-                        isBeatMarker={
-                          isBeatMarker && !isActive && !isLoopBoundary
+                        isLoopBoundary={isLoopBoundary && showGridStyling}
+                        isLoopBoundaryPulsing={
+                          isLoopBoundary && showGridStyling && altPressed
                         }
-                        isInLoop={isInLoop && !isActive && !isLoopBoundary && !isBeatMarker}
+                        isBeatMarker={
+                          isBeatMarker && showGridStyling && !isLoopBoundary
+                        }
+                        isInLoop={
+                          isInLoop &&
+                          showGridStyling &&
+                          !isLoopBoundary &&
+                          !isBeatMarker
+                        }
                         isPendingLoopStart={isPendingLoopStart}
                         isNoteStart={isNoteStart}
                         isNoteContinuation={isNoteContinuation}
                         isNoteCurrentlyPlaying={isNoteCurrentlyPlaying}
+                        isOffScreenIndicator={showOffScreenIndicator}
+                        isOffScreenPlaying={offScreenPlaying}
                         onToggle={handleClick}
                         onDragEnter={() => {
                           if (metaPressed) return;
                           if (altPressed) {
                             handleLoopDragEnter(actualCol);
                           } else {
-                            handleCellDragEnter(actualRow, actualCol, isActive, shiftPressed);
+                            handleCellDragEnter(
+                              actualRow,
+                              actualCol,
+                              isActive,
+                              shiftPressed,
+                            );
                           }
                         }}
                       />
@@ -866,10 +1052,7 @@ export const Grid = memo(
                 shift
               </Box>
               <Box
-                css={[
-                  modifierKeyStyles,
-                  altPressed && modifierKeyActiveStyles,
-                ]}
+                css={[modifierKeyStyles, altPressed && modifierKeyActiveStyles]}
               >
                 opt
               </Box>
@@ -923,7 +1106,8 @@ export const Grid = memo(
               <Box css={oledRowStyles}>
                 <span css={oledLabelStyles}>LOOP</span>
                 <span css={oledValueStyles}>
-                  {currentLoop.start + 1}-{currentLoop.start + currentLoop.length}
+                  {currentLoop.start + 1}-
+                  {currentLoop.start + currentLoop.length}
                 </span>
               </Box>
             </Box>

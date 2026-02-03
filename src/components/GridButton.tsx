@@ -82,11 +82,13 @@ interface GridButtonProps {
   isNoteStart?: boolean; // True if this is the start of a note
   isNoteContinuation?: boolean; // True if this is a continuation of a note (within note length)
   isNoteCurrentlyPlaying?: boolean; // True if the playhead is within this note's duration
+  isOffScreenIndicator?: boolean; // True if this shows an off-screen note (dimmed, shows grid styling underneath)
+  isOffScreenPlaying?: boolean; // True if an off-screen note is currently playing
   onToggle: () => void;
   onDragEnter: () => void;
 }
 
-export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, onToggle, onDragEnter }: GridButtonProps) => {
+export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false, dimmed = false, glowIntensity = 1, isLoopBoundary = false, isLoopBoundaryPulsing = false, isBeatMarker = false, isInLoop = false, isPendingLoopStart = false, isNoteStart = false, isNoteContinuation = false, isNoteCurrentlyPlaying = false, isOffScreenIndicator = false, isOffScreenPlaying = false, onToggle, onDragEnter }: GridButtonProps) => {
   const glowColor = rowColor.length === 7 ? rowColor : rowColor.slice(0, 7); // Strip alpha for glow
   const isPlaying = active && isPlayhead; // Note is playing right now
 
@@ -121,6 +123,17 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
     const g = Math.round(parsedColor.g + (255 - parsedColor.g) * whiteMix);
     const b = Math.round(parsedColor.b + (255 - parsedColor.b) * whiteMix);
     bgColor = `rgba(${r}, ${g}, ${b}, 0.7)`;
+  } else if (isOffScreenIndicator) {
+    // Off-screen indicator: blend channel color over the base grid styling
+    // Use higher opacity when the off-screen note is playing
+    const offScreenOpacity = isOffScreenPlaying ? 0.5 : 0.2;
+    const baseWhite = baseBrightness > 0 ? baseBrightness : 0;
+    // Mix the channel color at low opacity with the base white
+    const r = Math.round(parsedColor.r * offScreenOpacity + 255 * baseWhite * (1 - offScreenOpacity));
+    const g = Math.round(parsedColor.g * offScreenOpacity + 255 * baseWhite * (1 - offScreenOpacity));
+    const b = Math.round(parsedColor.b * offScreenOpacity + 255 * baseWhite * (1 - offScreenOpacity));
+    const combinedAlpha = Math.min(1, offScreenOpacity + baseWhite);
+    bgColor = `rgba(${r}, ${g}, ${b}, ${combinedAlpha})`;
   } else if (isNoteStart && active) {
     // Note start (not playing) - full channel color
     if (parsedColor.a < 1 && baseBrightness > 0) {
@@ -132,7 +145,7 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
     // Note continuation (not playing) - dimmer channel color
     bgColor = `rgba(${parsedColor.r}, ${parsedColor.g}, ${parsedColor.b}, ${continuationOpacity})`;
   } else if (active) {
-    // Other active states (off-screen indicators, etc.)
+    // Other active states
     if (parsedColor.a < 1 && baseBrightness > 0) {
       bgColor = blendColorOverWhite(parsedColor, baseBrightness);
     } else {
@@ -141,7 +154,8 @@ export const GridButton = memo(({ active, isPlayhead, rowColor, isCNote = false,
   } else if (isPendingLoopStart) {
     bgColor = 'rgba(255, 255, 255, 0.4)';
   } else if (isPlayhead) {
-    bgColor = 'rgba(255, 255, 255, 0.15)';
+    // Playhead should be brighter than loop boundaries (20%) for visibility
+    bgColor = 'rgba(255, 255, 255, 0.3)';
   } else if (baseBrightness > 0) {
     bgColor = `rgba(255, 255, 255, ${baseBrightness})`;
   } else {
