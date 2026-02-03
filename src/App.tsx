@@ -110,6 +110,7 @@ function App() {
     channelsPlayingNow,
     isPulseBeat,
     isPlaying,
+    isExternalPlayback,
     bpm,
     currentStep,
     toggleCell,
@@ -122,6 +123,11 @@ function App() {
     setBpm,
     currentLoop,
     setPatternLoop,
+    // Mute/Solo
+    mutedChannels,
+    soloedChannels,
+    toggleMute,
+    toggleSolo,
     // External sync
     externalTick,
     playExternal,
@@ -179,6 +185,7 @@ function App() {
         </Box>
         <Transport
           isPlaying={isPlaying}
+          isExternalPlayback={isExternalPlayback}
           bpm={bpm}
           onPlay={play}
           onStop={handleStop}
@@ -214,6 +221,10 @@ function App() {
           isPlaying={isPlaying}
           onTogglePlay={handleTogglePlay}
           onResetPlayhead={resetPlayhead}
+          mutedChannels={mutedChannels}
+          soloedChannels={soloedChannels}
+          onToggleMute={toggleMute}
+          onToggleSolo={toggleSolo}
         />
       </Box>
     </ThemeProvider>

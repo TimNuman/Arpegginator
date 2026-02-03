@@ -48,6 +48,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     Array.from({ length: NUM_CHANNELS }, () => 0),
   );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isExternalPlayback, setIsExternalPlayback] = useState(false); // True when playback started by external MIDI
   const [bpm, setBpm] = useState(120);
   const [currentStep, setCurrentStep] = useState(-1);
   // Loops are per-pattern, not per-channel: patternLoops[channel][pattern]
@@ -57,11 +58,21 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
   const [queuedPatterns, setQueuedPatterns] = useState<(number | null)[]>(() =>
     Array.from({ length: NUM_CHANNELS }, () => null),
   );
+  // Muted channels - muted channels don't trigger notes
+  const [mutedChannels, setMutedChannels] = useState<boolean[]>(() =>
+    Array.from({ length: NUM_CHANNELS }, () => false),
+  );
+  // Soloed channels - when any channel is soloed, only soloed channels play
+  const [soloedChannels, setSoloedChannels] = useState<boolean[]>(() =>
+    Array.from({ length: NUM_CHANNELS }, () => false),
+  );
 
   const intervalRef = useRef<number | null>(null);
   const channelsRef = useRef(channels);
   const currentPatternsRef = useRef(currentPatterns);
   const queuedPatternsRef = useRef(queuedPatterns);
+  const mutedChannelsRef = useRef(mutedChannels);
+  const soloedChannelsRef = useRef(soloedChannels);
 
   useEffect(() => {
     queuedPatternsRef.current = queuedPatterns;
@@ -75,7 +86,33 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     currentPatternsRef.current = currentPatterns;
   }, [currentPatterns]);
 
+  useEffect(() => {
+    mutedChannelsRef.current = mutedChannels;
+  }, [mutedChannels]);
+
+  useEffect(() => {
+    soloedChannelsRef.current = soloedChannels;
+  }, [soloedChannels]);
+
   const currentPattern = currentPatterns[currentChannel];
+
+  // Toggle mute for a channel
+  const toggleMute = useCallback((channel: number) => {
+    setMutedChannels((prev) => {
+      const next = [...prev];
+      next[channel] = !next[channel];
+      return next;
+    });
+  }, []);
+
+  // Toggle solo for a channel
+  const toggleSolo = useCallback((channel: number) => {
+    setSoloedChannels((prev) => {
+      const next = [...prev];
+      next[channel] = !next[channel];
+      return next;
+    });
+  }, []);
 
   const setChannelPattern = useCallback(
     (channel: number, pattern: number) => {
@@ -209,7 +246,13 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
 
         // Trigger notes (use current pattern, switch happens after)
         // A note triggers if: there's a note at this step, OR we're within a previous note's length
-        if (channelStep >= loop.start && channelStep < loopEnd) {
+        // Check mute/solo state - if any channel is soloed, only soloed channels play
+        const anySoloed = soloedChannelsRef.current.some((s) => s);
+        const shouldPlay = anySoloed
+          ? soloedChannelsRef.current[ch] && !mutedChannelsRef.current[ch]
+          : !mutedChannelsRef.current[ch];
+
+        if (shouldPlay && channelStep >= loop.start && channelStep < loopEnd) {
           for (let row = 0; row < ROWS; row++) {
             const noteLength = channelsRef.current[ch][patternIdx][row][channelStep];
             if (noteLength > 0) {
@@ -246,6 +289,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     if (intervalRef.current) return;
 
     setIsPlaying(true);
+    setIsExternalPlayback(false); // Internal playback
     const intervalMs = ((60 / bpm) * 1000) / 4;
 
     tick();
@@ -258,6 +302,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
       intervalRef.current = null;
     }
     setIsPlaying(false);
+    setIsExternalPlayback(false);
     setCurrentStep(-1);
     // Clear all queued patterns on stop
     setQueuedPatterns(Array.from({ length: NUM_CHANNELS }, () => null));
@@ -290,6 +335,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
       intervalRef.current = null;
     }
     setIsPlaying(true);
+    setIsExternalPlayback(true); // External playback from MIDI
   }, []);
 
   // Stop without resetting (for external sync continue support)
@@ -299,6 +345,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
       intervalRef.current = null;
     }
     setIsPlaying(false);
+    setIsExternalPlayback(false);
     setCurrentStep(-1);
     setQueuedPatterns(Array.from({ length: NUM_CHANNELS }, () => null));
   }, []);
@@ -377,6 +424,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     channelsPlayingNow,
     isPulseBeat,
     isPlaying,
+    isExternalPlayback,
     bpm,
     currentStep,
     toggleCell,
@@ -390,6 +438,11 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     setBpm,
     currentLoop,
     setPatternLoop,
+    // Mute/Solo
+    mutedChannels,
+    soloedChannels,
+    toggleMute,
+    toggleSolo,
     // External sync functions
     externalTick,
     playExternal,

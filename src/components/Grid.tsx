@@ -233,6 +233,10 @@ interface GridProps {
   isPlaying: boolean; // Whether the sequencer is currently playing
   onTogglePlay: () => void; // Toggle play/stop
   onResetPlayhead: () => void; // Reset playhead to beginning
+  mutedChannels: boolean[]; // Which channels are muted
+  soloedChannels: boolean[]; // Which channels are soloed
+  onToggleMute: (channel: number) => void; // Toggle mute for a channel
+  onToggleSolo: (channel: number) => void; // Toggle solo for a channel
 }
 
 export const Grid = memo(
@@ -257,6 +261,10 @@ export const Grid = memo(
     isPlaying,
     onTogglePlay,
     onResetPlayhead,
+    mutedChannels,
+    soloedChannels,
+    onToggleMute,
+    onToggleSolo,
   }: GridProps) => {
     // Store row offset per channel
     const [rowOffsets, setRowOffsets] = useState<number[]>(() =>
@@ -789,12 +797,13 @@ export const Grid = memo(
 
                     // Calculate shift mode overlay info (even if not in shift mode, for consistent key)
                     const channelIndex = visibleRow;
-                    const patternIndex = visibleCol;
+                    // Pattern index is offset by 1 because column 0 is mute/solo
+                    const patternIndex = visibleCol - 1;
                     const shiftColor = CHANNEL_COLORS[channelIndex];
                     const patternsForChannel =
                       allPatternsHaveNotes[channelIndex];
                     const patternHasNotes =
-                      patternsForChannel?.[patternIndex] ?? false;
+                      patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
                     const currentPatternForChannel =
                       currentPatterns[channelIndex];
                     const isSelectedPattern =
@@ -803,7 +812,7 @@ export const Grid = memo(
                     const isActivePattern =
                       patternIndex === currentPatternForChannel;
                     const isQueued =
-                      queuedPatterns[channelIndex] === patternIndex;
+                      patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
                     const isPlayingNow =
                       isActivePattern && channelsPlayingNow[channelIndex];
                     const isPulsing = isQueued && isPulseBeat;
@@ -811,13 +820,16 @@ export const Grid = memo(
                       patternsForChannel?.filter(Boolean).length ?? 0;
                     const nextEmptyIndex = patternsWithNotesCount;
                     const isNextEmpty =
+                      patternIndex >= 0 &&
                       patternIndex === nextEmptyIndex &&
                       patternIndex < (patternsForChannel?.length ?? 0);
                     const shouldShowShiftButton =
-                      patternHasNotes ||
-                      isSelectedPattern ||
-                      isQueued ||
-                      isNextEmpty;
+                      patternIndex >= 0 && (
+                        patternHasNotes ||
+                        isSelectedPattern ||
+                        isQueued ||
+                        isNextEmpty
+                      );
 
                     // Calculate the playhead position within this channel's loop (needed for note highlight)
                     const loopEnd = currentLoop.start + currentLoop.length;
@@ -878,6 +890,61 @@ export const Grid = memo(
 
                     // Dim pattern buttons when ctrl is pressed
                     const isDimmed = metaPressed;
+
+                    // In meta mode, first column shows mute/solo buttons
+                    if (metaPressed && visibleCol === 0) {
+                      const isMuted = mutedChannels[channelIndex];
+                      const isSoloed = soloedChannels[channelIndex];
+                      const anySoloed = soloedChannels.some((s) => s);
+
+                      // Color logic:
+                      // - Soloed: full channel color
+                      // - Muted: very dim (10% opacity)
+                      // - Normal (not muted, not soloed when others are soloed): dimmed (30% opacity)
+                      // - Normal (not muted, no solos active): medium (50% opacity)
+                      let displayColor: string;
+                      let glowIntensity: number;
+
+                      if (isSoloed) {
+                        // Soloed - full bright
+                        displayColor = shiftColor;
+                        glowIntensity = 1;
+                      } else if (isMuted) {
+                        // Muted - very dim
+                        displayColor = shiftColor + "1A"; // 10% opacity
+                        glowIntensity = 0.1;
+                      } else if (anySoloed) {
+                        // Not soloed but others are - dim
+                        displayColor = shiftColor + "4D"; // 30% opacity
+                        glowIntensity = 0.3;
+                      } else {
+                        // Normal - medium brightness
+                        displayColor = shiftColor + "80"; // 50% opacity
+                        glowIntensity = 0.5;
+                      }
+
+                      const handleMuteClick = () => {
+                        if (altPressed) {
+                          // Alt+Cmd+click = toggle solo
+                          onToggleSolo(channelIndex);
+                        } else {
+                          // Cmd+click = toggle mute
+                          onToggleMute(channelIndex);
+                        }
+                      };
+
+                      return (
+                        <GridButton
+                          key={`${visibleRow}-${visibleCol}`}
+                          active={true}
+                          isPlayhead={isPlayingNow}
+                          rowColor={displayColor}
+                          glowIntensity={glowIntensity}
+                          onToggle={handleMuteClick}
+                          onDragEnter={() => {}}
+                        />
+                      );
+                    }
 
                     // In ctrl mode with a visible channel/pattern button, show that instead
                     if (metaPressed && shouldShowShiftButton) {
@@ -1001,25 +1068,26 @@ export const Grid = memo(
                         isCNote={isCNote}
                         dimmed={isDimmed}
                         glowIntensity={offScreenIntensity}
-                        isLoopBoundary={isLoopBoundary && showGridStyling}
+                        isLoopBoundary={isLoopBoundary && showGridStyling && !metaPressed}
                         isLoopBoundaryPulsing={
-                          isLoopBoundary && showGridStyling && altPressed
+                          isLoopBoundary && showGridStyling && altPressed && !metaPressed
                         }
                         isBeatMarker={
-                          isBeatMarker && showGridStyling && !isLoopBoundary
+                          isBeatMarker && showGridStyling && !isLoopBoundary && !metaPressed
                         }
                         isInLoop={
                           isInLoop &&
                           showGridStyling &&
                           !isLoopBoundary &&
-                          !isBeatMarker
+                          !isBeatMarker &&
+                          !metaPressed
                         }
-                        isPendingLoopStart={isPendingLoopStart}
-                        isNoteStart={isNoteStart}
-                        isNoteContinuation={isNoteContinuation}
-                        isNoteCurrentlyPlaying={isNoteCurrentlyPlaying}
-                        isOffScreenIndicator={showOffScreenIndicator}
-                        isOffScreenPlaying={offScreenPlaying}
+                        isPendingLoopStart={isPendingLoopStart && !metaPressed}
+                        isNoteStart={isNoteStart && !metaPressed}
+                        isNoteContinuation={isNoteContinuation && !metaPressed}
+                        isNoteCurrentlyPlaying={isNoteCurrentlyPlaying && !metaPressed}
+                        isOffScreenIndicator={showOffScreenIndicator && !metaPressed}
+                        isOffScreenPlaying={offScreenPlaying && !metaPressed}
                         onToggle={handleClick}
                         onDragEnter={() => {
                           if (metaPressed) return;

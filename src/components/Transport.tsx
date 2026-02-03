@@ -124,6 +124,7 @@ const midiSelectStyles = css`
 
 interface TransportProps {
   isPlaying: boolean;
+  isExternalPlayback: boolean;
   bpm: number;
   onPlay: () => void;
   onStop: () => void;
@@ -140,6 +141,7 @@ interface TransportProps {
 
 export const Transport = ({
   isPlaying,
+  isExternalPlayback,
   bpm,
   onPlay,
   onStop,
@@ -153,9 +155,9 @@ export const Transport = ({
   onInputChange,
   midiEnabled,
 }: TransportProps) => {
-  // In slave mode (MIDI input selected), show disabled play button when playing
+  // In slave mode (external playback from MIDI), show disabled play button
   const isSlaveMode = selectedInput !== null;
-  const showDisabledPlayButton = isPlaying && isSlaveMode;
+  const showDisabledPlayButton = isPlaying && isExternalPlayback;
 
   return (
     <Box css={transportStyles}>
