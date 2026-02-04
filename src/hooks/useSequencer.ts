@@ -229,6 +229,19 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         );
         return newChannels;
       });
+      // Also copy the loop settings
+      setPatternLoops((prev) => {
+        const newLoops = prev.map((channelLoops, chIdx) =>
+          chIdx === currentChannel
+            ? channelLoops.map((loop, pIdx) =>
+                pIdx === targetPattern
+                  ? { ...prev[currentChannel][currentPattern] }
+                  : loop
+              )
+            : channelLoops
+        );
+        return newLoops;
+      });
     },
     [currentChannel, currentPattern],
   );
@@ -352,6 +365,19 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
           : ch,
       );
       return newChannels;
+    });
+    // Also reset loop settings to default
+    setPatternLoops((prev) => {
+      const newLoops = prev.map((channelLoops, chIdx) =>
+        chIdx === currentChannel
+          ? channelLoops.map((loop, pIdx) =>
+              pIdx === currentPattern
+                ? { start: DEFAULT_LOOP_START, length: DEFAULT_LOOP_LENGTH }
+                : loop
+            )
+          : channelLoops
+      );
+      return newLoops;
     });
   }, [currentChannel, currentPattern]);
 

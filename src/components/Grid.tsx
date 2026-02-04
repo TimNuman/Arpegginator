@@ -1163,11 +1163,14 @@ export const Grid = memo(
           ],
         };
       } else if (altPressed) {
+        const loopEnd = currentLoop.start + currentLoop.length;
+        const highlightStart = shiftPressed;
+        const highlightEnd = !shiftPressed;
         return {
           rows: [
-            { label: "MODE", valueParts: [{ text: "LOOP" }] },
-            { label: "RANGE", valueParts: [{ text: `${currentLoop.start + 1}-${currentLoop.start + currentLoop.length}` }] },
-            { label: "", valueParts: [] },
+            { label: "LOOP", valueParts: [{ text: "" }] },
+            { label: "START", valueParts: [{ text: `${currentLoop.start + 1}`, highlight: highlightStart }] },
+            { label: "END", valueParts: [{ text: `${loopEnd}`, highlight: highlightEnd }] },
           ],
         };
       } else if (shiftPressed) {
@@ -1406,7 +1409,7 @@ export const Grid = memo(
                       }
 
                       const handleSelect = () => {
-                        // Shift+Cmd+click on empty pattern = copy current pattern
+                        // Shift+click on empty pattern (while in Ctrl mode) = copy current pattern
                         if (
                           shiftPressed &&
                           isEmptyPattern &&
