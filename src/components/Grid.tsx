@@ -1,9 +1,10 @@
-import { memo, useState, useRef, useCallback, useEffect } from "react";
+import { memo, useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
 import { GridButton } from "./GridButton";
 import { TouchStrip } from "./TouchStrip";
-import type { GridState } from "../types/grid";
+import type { GridState, RenderedNote } from "../types/grid";
+import { getNoteLength, getRepeatAmount, getRepeatSpace, renderNotesToArray, findNoteAtCell } from "../types/grid";
 import { CHANNEL_COLORS } from "../hooks/useSequencer";
 import { renderScrollingText, getMessageWidth } from "../utils/pixelFont";
 
@@ -281,6 +282,8 @@ interface GridProps {
   onCopyPattern: (targetPattern: number) => void; // Copy current pattern to target
   onMoveNote: (fromRow: number, fromCol: number, toRow: number, toCol: number) => void; // Move a note from one position to another
   onPlaceNote: (row: number, col: number) => void; // Place a note (truncate overlapping notes) when deselected
+  onSetNoteRepeatAmount: (row: number, col: number, repeatAmount: number) => void; // Update repeat amount
+  onSetNoteRepeatSpace: (row: number, col: number, repeatSpace: number) => void; // Update repeat space
 }
 
 export const Grid = memo(
@@ -312,6 +315,8 @@ export const Grid = memo(
     onCopyPattern,
     onMoveNote,
     onPlaceNote,
+    onSetNoteRepeatAmount,
+    onSetNoteRepeatSpace,
   }: GridProps) => {
     // Store row offset per channel
     const [rowOffsets, setRowOffsets] = useState<number[]>(() =>
@@ -388,7 +393,13 @@ export const Grid = memo(
     const endRow = startRow + VISIBLE_ROWS - 1;
     const endCol = startCol + VISIBLE_COLS - 1;
 
-    // Check for off-screen notes and create edge indicators
+    // Render all NotePatterns to a flat array of notes (including repeats)
+    // Notes are visible everywhere, not just within the loop
+    const renderedNotes = useMemo(() => {
+      return renderNotesToArray(gridState, TOTAL_COLS);
+    }, [gridState]);
+
+    // Check for off-screen notes (using renderedNotes which includes repeats)
     // Returns the number of off-screen notes for this edge cell
     const getOffScreenNoteCount = useCallback(
       (visibleRow: number, visibleCol: number): number => {
@@ -409,8 +420,8 @@ export const Grid = memo(
 
         // Check for notes above visible area (higher MIDI notes)
         if (isTopEdge) {
-          for (let row = endRow + 1; row < TOTAL_ROWS; row++) {
-            if (gridState[row]?.[actualCol] > 0) {
+          for (const note of renderedNotes) {
+            if (note.row > endRow && note.col <= actualCol && note.col + note.length > actualCol) {
               count++;
             }
           }
@@ -418,8 +429,8 @@ export const Grid = memo(
 
         // Check for notes below visible area (lower MIDI notes)
         if (isBottomEdge) {
-          for (let row = 0; row < startRow; row++) {
-            if (gridState[row]?.[actualCol] > 0) {
+          for (const note of renderedNotes) {
+            if (note.row < startRow && note.col <= actualCol && note.col + note.length > actualCol) {
               count++;
             }
           }
@@ -427,8 +438,8 @@ export const Grid = memo(
 
         // Check for notes to the right of visible area
         if (isRightEdge) {
-          for (let col = endCol + 1; col < TOTAL_COLS; col++) {
-            if (gridState[actualRow]?.[col] > 0) {
+          for (const note of renderedNotes) {
+            if (note.row === actualRow && note.col > endCol) {
               count++;
             }
           }
@@ -436,8 +447,8 @@ export const Grid = memo(
 
         // Check for notes to the left of visible area
         if (isLeftEdge) {
-          for (let col = 0; col < startCol; col++) {
-            if (gridState[actualRow]?.[col] > 0) {
+          for (const note of renderedNotes) {
+            if (note.row === actualRow && note.col + note.length <= startCol) {
               count++;
             }
           }
@@ -445,18 +456,16 @@ export const Grid = memo(
 
         return count;
       },
-      [gridState, startRow, startCol, endRow, endCol],
+      [renderedNotes, startRow, startCol, endRow, endCol],
     );
 
     // Check if any off-screen note is currently playing for this edge cell
-    // Takes the current looped step and loop boundaries to determine playback
+    // Uses renderedNotes which already includes all repeats
     const isOffScreenNotePlaying = useCallback(
       (
         visibleRow: number,
         visibleCol: number,
         loopedStep: number,
-        loopStart: number,
-        loopEnd: number,
       ): boolean => {
         const isTopEdge = visibleRow === 0;
         const isBottomEdge = visibleRow === VISIBLE_ROWS - 1;
@@ -470,50 +479,50 @@ export const Grid = memo(
         const actualCol = startCol + visibleCol;
         const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
 
-        // Helper to check if a note at (row, col) with given length is playing
-        const isNotePlaying = (row: number, noteCol: number): boolean => {
-          const noteLength = gridState[row]?.[noteCol] ?? 0;
-          if (noteLength <= 0) return false;
-
-          const noteEndCol = noteCol + noteLength - 1;
-          // Note must start within the loop to be triggered
-          const noteStartInLoop = noteCol >= loopStart && noteCol < loopEnd;
-          return (
-            noteStartInLoop && loopedStep >= noteCol && loopedStep <= noteEndCol
-          );
+        // Helper to check if a rendered note is currently playing
+        const isNotePlaying = (note: RenderedNote): boolean => {
+          return loopedStep >= note.col && loopedStep < note.col + note.length;
         };
 
         // Check for playing notes above visible area (higher MIDI notes)
         if (isTopEdge) {
-          for (let row = endRow + 1; row < TOTAL_ROWS; row++) {
-            if (isNotePlaying(row, actualCol)) return true;
+          for (const note of renderedNotes) {
+            if (note.row > endRow && note.col <= actualCol && note.col + note.length > actualCol) {
+              if (isNotePlaying(note)) return true;
+            }
           }
         }
 
         // Check for playing notes below visible area (lower MIDI notes)
         if (isBottomEdge) {
-          for (let row = 0; row < startRow; row++) {
-            if (isNotePlaying(row, actualCol)) return true;
+          for (const note of renderedNotes) {
+            if (note.row < startRow && note.col <= actualCol && note.col + note.length > actualCol) {
+              if (isNotePlaying(note)) return true;
+            }
           }
         }
 
         // Check for playing notes to the right of visible area
         if (isRightEdge) {
-          for (let col = endCol + 1; col < TOTAL_COLS; col++) {
-            if (isNotePlaying(actualRow, col)) return true;
+          for (const note of renderedNotes) {
+            if (note.row === actualRow && note.col > endCol) {
+              if (isNotePlaying(note)) return true;
+            }
           }
         }
 
         // Check for playing notes to the left of visible area
         if (isLeftEdge) {
-          for (let col = 0; col < startCol; col++) {
-            if (isNotePlaying(actualRow, col)) return true;
+          for (const note of renderedNotes) {
+            if (note.row === actualRow && note.col + note.length <= startCol) {
+              if (isNotePlaying(note)) return true;
+            }
           }
         }
 
         return false;
       },
-      [gridState, startRow, startCol, endRow, endCol],
+      [renderedNotes, startRow, startCol, endRow, endCol],
     );
 
     // Keyboard grid mapping: 8 columns x 4 rows (bottom 4 rows of visible grid)
@@ -593,10 +602,55 @@ export const Grid = memo(
           return;
         }
 
-        // Handle shift+arrow left/right for resizing selected note
-        if (selectedNote && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        // Handle Cmd+Shift+arrow left/right for changing repeat space
+        if (selectedNote && e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
           e.preventDefault();
-          const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+          const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+          const noteLength = getNoteLength(noteValue);
+          if (noteLength > 0) {
+            const currentRepeatSpace = getRepeatSpace(noteValue);
+            let newRepeatSpace = currentRepeatSpace;
+            if (e.key === "ArrowLeft") {
+              // Decrease repeat space (minimum 1)
+              newRepeatSpace = Math.max(1, currentRepeatSpace - 1);
+            } else {
+              // Increase repeat space (no max, but reasonable limit)
+              newRepeatSpace = Math.min(16, currentRepeatSpace + 1);
+            }
+            if (newRepeatSpace !== currentRepeatSpace) {
+              onSetNoteRepeatSpace(selectedNote.row, selectedNote.col, newRepeatSpace);
+            }
+          }
+          return;
+        }
+
+        // Handle Cmd+arrow left/right for changing repeat amount
+        if (selectedNote && e.metaKey && !e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+          e.preventDefault();
+          const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+          const noteLength = getNoteLength(noteValue);
+          if (noteLength > 0) {
+            const currentRepeatAmount = getRepeatAmount(noteValue);
+            let newRepeatAmount = currentRepeatAmount;
+            if (e.key === "ArrowLeft") {
+              // Decrease repeat amount (minimum 1)
+              newRepeatAmount = Math.max(1, currentRepeatAmount - 1);
+            } else {
+              // Increase repeat amount (reasonable limit)
+              newRepeatAmount = Math.min(16, currentRepeatAmount + 1);
+            }
+            if (newRepeatAmount !== currentRepeatAmount) {
+              onSetNoteRepeatAmount(selectedNote.row, selectedNote.col, newRepeatAmount);
+            }
+          }
+          return;
+        }
+
+        // Handle shift+arrow left/right for resizing selected note
+        if (selectedNote && e.shiftKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+          e.preventDefault();
+          const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+          const noteLength = getNoteLength(noteValue);
           if (noteLength > 0) {
             let newLength = noteLength;
             if (e.key === "ArrowLeft") {
@@ -619,9 +673,9 @@ export const Grid = memo(
         }
 
         // Handle arrow keys for moving selected note (without shift)
-        if (selectedNote && !e.shiftKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        if (selectedNote && !e.shiftKey && !e.metaKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
           e.preventDefault();
-          const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+          const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
           if (noteLength > 0) {
             let newRow = selectedNote.row;
             let newCol = selectedNote.col;
@@ -687,23 +741,11 @@ export const Grid = memo(
             const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
             const actualCol = startCol + visibleCol;
 
-            // Check if there's a note at this position (either note start or continuation)
-            const noteAtCell = gridState[actualRow]?.[actualCol] ?? 0;
-            if (noteAtCell > 0) {
-              // This is a note start
-              selectNote({ row: actualRow, col: actualCol });
-            } else {
-              // Check if this is part of a note continuation
-              for (let c = actualCol - 1; c >= 0; c--) {
-                const prevNote = gridState[actualRow]?.[c] ?? 0;
-                if (prevNote > 0 && c + prevNote > actualCol) {
-                  // Found the note start
-                  selectNote({ row: actualRow, col: c });
-                  break;
-                } else if (prevNote > 0) {
-                  break; // Different note, stop searching
-                }
-              }
+            // Check if there's a note at this position (using renderedNotes which includes repeats)
+            const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
+            if (note) {
+              // Select the source note (parent NotePattern), not the repeat
+              selectNote({ row: actualRow, col: note.sourceCol });
             }
             return;
           }
@@ -777,7 +819,7 @@ export const Grid = memo(
           heldNote.key.toLowerCase() === e.key.toLowerCase()
         ) {
           // Released the held key without pressing a second key - toggle single note
-          const wasActive = (gridState[heldNote.row]?.[heldNote.col] ?? 0) > 0;
+          const wasActive = getNoteLength(gridState[heldNote.row]?.[heldNote.col]) > 0;
           onToggleCell(heldNote.row, heldNote.col);
 
           // Auto-select the new note if we just created it (places old note first)
@@ -821,6 +863,9 @@ export const Grid = memo(
       maxColOffset,
       setRowOffset,
       setColOffset,
+      onSetNoteRepeatAmount,
+      onSetNoteRepeatSpace,
+      renderedNotes,
     ]);
 
     // Scrolling text animation when a message is set
@@ -865,24 +910,13 @@ export const Grid = memo(
         isShiftClick: boolean,
         isMetaClick: boolean,
       ) => {
-        // Cmd+click: select the note (find the note start if clicking on continuation)
+        // Cmd+click: select the note (find the source NotePattern if clicking on continuation or repeat)
         if (isMetaClick && currentActive) {
-          // Find the note start (could be this cell or an earlier cell)
-          let noteStartCol = col;
-          for (let c = col - 1; c >= 0; c--) {
-            const prevNote = gridState[row]?.[c] ?? 0;
-            if (prevNote > 0 && c + prevNote > col) {
-              noteStartCol = c;
-              break;
-            } else if (prevNote > 0) {
-              break; // Found a different note, stop searching
-            }
+          const note = findNoteAtCell(renderedNotes, row, col);
+          if (note) {
+            // Select the source note (parent NotePattern)
+            selectNote({ row, col: note.sourceCol });
           }
-          // Check if this cell itself is a note start
-          if ((gridState[row]?.[col] ?? 0) > 0) {
-            noteStartCol = col;
-          }
-          selectNote({ row, col: noteStartCol });
           return;
         }
 
@@ -890,7 +924,7 @@ export const Grid = memo(
           // Shift-click: find the first note to the left on this row and extend it
           let foundNoteCol = -1;
           for (let c = col - 1; c >= 0; c--) {
-            if (gridState[row]?.[c] > 0) {
+            if (getNoteLength(gridState[row]?.[c]) > 0) {
               foundNoteCol = c;
               break;
             }
@@ -935,6 +969,7 @@ export const Grid = memo(
         isPlaying,
         gridState,
         selectNote,
+        renderedNotes,
       ],
     );
 
@@ -956,7 +991,7 @@ export const Grid = memo(
         if (isShiftDrag) {
           let foundNoteCol = -1;
           for (let c = col - 1; c >= 0; c--) {
-            if (gridState[row]?.[c] > 0) {
+            if (getNoteLength(gridState[row]?.[c]) > 0) {
               foundNoteCol = c;
               break;
             }
@@ -1098,45 +1133,19 @@ export const Grid = memo(
                         : -1;
 
                     // Normal mode pattern info
-                    // Check if note starts at this cell
-                    const noteAtCell =
-                      actualRow < gridState.length &&
-                      actualCol < (gridState[actualRow]?.length ?? 0)
-                        ? gridState[actualRow][actualCol]
-                        : 0;
-                    const isNoteStart = noteAtCell > 0;
-
-                    // Check if this cell is within a previous note's length (note continuation)
-                    // Also track the note's start and end for "currently playing" highlight
-                    let isNoteContinuation = false;
-                    let noteStartCol = isNoteStart ? actualCol : -1;
-                    let noteEndCol = isNoteStart
-                      ? actualCol + noteAtCell - 1
-                      : -1;
-
-                    if (!isNoteStart && actualRow < gridState.length) {
-                      for (let c = 0; c < actualCol; c++) {
-                        const prevNote = gridState[actualRow]?.[c] ?? 0;
-                        if (prevNote > 0 && c + prevNote > actualCol) {
-                          isNoteContinuation = true;
-                          noteStartCol = c;
-                          noteEndCol = c + prevNote - 1;
-                          break;
-                        }
-                      }
-                    }
-
-                    const isActive = isNoteStart || isNoteContinuation;
+                    // Find if there's a rendered note at this cell (includes repeats)
+                    const noteAtCell = findNoteAtCell(renderedNotes, actualRow, actualCol);
+                    const isActive = noteAtCell !== null;
+                    const isNoteStart = noteAtCell !== null && noteAtCell.col === actualCol;
+                    const isNoteContinuation = noteAtCell !== null && noteAtCell.col < actualCol;
+                    const isRepeatNote = noteAtCell !== null && noteAtCell.isRepeat;
+                    const sourceNoteCol = noteAtCell?.sourceCol ?? -1;
+                    const noteStartCol = noteAtCell?.col ?? -1;
+                    const noteEndCol = noteAtCell ? noteAtCell.col + noteAtCell.length - 1 : -1;
 
                     // Check if the playhead is currently within this note's duration
-                    // Only if the note start is within the loop (note must be triggered to play)
-                    const noteStartInLoop =
-                      noteStartCol >= currentLoop.start &&
-                      noteStartCol < loopEnd;
                     const isNoteCurrentlyPlaying =
                       isActive &&
-                      noteStartCol >= 0 &&
-                      noteStartInLoop &&
                       loopedStep >= noteStartCol &&
                       loopedStep <= noteEndCol;
 
@@ -1161,14 +1170,15 @@ export const Grid = memo(
                     // For grid styling props, we want to show them for:
                     // - Empty cells (not active)
                     // - Off-screen indicators (showOffScreenIndicator)
-                    // But NOT for actual notes on screen (isNoteStart or isNoteContinuation)
-                    const showGridStyling = !isNoteStart && !isNoteContinuation;
+                    // But NOT for actual notes on screen (isNoteStart, isNoteContinuation, or isRepeatNote)
+                    const showGridStyling = !isNoteStart && !isNoteContinuation && !isRepeatNote;
 
                     // Check if this cell is part of the selected note
+                    // For repeats, check if the source note (parent NotePattern) is selected
                     const isCellSelected = selectedNote !== null &&
                       selectedNote.row === actualRow &&
-                      ((isNoteStart && selectedNote.col === actualCol) ||
-                       (isNoteContinuation && noteStartCol === selectedNote.col));
+                      noteAtCell !== null &&
+                      selectedNote.col === sourceNoteCol;
 
                     // Scrolling text mode - takes priority over everything
                     if (scrollingTextGrid) {
@@ -1348,8 +1358,6 @@ export const Grid = memo(
                           visibleRow,
                           visibleCol,
                           loopedStep,
-                          currentLoop.start,
-                          loopEnd,
                         )
                       : false;
 
@@ -1538,7 +1546,7 @@ export const Grid = memo(
                   css={arrowButtonStyles}
                   onClick={() => {
                     if (selectedNote) {
-                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
                       if (noteLength > 0) {
                         const newRow = Math.min(TOTAL_ROWS - 1, selectedNote.row + 1);
                         if (newRow !== selectedNote.row) {
@@ -1558,7 +1566,7 @@ export const Grid = memo(
                   css={arrowButtonStyles}
                   onClick={() => {
                     if (selectedNote) {
-                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
                       if (noteLength > 0) {
                         const newCol = Math.max(0, selectedNote.col - 1);
                         if (newCol !== selectedNote.col) {
@@ -1576,7 +1584,7 @@ export const Grid = memo(
                   css={arrowButtonStyles}
                   onClick={() => {
                     if (selectedNote) {
-                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
                       if (noteLength > 0) {
                         const newRow = Math.max(0, selectedNote.row - 1);
                         if (newRow !== selectedNote.row) {
@@ -1594,7 +1602,7 @@ export const Grid = memo(
                   css={arrowButtonStyles}
                   onClick={() => {
                     if (selectedNote) {
-                      const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+                      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
                       if (noteLength > 0) {
                         const newCol = Math.min(TOTAL_COLS - 1, selectedNote.col + 1);
                         if (newCol !== selectedNote.col) {

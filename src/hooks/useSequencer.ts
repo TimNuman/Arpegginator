@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { GridState } from "../types/grid";
+import type { GridState, NoteValue } from "../types/grid";
+import { getNoteLength, getRepeatAmount, getRepeatSpace, createNotePattern } from "../types/grid";
 
 const ROWS = 128; // Full MIDI range (0-127)
 const COLS = 64;
@@ -24,7 +25,7 @@ const createDefaultLoops = (): PatternLoop[][] => {
 };
 
 const createEmptyGrid = (): GridState => {
-  return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
 };
 
 // Each channel has multiple patterns
@@ -143,13 +144,18 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
   );
 
   // Helper to truncate any note that would overlap with a new note at col
-  const truncateOverlappingNote = (gridRow: number[], col: number) => {
+  const truncateOverlappingNote = (gridRow: NoteValue[], col: number) => {
     // Look for any note starting before col that extends into col
     for (let c = 0; c < col; c++) {
-      const noteLength = gridRow[c];
+      const noteValue = gridRow[c];
+      const noteLength = getNoteLength(noteValue);
       if (noteLength > 0 && c + noteLength > col) {
         // This note overlaps - truncate it to end just before col
-        gridRow[c] = col - c;
+        const newLength = col - c;
+        if (noteValue !== null) {
+          // Preserve repeat settings
+          gridRow[c] = { ...noteValue, length: newLength };
+        }
       }
     }
   };
@@ -164,15 +170,15 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
               )
             : ch,
         );
-        // Toggle: 0 -> 1 (default length), >0 -> 0
+        // Toggle: null -> NotePattern, NotePattern -> null
         const currentValue = newChannels[currentChannel][currentPattern][row][col];
-        if (currentValue > 0) {
+        if (getNoteLength(currentValue) > 0) {
           // Turning off
-          newChannels[currentChannel][currentPattern][row][col] = 0;
+          newChannels[currentChannel][currentPattern][row][col] = null;
         } else {
           // Turning on - truncate any overlapping note first
           truncateOverlappingNote(newChannels[currentChannel][currentPattern][row], col);
-          newChannels[currentChannel][currentPattern][row][col] = 1;
+          newChannels[currentChannel][currentPattern][row][col] = createNotePattern(1);
         }
         return newChannels;
       });
@@ -193,7 +199,13 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         );
         // Truncate any overlapping note first
         truncateOverlappingNote(newChannels[currentChannel][currentPattern][row], col);
-        newChannels[currentChannel][currentPattern][row][col] = length;
+        // Preserve repeat settings if note already exists
+        const existingNote = newChannels[currentChannel][currentPattern][row][col];
+        if (existingNote !== null) {
+          newChannels[currentChannel][currentPattern][row][col] = { ...existingNote, length };
+        } else {
+          newChannels[currentChannel][currentPattern][row][col] = createNotePattern(length);
+        }
         return newChannels;
       });
     },
@@ -236,12 +248,14 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
             : ch,
         );
         const grid = newChannels[currentChannel][currentPattern];
-        const noteLength = grid[fromRow][fromCol];
+        const noteValue = grid[fromRow][fromCol];
+        const noteLength = getNoteLength(noteValue);
         if (noteLength > 0) {
           // Clear the old position
-          grid[fromRow][fromCol] = 0;
+          grid[fromRow][fromCol] = null;
           // Set the note at the new position (no truncation while moving)
-          grid[toRow][toCol] = noteLength;
+          // Preserve the full NotePattern
+          grid[toRow][toCol] = noteValue;
         }
         return newChannels;
       });
@@ -262,12 +276,57 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
             : ch,
         );
         const grid = newChannels[currentChannel][currentPattern];
-        const noteLength = grid[row][col];
+        const noteValue = grid[row][col];
+        const noteLength = getNoteLength(noteValue);
         if (noteLength > 0) {
           // Now truncate any overlapping notes at this position
           truncateOverlappingNote(grid[row], col);
           // Re-set the note (in case truncation affected it)
-          grid[row][col] = noteLength;
+          grid[row][col] = noteValue;
+        }
+        return newChannels;
+      });
+    },
+    [currentChannel, currentPattern],
+  );
+
+  // Update the repeat amount of a note
+  const setNoteRepeatAmount = useCallback(
+    (row: number, col: number, repeatAmount: number) => {
+      setChannels((prev) => {
+        const newChannels = prev.map((ch, chIdx) =>
+          chIdx === currentChannel
+            ? ch.map((pattern, pIdx) =>
+                pIdx === currentPattern ? pattern.map((r) => [...r]) : pattern,
+              )
+            : ch,
+        );
+        const grid = newChannels[currentChannel][currentPattern];
+        const noteValue = grid[row][col];
+        if (noteValue !== null) {
+          grid[row][col] = { ...noteValue, repeatAmount };
+        }
+        return newChannels;
+      });
+    },
+    [currentChannel, currentPattern],
+  );
+
+  // Update the repeat space of a note
+  const setNoteRepeatSpace = useCallback(
+    (row: number, col: number, repeatSpace: number) => {
+      setChannels((prev) => {
+        const newChannels = prev.map((ch, chIdx) =>
+          chIdx === currentChannel
+            ? ch.map((pattern, pIdx) =>
+                pIdx === currentPattern ? pattern.map((r) => [...r]) : pattern,
+              )
+            : ch,
+        );
+        const grid = newChannels[currentChannel][currentPattern];
+        const noteValue = grid[row][col];
+        if (noteValue !== null) {
+          grid[row][col] = { ...noteValue, repeatSpace };
         }
         return newChannels;
       });
@@ -315,6 +374,38 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     [],
   );
 
+  // Helper to get all notes (including repeats) that should play at a given step
+  const getNotesAtStep = (
+    pattern: NoteValue[][],
+    step: number,
+    loopStart: number,
+    loopEnd: number
+  ): { row: number; length: number }[] => {
+    const notes: { row: number; length: number }[] = [];
+
+    for (let row = 0; row < ROWS; row++) {
+      // Check all columns from loop start up to and including the current step
+      // to find notes that might play at this step (either directly or as repeats)
+      for (let col = loopStart; col <= step; col++) {
+        const noteValue = pattern[row][col];
+        if (noteValue === null) continue;
+
+        const { length, repeatAmount, repeatSpace } = noteValue;
+
+        // Check if this note (or any of its repeats) plays at the current step
+        for (let r = 0; r < repeatAmount; r++) {
+          const playStep = col + r * repeatSpace;
+          if (playStep === step && playStep < loopEnd) {
+            notes.push({ row, length });
+            break; // Only add once per row per step
+          }
+        }
+      }
+    }
+
+    return notes;
+  };
+
   const tick = useCallback(() => {
     setCurrentStep((prevStep) => {
       const nextStep = prevStep + 1;
@@ -349,12 +440,15 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
           : !mutedChannelsRef.current[ch];
 
         if (shouldPlay && channelStep >= loop.start && channelStep < loopEnd) {
-          for (let row = 0; row < ROWS; row++) {
-            const noteLength = channelsRef.current[ch][patternIdx][row][channelStep];
-            if (noteLength > 0) {
-              // Note starts here - pass the length for proper note duration
-              onStepTrigger(ch, row, channelStep, noteLength);
-            }
+          // Get all notes that should play at this step (including repeats)
+          const notesToPlay = getNotesAtStep(
+            channelsRef.current[ch][patternIdx],
+            channelStep,
+            loop.start,
+            loopEnd
+          );
+          for (const { row, length } of notesToPlay) {
+            onStepTrigger(ch, row, channelStep, length);
           }
         }
       }
@@ -467,12 +561,12 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
 
   // Check which channels have notes (in any pattern)
   const channelsHaveNotes = channels.map((ch) =>
-    ch.some((pattern) => pattern.some((row) => row.some((cell) => cell > 0))),
+    ch.some((pattern) => pattern.some((row) => row.some((cell) => getNoteLength(cell) > 0))),
   );
 
   // Check which patterns have notes for each channel (2D array: [channel][pattern] -> boolean)
   const allPatternsHaveNotes = channels.map((ch) =>
-    ch.map((pattern) => pattern.some((row) => row.some((cell) => cell > 0))),
+    ch.map((pattern) => pattern.some((row) => row.some((cell) => getNoteLength(cell) > 0))),
   );
 
   // Check which channels are playing a note at the current step
@@ -488,12 +582,27 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     // Check if any row has a note starting at this step, or we're within a note's length
     return ch[patternIdx].some((row) => {
       // Check if note starts at this step
-      if (row[channelStep] > 0) return true;
-      // Check if we're within a previous note's length
+      if (getNoteLength(row[channelStep]) > 0) return true;
+      // Check if we're within a previous note's length or a repeat
       for (let col = loop.start; col < channelStep; col++) {
-        const noteLength = row[col];
-        if (noteLength > 0 && col + noteLength > channelStep) {
-          return true;
+        const noteValue = row[col];
+        const noteLength = getNoteLength(noteValue);
+        if (noteLength > 0) {
+          // Check main note
+          if (col + noteLength > channelStep) {
+            return true;
+          }
+          // Check repeats
+          const repeatAmount = getRepeatAmount(noteValue);
+          const repeatSpace = getRepeatSpace(noteValue);
+          if (repeatAmount > 1) {
+            for (let r = 1; r < repeatAmount; r++) {
+              const repeatStart = col + r * repeatSpace;
+              if (channelStep >= repeatStart && channelStep < repeatStart + noteLength) {
+                return true;
+              }
+            }
+          }
         }
       }
       return false;
@@ -527,6 +636,8 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     setNote,
     moveNote,
     placeNote,
+    setNoteRepeatAmount,
+    setNoteRepeatSpace,
     copyPatternTo,
     clearGrid,
     clearAllChannels,

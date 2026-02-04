@@ -117,6 +117,8 @@ function App() {
     setNote,
     moveNote,
     placeNote,
+    setNoteRepeatAmount,
+    setNoteRepeatSpace,
     copyPatternTo,
     clearGrid,
     play,
@@ -235,6 +237,8 @@ function App() {
           onCopyPattern={copyPatternTo}
           onMoveNote={moveNote}
           onPlaceNote={placeNote}
+          onSetNoteRepeatAmount={setNoteRepeatAmount}
+          onSetNoteRepeatSpace={setNoteRepeatSpace}
         />
       </Box>
     </ThemeProvider>
