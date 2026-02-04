@@ -362,10 +362,6 @@ export const Grid = memo(
         return newSelection;
       });
     }, [onPlaceNote]);
-    // Track loop selection start (persists while Alt is held)
-    const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(
-      null,
-    );
 
     // Track held key for note length input: { row, col, key }
     const [heldNote, setHeldNote] = useState<{
@@ -389,8 +385,6 @@ export const Grid = memo(
     // Track drag mode: null = not dragging, true = turning on, false = turning off
     const dragMode = useRef<boolean | null>(null);
     const visitedCells = useRef<Set<string>>(new Set());
-    // Track loop drag start position
-    const loopDragStart = useRef<number | null>(null);
 
     // Calculate actual row/col start indices from offset values
     const maxRowOffset = TOTAL_ROWS - VISIBLE_ROWS;
@@ -617,6 +611,42 @@ export const Grid = memo(
           return;
         }
 
+        // Handle Opt+Shift+arrow left/right for moving loop start
+        if (e.altKey && e.shiftKey && !e.metaKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
+          e.preventDefault();
+          const loopEnd = currentLoop.start + currentLoop.length;
+          let newStart = currentLoop.start;
+          if (e.code === "ArrowLeft") {
+            newStart = Math.max(0, currentLoop.start - 1);
+          } else {
+            // Can't move start past end - 1 (minimum loop length is 1)
+            newStart = Math.min(loopEnd - 1, currentLoop.start + 1);
+          }
+          if (newStart !== currentLoop.start) {
+            const newLength = loopEnd - newStart;
+            onSetPatternLoop(currentChannel, currentPattern, newStart, newLength);
+          }
+          return;
+        }
+
+        // Handle Opt+arrow left/right for moving loop end
+        if (e.altKey && !e.shiftKey && !e.metaKey && (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
+          e.preventDefault();
+          const loopEnd = currentLoop.start + currentLoop.length;
+          let newEnd = loopEnd;
+          if (e.code === "ArrowLeft") {
+            // Can't move end before start + 1 (minimum loop length is 1)
+            newEnd = Math.max(currentLoop.start + 1, loopEnd - 1);
+          } else {
+            newEnd = Math.min(TOTAL_COLS, loopEnd + 1);
+          }
+          if (newEnd !== loopEnd) {
+            const newLength = newEnd - currentLoop.start;
+            onSetPatternLoop(currentChannel, currentPattern, currentLoop.start, newLength);
+          }
+          return;
+        }
+
         // Handle Cmd+Shift+arrow left/right for changing repeat space
         if (selectedNote && e.metaKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
           e.preventDefault();
@@ -662,7 +692,7 @@ export const Grid = memo(
         }
 
         // Handle shift+arrow left/right for resizing selected note
-        if (selectedNote && e.shiftKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        if (selectedNote && e.shiftKey && !e.metaKey && !e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
           e.preventDefault();
           const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
           const noteLength = getNoteLength(noteValue);
@@ -824,8 +854,6 @@ export const Grid = memo(
         }
         if (e.key === "Alt") {
           setAltPressed(false);
-          loopDragStart.current = null; // Cancel loop drag when alt is released
-          setLoopSelectionStart(null); // Cancel loop selection when alt is released
         }
         if (e.key === "Control") {
           setCtrlPressed(false);
@@ -889,6 +917,9 @@ export const Grid = memo(
       onSetNoteRepeatAmount,
       onSetNoteRepeatSpace,
       renderedNotes,
+      currentLoop,
+      currentPattern,
+      onSetPatternLoop,
     ]);
 
     // Scrolling text animation when a message is set
@@ -1074,42 +1105,8 @@ export const Grid = memo(
 
     const handleMouseUp = useCallback(() => {
       dragMode.current = null;
-      loopDragStart.current = null;
       visitedCells.current.clear();
     }, []);
-
-    const handleLoopMouseDown = useCallback(
-      (col: number) => {
-        if (loopSelectionStart === null) {
-          // First click - set the start
-          setLoopSelectionStart(col);
-          loopDragStart.current = col;
-          // Set a single-column loop at this position initially
-          onSetPatternLoop(currentChannel, currentPattern, col, 1);
-        } else {
-          // Subsequent click - set the end (can be before start)
-          const start = Math.min(loopSelectionStart, col);
-          const end = Math.max(loopSelectionStart, col);
-          const length = end - start + 1;
-          onSetPatternLoop(currentChannel, currentPattern, start, length);
-          // Keep loopSelectionStart set so further clicks continue to adjust
-          loopDragStart.current = loopSelectionStart;
-        }
-      },
-      [currentChannel, currentPattern, onSetPatternLoop, loopSelectionStart],
-    );
-
-    const handleLoopDragEnter = useCallback(
-      (col: number) => {
-        if (loopDragStart.current === null) return;
-
-        const start = Math.min(loopDragStart.current, col);
-        const end = Math.max(loopDragStart.current, col);
-        const length = end - start + 1;
-        onSetPatternLoop(currentChannel, currentPattern, start, length);
-      },
-      [currentChannel, currentPattern, onSetPatternLoop],
-    );
 
     // Compute OLED display content based on current state
     // Each value can be an array of parts with individual highlighting
@@ -1468,10 +1465,6 @@ export const Grid = memo(
                     }
 
                     // Check if this is the loop selection start (for visual feedback)
-                    const isPendingLoopStart =
-                      loopSelectionStart !== null &&
-                      actualCol === loopSelectionStart;
-
                     // Check for off-screen note indicator (only if cell is not already active)
                     const offScreenCount = isActive
                       ? 0
@@ -1503,21 +1496,17 @@ export const Grid = memo(
                       ? channelColor + opacityHex
                       : channelColor;
 
-                    // Handle click - either loop setting (Alt), shift note length, or normal toggle
+                    // Handle click - shift note length, or normal toggle
                     // Disable when meta is pressed (meta mode shows pattern selector)
                     const handleClick = () => {
                       if (ctrlPressed) return; // Don't toggle notes in ctrl mode
-                      if (altPressed) {
-                        handleLoopMouseDown(actualCol);
-                      } else {
-                        handleCellMouseDown(
-                          actualRow,
-                          actualCol,
-                          isActive,
-                          shiftPressed,
-                          metaPressed,
-                        );
-                      }
+                      handleCellMouseDown(
+                        actualRow,
+                        actualCol,
+                        isActive,
+                        shiftPressed,
+                        metaPressed,
+                      );
                     };
 
                     return (
@@ -1551,7 +1540,6 @@ export const Grid = memo(
                           !isBeatMarker &&
                           !ctrlPressed
                         }
-                        isPendingLoopStart={isPendingLoopStart && !ctrlPressed}
                         isNoteStart={isNoteStart && !ctrlPressed}
                         isNoteContinuation={isNoteContinuation && !ctrlPressed}
                         isNoteCurrentlyPlaying={
@@ -1565,16 +1553,12 @@ export const Grid = memo(
                         onToggle={handleClick}
                         onDragEnter={() => {
                           if (ctrlPressed) return;
-                          if (altPressed) {
-                            handleLoopDragEnter(actualCol);
-                          } else {
-                            handleCellDragEnter(
-                              actualRow,
-                              actualCol,
-                              isActive,
-                              shiftPressed,
-                            );
-                          }
+                          handleCellDragEnter(
+                            actualRow,
+                            actualCol,
+                            isActive,
+                            shiftPressed,
+                          );
                         }}
                       />
                     );
