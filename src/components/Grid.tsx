@@ -268,7 +268,7 @@ interface GridProps {
     start: number,
     length: number,
   ) => void;
-  onPlayNote: (note: number, channel: number) => void;
+  onPlayNote: (note: number, channel: number, steps?: number) => void;
   channelsPlayingNow: boolean[]; // Which channels have a note playing at current step
   isPulseBeat: boolean; // True every 4 beats for queued pattern animation
   isPlaying: boolean; // Whether the sequencer is currently playing
@@ -280,6 +280,7 @@ interface GridProps {
   onToggleSolo: (channel: number) => void; // Toggle solo for a channel
   onCopyPattern: (targetPattern: number) => void; // Copy current pattern to target
   onMoveNote: (fromRow: number, fromCol: number, toRow: number, toCol: number) => void; // Move a note from one position to another
+  onPlaceNote: (row: number, col: number) => void; // Place a note (truncate overlapping notes) when deselected
 }
 
 export const Grid = memo(
@@ -310,6 +311,7 @@ export const Grid = memo(
     onToggleSolo,
     onCopyPattern,
     onMoveNote,
+    onPlaceNote,
   }: GridProps) => {
     // Store row offset per channel
     const [rowOffsets, setRowOffsets] = useState<number[]>(() =>
@@ -326,6 +328,20 @@ export const Grid = memo(
     const scrollingTextColor = "#00ffff"; // Cyan color for text
     // Selected note state (row, col) - for arrow key movement
     const [selectedNote, setSelectedNote] = useState<{ row: number; col: number } | null>(null);
+
+    // Helper to select a new note - places the old note first (truncates overlapping notes)
+    const selectNote = useCallback((newSelection: { row: number; col: number } | null) => {
+      setSelectedNote((prevSelection) => {
+        // If there was a previously selected note and we're selecting a different note,
+        // place the old note (truncate overlapping notes)
+        if (prevSelection && (!newSelection ||
+            prevSelection.row !== newSelection.row ||
+            prevSelection.col !== newSelection.col)) {
+          onPlaceNote(prevSelection.row, prevSelection.col);
+        }
+        return newSelection;
+      });
+    }, [onPlaceNote]);
     // Track loop selection start (persists while Alt is held)
     const [loopSelectionStart, setLoopSelectionStart] = useState<number | null>(
       null,
@@ -577,8 +593,33 @@ export const Grid = memo(
           return;
         }
 
-        // Handle arrow keys for moving selected note
-        if (selectedNote && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        // Handle shift+arrow left/right for resizing selected note
+        if (selectedNote && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+          e.preventDefault();
+          const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
+          if (noteLength > 0) {
+            let newLength = noteLength;
+            if (e.key === "ArrowLeft") {
+              // Shrink note (minimum length 1)
+              newLength = Math.max(1, noteLength - 1);
+            } else {
+              // Extend note (don't exceed grid bounds)
+              const maxLength = TOTAL_COLS - selectedNote.col;
+              newLength = Math.min(maxLength, noteLength + 1);
+            }
+            if (newLength !== noteLength) {
+              onSetNote(selectedNote.row, selectedNote.col, newLength);
+              // Preview sound with the new length when not playing
+              if (!isPlaying) {
+                onPlayNote(selectedNote.row, currentChannel, newLength);
+              }
+            }
+          }
+          return;
+        }
+
+        // Handle arrow keys for moving selected note (without shift)
+        if (selectedNote && !e.shiftKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
           e.preventDefault();
           const noteLength = gridState[selectedNote.row]?.[selectedNote.col] ?? 0;
           if (noteLength > 0) {
@@ -603,6 +644,30 @@ export const Grid = memo(
             if (newRow !== selectedNote.row || newCol !== selectedNote.col) {
               onMoveNote(selectedNote.row, selectedNote.col, newRow, newCol);
               setSelectedNote({ row: newRow, col: newCol });
+
+              // Follow the note with the camera if it moves outside visible area
+              // Row: check if newRow is outside [startRow, startRow + VISIBLE_ROWS - 1]
+              if (newRow < startRow) {
+                // Note moved below visible area - scroll down
+                const newRowOffset = 1 - (newRow / maxRowOffset);
+                setRowOffset(Math.max(0, Math.min(1, newRowOffset)));
+              } else if (newRow > startRow + VISIBLE_ROWS - 1) {
+                // Note moved above visible area - scroll up
+                const newRowOffset = 1 - ((newRow - VISIBLE_ROWS + 1) / maxRowOffset);
+                setRowOffset(Math.max(0, Math.min(1, newRowOffset)));
+              }
+
+              // Column: check if newCol is outside [startCol, startCol + VISIBLE_COLS - 1]
+              if (newCol < startCol) {
+                // Note moved left of visible area - scroll left
+                const newColOffset = newCol / maxColOffset;
+                setColOffset(Math.max(0, Math.min(1, newColOffset)));
+              } else if (newCol > startCol + VISIBLE_COLS - 1) {
+                // Note moved right of visible area - scroll right
+                const newColOffset = (newCol - VISIBLE_COLS + 1) / maxColOffset;
+                setColOffset(Math.max(0, Math.min(1, newColOffset)));
+              }
+
               // Play note when moving (preview sound)
               if (!isPlaying) {
                 onPlayNote(newRow, currentChannel);
@@ -626,14 +691,14 @@ export const Grid = memo(
             const noteAtCell = gridState[actualRow]?.[actualCol] ?? 0;
             if (noteAtCell > 0) {
               // This is a note start
-              setSelectedNote({ row: actualRow, col: actualCol });
+              selectNote({ row: actualRow, col: actualCol });
             } else {
               // Check if this is part of a note continuation
               for (let c = actualCol - 1; c >= 0; c--) {
                 const prevNote = gridState[actualRow]?.[c] ?? 0;
                 if (prevNote > 0 && c + prevNote > actualCol) {
                   // Found the note start
-                  setSelectedNote({ row: actualRow, col: c });
+                  selectNote({ row: actualRow, col: c });
                   break;
                 } else if (prevNote > 0) {
                   break; // Different note, stop searching
@@ -669,8 +734,8 @@ export const Grid = memo(
 
               // Set note at the start position with the calculated length
               onSetNote(actualRow, startColNote, noteLength);
-              // Auto-select the new note
-              setSelectedNote({ row: actualRow, col: startColNote });
+              // Auto-select the new note (places old note first)
+              selectNote({ row: actualRow, col: startColNote });
 
               // Play note when not playing (preview sound)
               if (!isPlaying) {
@@ -715,9 +780,9 @@ export const Grid = memo(
           const wasActive = (gridState[heldNote.row]?.[heldNote.col] ?? 0) > 0;
           onToggleCell(heldNote.row, heldNote.col);
 
-          // Auto-select the new note if we just created it
+          // Auto-select the new note if we just created it (places old note first)
           if (!wasActive) {
-            setSelectedNote({ row: heldNote.row, col: heldNote.col });
+            selectNote({ row: heldNote.row, col: heldNote.col });
           }
 
           // Play note when not playing (preview sound)
@@ -751,6 +816,11 @@ export const Grid = memo(
       heldNote,
       selectedNote,
       onMoveNote,
+      selectNote,
+      maxRowOffset,
+      maxColOffset,
+      setRowOffset,
+      setColOffset,
     ]);
 
     // Scrolling text animation when a message is set
@@ -812,7 +882,7 @@ export const Grid = memo(
           if ((gridState[row]?.[col] ?? 0) > 0) {
             noteStartCol = col;
           }
-          setSelectedNote({ row, col: noteStartCol });
+          selectNote({ row, col: noteStartCol });
           return;
         }
 
@@ -829,7 +899,7 @@ export const Grid = memo(
             // Extend the found note to the current position
             const noteLength = col - foundNoteCol + 1;
             onSetNote(row, foundNoteCol, noteLength);
-            setSelectedNote({ row, col: foundNoteCol }); // Auto-select extended note
+            selectNote({ row, col: foundNoteCol }); // Auto-select extended note (places old note first)
             dragMode.current = true;
             visitedCells.current.clear();
             visitedCells.current.add(`${row}-${col}`);
@@ -848,9 +918,9 @@ export const Grid = memo(
         visitedCells.current.clear();
         visitedCells.current.add(`${row}-${col}`);
         onToggleCell(row, col);
-        // Auto-select new note
+        // Auto-select new note (places old note first)
         if (turningOn) {
-          setSelectedNote({ row, col });
+          selectNote({ row, col });
         }
         // Play note when not playing (preview sound)
         if (!isPlaying) {
@@ -864,6 +934,7 @@ export const Grid = memo(
         currentChannel,
         isPlaying,
         gridState,
+        selectNote,
       ],
     );
 

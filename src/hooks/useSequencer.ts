@@ -222,6 +222,9 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
   );
 
   // Move a note from one position to another
+  // Note: This does NOT truncate overlapping notes - the selected note passes over
+  // other notes without affecting them. Truncation happens when the note is "placed"
+  // (deselected) via the placeNote function.
   const moveNote = useCallback(
     (fromRow: number, fromCol: number, toRow: number, toCol: number) => {
       setChannels((prev) => {
@@ -237,10 +240,34 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         if (noteLength > 0) {
           // Clear the old position
           grid[fromRow][fromCol] = 0;
-          // Truncate any overlapping note at the new position
-          truncateOverlappingNote(grid[toRow], toCol);
-          // Set the note at the new position
+          // Set the note at the new position (no truncation while moving)
           grid[toRow][toCol] = noteLength;
+        }
+        return newChannels;
+      });
+    },
+    [currentChannel, currentPattern],
+  );
+
+  // Place a note at a position, truncating any overlapping notes
+  // Called when a selected note is deselected (placed in its final position)
+  const placeNote = useCallback(
+    (row: number, col: number) => {
+      setChannels((prev) => {
+        const newChannels = prev.map((ch, chIdx) =>
+          chIdx === currentChannel
+            ? ch.map((pattern, pIdx) =>
+                pIdx === currentPattern ? pattern.map((r) => [...r]) : pattern,
+              )
+            : ch,
+        );
+        const grid = newChannels[currentChannel][currentPattern];
+        const noteLength = grid[row][col];
+        if (noteLength > 0) {
+          // Now truncate any overlapping notes at this position
+          truncateOverlappingNote(grid[row], col);
+          // Re-set the note (in case truncation affected it)
+          grid[row][col] = noteLength;
         }
         return newChannels;
       });
@@ -499,6 +526,7 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
     toggleCell,
     setNote,
     moveNote,
+    placeNote,
     copyPatternTo,
     clearGrid,
     clearAllChannels,

@@ -116,6 +116,7 @@ function App() {
     toggleCell,
     setNote,
     moveNote,
+    placeNote,
     copyPatternTo,
     clearGrid,
     play,
@@ -151,12 +152,16 @@ function App() {
   setBpmRef.current = setBpm; // Update BPM display from external clock
 
   const handlePlayNote = useCallback(
-    (note: number, channel: number) => {
+    (note: number, channel: number, steps: number = 1) => {
       // Use channel + 1 for MIDI channel (1-8)
       playNote(note, 100, channel + 1);
-      setTimeout(() => stopNote(note, channel + 1), 100);
+      // Calculate duration based on BPM and number of steps
+      // At 120 BPM, one beat = 500ms, one step (16th note) = 125ms
+      const msPerStep = (60000 / bpm) / 4;
+      const duration = Math.max(50, msPerStep * steps - 10); // Subtract 10ms for note separation
+      setTimeout(() => stopNote(note, channel + 1), duration);
     },
-    [playNote, stopNote]
+    [playNote, stopNote, bpm]
   );
 
   const handleStop = useCallback(() => {
@@ -229,6 +234,7 @@ function App() {
           onToggleSolo={toggleSolo}
           onCopyPattern={copyPatternTo}
           onMoveNote={moveNote}
+          onPlaceNote={placeNote}
         />
       </Box>
     </ThemeProvider>
