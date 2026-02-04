@@ -304,7 +304,11 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         const grid = newChannels[currentChannel][currentPattern];
         const noteValue = grid[row][col];
         if (noteValue !== null) {
-          grid[row][col] = { ...noteValue, repeatAmount };
+          // Clamp length to not exceed repeatSpace (only if repeating)
+          const clampedLength = repeatAmount > 1
+            ? Math.min(noteValue.length, noteValue.repeatSpace)
+            : noteValue.length;
+          grid[row][col] = { ...noteValue, repeatAmount, length: clampedLength };
         }
         return newChannels;
       });
@@ -326,7 +330,11 @@ export const useSequencer = ({ onStepTrigger }: UseSequencerOptions) => {
         const grid = newChannels[currentChannel][currentPattern];
         const noteValue = grid[row][col];
         if (noteValue !== null) {
-          grid[row][col] = { ...noteValue, repeatSpace };
+          // Clamp length to not exceed the new repeatSpace (only if repeating)
+          const clampedLength = noteValue.repeatAmount > 1
+            ? Math.min(noteValue.length, repeatSpace)
+            : noteValue.length;
+          grid[row][col] = { ...noteValue, repeatSpace, length: clampedLength };
         }
         return newChannels;
       });

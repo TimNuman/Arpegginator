@@ -156,6 +156,21 @@ const oledValueStyles = css`
   text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
 `;
 
+const oledHighlightStyles = css`
+  color: #ff0;
+  font-size: 12px;
+  font-weight: 500;
+  text-shadow: 0 0 8px rgba(255, 255, 0, 0.5);
+`;
+
+// Convert MIDI note number to note name (e.g., 60 -> "C4")
+const midiNoteToName = (midiNote: number): string => {
+  const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const octave = Math.floor(midiNote / 12) - 1;
+  const noteName = noteNames[midiNote % 12];
+  return `${noteName}${octave}`;
+};
+
 const rotaryEncoderStyles = css`
   width: 80px;
   height: 80px;
@@ -657,8 +672,12 @@ export const Grid = memo(
               // Shrink note (minimum length 1)
               newLength = Math.max(1, noteLength - 1);
             } else {
-              // Extend note (don't exceed grid bounds)
-              const maxLength = TOTAL_COLS - selectedNote.col;
+              // Extend note (don't exceed grid bounds, or repeatSpace if repeating)
+              const repeatAmount = getRepeatAmount(noteValue);
+              let maxLength = TOTAL_COLS - selectedNote.col;
+              if (repeatAmount > 1) {
+                maxLength = Math.min(maxLength, getRepeatSpace(noteValue));
+              }
               newLength = Math.min(maxLength, noteLength + 1);
             }
             if (newLength !== noteLength) {
@@ -744,8 +763,12 @@ export const Grid = memo(
             // Check if there's a note at this position (using renderedNotes which includes repeats)
             const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
             if (note) {
-              // Select the source note (parent NotePattern), not the repeat
-              selectNote({ row: actualRow, col: note.sourceCol });
+              // Cmd+key on a note: turn off the NotePattern
+              onToggleCell(actualRow, note.sourceCol);
+              // Deselect if this was selected
+              if (selectedNote && selectedNote.row === actualRow && selectedNote.col === note.sourceCol) {
+                setSelectedNote(null);
+              }
             }
             return;
           }
@@ -906,22 +929,26 @@ export const Grid = memo(
       (
         row: number,
         col: number,
-        currentActive: boolean,
+        _currentActive: boolean, // No longer used, kept for interface compatibility
         isShiftClick: boolean,
         isMetaClick: boolean,
       ) => {
-        // Cmd+click: select the note (find the source NotePattern if clicking on continuation or repeat)
-        if (isMetaClick && currentActive) {
-          const note = findNoteAtCell(renderedNotes, row, col);
-          if (note) {
-            // Select the source note (parent NotePattern)
-            selectNote({ row, col: note.sourceCol });
+        // Find if there's a note at this cell (includes repeats and continuations)
+        const noteAtCell = findNoteAtCell(renderedNotes, row, col);
+
+        // Cmd+click on a note: turn off the NotePattern
+        if (isMetaClick && noteAtCell) {
+          // Delete the source NotePattern
+          onToggleCell(row, noteAtCell.sourceCol);
+          // Deselect if this was selected
+          if (selectedNote && selectedNote.row === row && selectedNote.col === noteAtCell.sourceCol) {
+            setSelectedNote(null);
           }
           return;
         }
 
+        // Shift-click: find the first note to the left on this row and extend it
         if (isShiftClick) {
-          // Shift-click: find the first note to the left on this row and extend it
           let foundNoteCol = -1;
           for (let c = col - 1; c >= 0; c--) {
             if (getNoteLength(gridState[row]?.[c]) > 0) {
@@ -943,19 +970,34 @@ export const Grid = memo(
             }
             return;
           }
-          // No note found to the left, fall through to normal toggle
+          // No note found to the left, fall through to normal behavior
         }
 
-        // Normal click - toggle single note
-        const turningOn = !currentActive;
-        dragMode.current = turningOn;
+        // Click on a note (including continuations/repeats): select/deselect
+        if (noteAtCell) {
+          const sourceCol = noteAtCell.sourceCol;
+          // Toggle selection
+          if (selectedNote && selectedNote.row === row && selectedNote.col === sourceCol) {
+            // Already selected - deselect
+            selectNote(null);
+          } else {
+            // Select this note's source NotePattern
+            selectNote({ row, col: sourceCol });
+          }
+          // Play note when not playing (preview sound)
+          if (!isPlaying) {
+            onPlayNote(row, currentChannel);
+          }
+          return;
+        }
+
+        // Click on empty space: create a new NotePattern
+        dragMode.current = true;
         visitedCells.current.clear();
         visitedCells.current.add(`${row}-${col}`);
         onToggleCell(row, col);
-        // Auto-select new note (places old note first)
-        if (turningOn) {
-          selectNote({ row, col });
-        }
+        // Auto-select the new note
+        selectNote({ row, col });
         // Play note when not playing (preview sound)
         if (!isPlaying) {
           onPlayNote(row, currentChannel);
@@ -1068,6 +1110,90 @@ export const Grid = memo(
       },
       [currentChannel, currentPattern, onSetPatternLoop],
     );
+
+    // Compute OLED display content based on current state
+    // Each value can be an array of parts with individual highlighting
+    type OledValuePart = { text: string; highlight?: boolean };
+    type OledRow = { label: string; valueParts: OledValuePart[] };
+
+    const getOledContent = (): { rows: OledRow[] } => {
+      // Get selected note info if available
+      const selectedNoteValue = selectedNote
+        ? gridState[selectedNote.row]?.[selectedNote.col]
+        : null;
+      const selectedNoteLength = selectedNoteValue ? getNoteLength(selectedNoteValue) : 0;
+      const selectedRepeatAmount = selectedNoteValue ? getRepeatAmount(selectedNoteValue) : 1;
+      const selectedRepeatSpace = selectedNoteValue ? getRepeatSpace(selectedNoteValue) : 4;
+
+      // Modifier key combinations determine the action being shown
+      if (selectedNote && selectedNoteLength > 0) {
+        // A note is selected - always show Note, Length, Repeat
+        // Highlight the specific value being changed based on modifier keys
+        const noteName = midiNoteToName(selectedNote.row);
+
+        const highlightLength = shiftPressed && !metaPressed;
+        const highlightRepeatAmount = metaPressed && !shiftPressed;
+        const highlightRepeatSpace = metaPressed && shiftPressed;
+
+        return {
+          rows: [
+            { label: "NOTE", valueParts: [{ text: noteName }] },
+            { label: "LENGTH", valueParts: [{ text: `${selectedNoteLength}`, highlight: highlightLength }] },
+            { label: "REPEAT", valueParts: [
+              { text: `${selectedRepeatAmount}`, highlight: highlightRepeatAmount },
+              { text: "x" },
+              { text: `${selectedRepeatSpace}`, highlight: highlightRepeatSpace },
+            ]},
+          ],
+        };
+      }
+
+      // No note selected - show modifier actions or default info
+      if (ctrlPressed && altPressed) {
+        return {
+          rows: [
+            { label: "MODE", valueParts: [{ text: "MUTE/SOLO" }] },
+            { label: "CH", valueParts: [{ text: `${currentChannel + 1}` }] },
+            { label: "", valueParts: [] },
+          ],
+        };
+      } else if (ctrlPressed) {
+        return {
+          rows: [
+            { label: "MODE", valueParts: [{ text: "CHANNEL" }] },
+            { label: "SELECT", valueParts: [{ text: `CH ${currentChannel + 1}` }] },
+            { label: "", valueParts: [] },
+          ],
+        };
+      } else if (altPressed) {
+        return {
+          rows: [
+            { label: "MODE", valueParts: [{ text: "LOOP" }] },
+            { label: "RANGE", valueParts: [{ text: `${currentLoop.start + 1}-${currentLoop.start + currentLoop.length}` }] },
+            { label: "", valueParts: [] },
+          ],
+        };
+      } else if (shiftPressed) {
+        return {
+          rows: [
+            { label: "MODE", valueParts: [{ text: "EXTEND" }] },
+            { label: "NOTE", valueParts: [{ text: "DRAG" }] },
+            { label: "", valueParts: [] },
+          ],
+        };
+      }
+
+      // Default: show channel/pattern/loop info
+      return {
+        rows: [
+          { label: "CH", valueParts: [{ text: `${currentChannel + 1}` }] },
+          { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
+          { label: "LOOP", valueParts: [{ text: `${currentLoop.start + 1}-${currentLoop.start + currentLoop.length}` }] },
+        ],
+      };
+    };
+
+    const oledContent = getOledContent();
 
     return (
       <Box
@@ -1519,21 +1645,21 @@ export const Grid = memo(
             `}
           >
             <Box css={oledScreenStyles}>
-              <Box css={oledRowStyles}>
-                <span css={oledLabelStyles}>CH</span>
-                <span css={oledValueStyles}>{currentChannel + 1}</span>
-              </Box>
-              <Box css={oledRowStyles}>
-                <span css={oledLabelStyles}>PAT</span>
-                <span css={oledValueStyles}>{currentPattern + 1}</span>
-              </Box>
-              <Box css={oledRowStyles}>
-                <span css={oledLabelStyles}>LOOP</span>
-                <span css={oledValueStyles}>
-                  {currentLoop.start + 1}-
-                  {currentLoop.start + currentLoop.length}
-                </span>
-              </Box>
+              {oledContent.rows.map((row, index) => (
+                <Box key={index} css={oledRowStyles}>
+                  <span css={oledLabelStyles}>{row.label}</span>
+                  <span>
+                    {row.valueParts.map((part, partIndex) => (
+                      <span
+                        key={partIndex}
+                        css={part.highlight ? oledHighlightStyles : oledValueStyles}
+                      >
+                        {part.text}
+                      </span>
+                    ))}
+                  </span>
+                </Box>
+              ))}
             </Box>
             {/* Rotary Encoder */}
             <Box css={rotaryEncoderStyles}>
