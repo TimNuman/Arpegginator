@@ -1,8 +1,7 @@
 import { memo, useCallback, useMemo } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
-import { GridButton } from "../GridButton";
-import { ButtonGrid, BUTTON_OFF, BUTTON_COLOR_100, FLAG_PLAYHEAD, FLAG_C_NOTE, FLAG_LOOP_BOUNDARY, FLAG_BEAT_MARKER, FLAG_SELECTED, FLAG_CONTINUATION, FLAG_PLAYING, FLAG_LOOP_BOUNDARY_PULSING, FLAG_MODE_HINT_CHANNEL, FLAG_MODE_HINT_PATTERN, FLAG_MODE_HINT_LOOP } from "../ButtonGrid";
+import { ButtonGrid, BUTTON_OFF, BUTTON_COLOR_100, BUTTON_COLOR_50, BUTTON_COLOR_25, FLAG_PLAYHEAD, FLAG_C_NOTE, FLAG_LOOP_BOUNDARY, FLAG_BEAT_MARKER, FLAG_SELECTED, FLAG_CONTINUATION, FLAG_PLAYING, FLAG_LOOP_BOUNDARY_PULSING, FLAG_DIMMED } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useGridController } from "../../hooks/useGridController";
 import { CHANNEL_COLORS } from "./ChannelColors";
@@ -30,6 +29,9 @@ import {
   getRepeatSpace,
   findNoteAtCell,
 } from "../../types/grid";
+
+// Mode hint colors
+const MODE_HINT_COLORS = ['#33CCFF', '#33FF66', '#FFCC33'] as const;
 
 // Convert MIDI note number to note name
 const midiNoteToName = (midiNote: number): string => {
@@ -65,11 +67,6 @@ const gridContainerStyles = css`
   box-shadow:
     0 10px 40px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
-`;
-
-const rowStyles = css`
-  display: flex;
-  flex-direction: row;
 `;
 
 const verticalStripContainerStyles = css`
@@ -267,7 +264,7 @@ interface GridProps {
 export const Grid = memo(({ onPlayNote }: GridProps) => {
   const controller = useGridController({ onPlayNote });
 
-  // Additional store state for ctrl mode
+  // Additional store state for channel mode
   const currentPatterns = useCurrentPatterns();
   const queuedPatterns = useQueuedPatterns();
   const allPatternsHaveNotes = useAllPatternsHaveNotes();
@@ -316,12 +313,17 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           currentLoop.length)
       : -1;
 
-  // Compute button values for ButtonGrid (normal mode)
-  const buttonValues = useMemo(() => {
+  // Compute button values and color overrides for all modes
+  const { buttonValues, colorOverrides } = useMemo(() => {
     const values: number[][] = [];
+    const colors: (string | null)[][] = [];
+    const anySoloed = soloedChannels.some((s) => s);
 
     for (let visibleRow = 0; visibleRow < VISIBLE_ROWS; visibleRow++) {
       const row: number[] = [];
+      const colorRow: (string | null)[] = [];
+
+      // Always render the note grid as the base layer
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
 
       for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
@@ -338,10 +340,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const noteEndCol = noteAtCell.col + noteAtCell.length - 1;
           const isNoteCurrentlyPlaying = loopedStep >= noteStartCol && loopedStep <= noteEndCol;
 
-          // Base: note is active
           value = BUTTON_COLOR_100;
 
-          // Flags
           if (!isNoteStart) {
             value |= FLAG_CONTINUATION;
           }
@@ -350,7 +350,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             value |= FLAG_PLAYING;
           }
 
-          // Check if selected
           if (selectedNote && selectedNote.row === actualRow && selectedNote.col === noteAtCell.sourceCol) {
             value |= FLAG_SELECTED;
           }
@@ -359,65 +358,187 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const isInLoop = actualCol >= currentLoop.start && actualCol < loopEnd;
 
           if (isInLoop) {
-            // Playhead
             if (actualCol === loopedStep) {
               value |= FLAG_PLAYHEAD;
             }
 
-            // Loop boundary
             if (actualCol === currentLoop.start || actualCol === loopEnd - 1) {
               value |= FLAG_LOOP_BOUNDARY;
               if (uiMode === 'loop') {
                 value |= FLAG_LOOP_BOUNDARY_PULSING;
               }
-            }
-            // Beat marker (every 4th column, alternating groups)
-            else if (Math.floor(actualCol / 4) % 2 === 0) {
+            } else if (Math.floor(actualCol / 4) % 2 === 0) {
               value |= FLAG_BEAT_MARKER;
             }
           }
         }
 
-        // C note marker (any row where MIDI note % 12 === 0)
+        // C note marker
         if (actualRow % 12 === 0) {
           value |= FLAG_C_NOTE;
         }
 
         // Mode hint on bottom row (Z/X/C keys) — only while ctrl is held
-        if (keyboard.ctrl && visibleRow === 7) {
-          if (visibleCol === 0) value |= FLAG_MODE_HINT_CHANNEL;
-          else if (visibleCol === 1) value |= FLAG_MODE_HINT_PATTERN;
-          else if (visibleCol === 2) value |= FLAG_MODE_HINT_LOOP;
+        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
+          value = BUTTON_COLOR_100;
+          colorRow.push(MODE_HINT_COLORS[visibleCol]);
+          row.push(value);
+          continue;
         }
 
+        // Channel mode: overlay channel selector on top of note grid
+        if (uiMode === 'channel') {
+          const channelIndex = visibleRow;
+          const chColor = CHANNEL_COLORS[channelIndex];
+          const patternsForChannel = allPatternsHaveNotes[channelIndex];
+          const currentPatternForChannel = currentPatterns[channelIndex];
+
+          if (visibleCol === 0) {
+            // Column 0: mute/solo indicator (always shown)
+            const isMuted = mutedChannels[channelIndex];
+            const isSoloed = soloedChannels[channelIndex];
+            const isPlayingNow = currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
+
+            let cellColor: string;
+            if (isSoloed) {
+              cellColor = chColor;
+            } else if (isMuted) {
+              cellColor = chColor + "1A";
+            } else if (anySoloed) {
+              cellColor = chColor + "4D";
+            } else {
+              cellColor = chColor + "80";
+            }
+
+            value = BUTTON_COLOR_100;
+            if (isPlayingNow) value |= FLAG_PLAYHEAD;
+            colorRow.push(cellColor);
+            row.push(value);
+            continue;
+          }
+
+          const patternIndex = visibleCol - 1;
+          const patternHasNotes = patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
+          const isSelectedPattern = channelIndex === currentChannel && patternIndex === currentPatternForChannel;
+          const isActivePattern = patternIndex === currentPatternForChannel;
+          const isQueued = patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
+          const isPlayingNow = isActivePattern && channelsPlayingNow[channelIndex];
+          const isPulsing = isQueued && isPulseBeat;
+          const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
+
+          if (!isEmptyPattern) {
+            // Non-empty pattern: overlay channel button on top
+            let cellColor = chColor;
+            value = BUTTON_COLOR_50;
+
+            if (isSelectedPattern) {
+              value = BUTTON_COLOR_100;
+            } else if (isQueued) {
+              const intensity = isPulsing ? 0.7 : 0.35;
+              const hex = Math.round(intensity * 255).toString(16).padStart(2, "0");
+              cellColor = chColor + hex;
+            }
+
+            if (isPlayingNow || isPulsing) value |= FLAG_PLAYHEAD;
+            colorRow.push(cellColor);
+            row.push(value);
+            continue;
+          }
+          // Empty pattern slot: fall through to show note grid underneath
+        }
+
+        colorRow.push(null);
         row.push(value);
       }
 
       values.push(row);
+      colors.push(colorRow);
     }
 
-    return values;
-  }, [renderedNotes, startRow, startCol, currentLoop.start, loopEnd, loopedStep, selectedNote, uiMode, keyboard.ctrl]);
+    // Channel mode: dim cells without channel overlay (note grid base layer)
+    if (uiMode === 'channel') {
+      for (let r = 0; r < VISIBLE_ROWS; r++) {
+        for (let c = 0; c < VISIBLE_COLS; c++) {
+          if (colors[r][c] !== null) continue; // Has channel overlay, skip
+          values[r][c] |= FLAG_DIMMED;
+        }
+      }
+    }
+
+    // Ctrl held (mode selection): dim everything except mode hint buttons
+    if (keyboard.ctrl) {
+      for (let r = 0; r < VISIBLE_ROWS; r++) {
+        for (let c = 0; c < VISIBLE_COLS; c++) {
+          if (r === 7 && c <= 2) continue; // Skip mode hint buttons
+          values[r][c] |= FLAG_DIMMED;
+        }
+      }
+    }
+
+    return { buttonValues: values, colorOverrides: colors };
+  }, [
+    uiMode, renderedNotes, startRow, startCol, currentLoop.start, loopEnd, loopedStep,
+    selectedNote, keyboard.ctrl,
+    // Channel mode deps
+    allPatternsHaveNotes, currentPatterns, queuedPatterns, channelsPlayingNow,
+    isPulseBeat, mutedChannels, soloedChannels, currentChannel,
+  ]);
 
   // Handle button press from ButtonGrid
   const handleButtonPress = useCallback((visibleRow: number, visibleCol: number) => {
-    // Ctrl+click on bottom row cols 0/1/2: switch UI mode
-    if (keyboard.ctrl && visibleRow === 7) {
-      if (visibleCol === 0) { actions.setUiMode('channel'); return; }
-      if (visibleCol === 1) { actions.setUiMode('pattern'); return; }
-      if (visibleCol === 2) { actions.setUiMode('loop'); return; }
+    // Ctrl+click on bottom row cols 0/1/2: switch UI mode (works in all modes)
+    if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
+      const modes: Array<'channel' | 'pattern' | 'loop'> = ['channel', 'pattern', 'loop'];
+      actions.setUiMode(modes[visibleCol]);
+      return;
     }
+
+    if (uiMode === 'channel') {
+      const channelIndex = visibleRow;
+
+      if (visibleCol === 0) {
+        // Mute/solo toggle
+        if (keyboard.alt) {
+          actions.toggleSolo(channelIndex);
+        } else {
+          actions.toggleMute(channelIndex);
+        }
+        return;
+      }
+
+      // Pattern selection (cols 1-7)
+      const patternIndex = visibleCol - 1;
+      const patternsForChannel = allPatternsHaveNotes[channelIndex];
+      const currentPatternForChannel = currentPatterns[channelIndex];
+      const patternHasNotes = patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
+      const isSelectedPattern = channelIndex === currentChannel && patternIndex === currentPatternForChannel;
+      const isQueued = patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
+      const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
+
+      if (keyboard.shift && isEmptyPattern && channelIndex === currentChannel) {
+        actions.copyPatternTo(patternIndex);
+        actions.setChannelPattern(channelIndex, patternIndex);
+      } else {
+        actions.setCurrentChannel(channelIndex);
+        actions.setChannelPattern(channelIndex, patternIndex);
+      }
+      actions.setUiMode('pattern');
+      return;
+    }
+
+    // Pattern / loop mode: delegate to grid controller
     const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
     const actualCol = startCol + visibleCol;
     onCellPress(actualRow, actualCol);
-  }, [startRow, startCol, onCellPress, keyboard.ctrl]);
+  }, [keyboard.ctrl, keyboard.alt, keyboard.shift, uiMode, startRow, startCol, onCellPress, allPatternsHaveNotes, currentPatterns, queuedPatterns, currentChannel]);
 
   // Handle button drag enter from ButtonGrid
   const handleButtonDragEnter = useCallback((visibleRow: number, visibleCol: number) => {
+    if (uiMode === 'channel') return; // No drag in channel mode
     const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
     const actualCol = startCol + visibleCol;
     onCellDragEnter(actualRow, actualCol);
-  }, [startRow, startCol, onCellDragEnter]);
+  }, [uiMode, startRow, startCol, onCellDragEnter]);
 
   // OLED display content
   type OledValuePart = { text: string; highlight?: boolean };
@@ -581,155 +702,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     }
   }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern]);
 
-  // Render Ctrl mode grid (channel/pattern selector)
-  const renderCtrlModeGrid = () => (
-    <>
-      {Array.from({ length: VISIBLE_ROWS }, (_, visibleRow) => {
-        const channelIndex = visibleRow;
-        const shiftColor = CHANNEL_COLORS[channelIndex];
-        const patternsForChannel = allPatternsHaveNotes[channelIndex];
-        const currentPatternForChannel = currentPatterns[channelIndex];
-        const anySoloed = soloedChannels.some((s) => s);
-
-        return (
-          <Box key={visibleRow} css={rowStyles}>
-            {Array.from({ length: VISIBLE_COLS }, (_, visibleCol) => {
-              // Ctrl held: mode hint buttons on bottom row
-              if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
-                const modeColors = ['#33CCFF', '#33FF66', '#FFCC33'];
-                const modes: Array<'channel' | 'pattern' | 'loop'> = ['channel', 'pattern', 'loop'];
-                return (
-                  <GridButton
-                    key={`${visibleRow}-${visibleCol}`}
-                    active={true}
-                    isPlayhead={false}
-                    rowColor={modeColors[visibleCol]}
-                    glowIntensity={1}
-                    onToggle={() => actions.setUiMode(modes[visibleCol])}
-                    onDragEnter={() => {}}
-                  />
-                );
-              }
-
-              const patternIndex = visibleCol - 1;
-
-              // Column 0: mute/solo buttons
-              if (visibleCol === 0) {
-                const isMuted = mutedChannels[channelIndex];
-                const isSoloed = soloedChannels[channelIndex];
-                const isPlayingNow = currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
-
-                let displayColor: string;
-                let glowIntensity: number;
-
-                if (isSoloed) {
-                  displayColor = shiftColor;
-                  glowIntensity = 1;
-                } else if (isMuted) {
-                  displayColor = shiftColor + "1A";
-                  glowIntensity = 0.1;
-                } else if (anySoloed) {
-                  displayColor = shiftColor + "4D";
-                  glowIntensity = 0.3;
-                } else {
-                  displayColor = shiftColor + "80";
-                  glowIntensity = 0.5;
-                }
-
-                const handleMuteClick = () => {
-                  if (keyboard.alt) {
-                    actions.toggleSolo(channelIndex);
-                  } else {
-                    actions.toggleMute(channelIndex);
-                  }
-                };
-
-                return (
-                  <GridButton
-                    key={`${visibleRow}-${visibleCol}`}
-                    active={true}
-                    isPlayhead={isPlayingNow}
-                    rowColor={displayColor}
-                    glowIntensity={glowIntensity}
-                    onToggle={handleMuteClick}
-                    onDragEnter={() => {}}
-                  />
-                );
-              }
-
-              // Pattern buttons
-              const patternHasNotes = patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
-              const isSelectedPattern = channelIndex === currentChannel && patternIndex === currentPatternForChannel;
-              const isActivePattern = patternIndex === currentPatternForChannel;
-              const isQueued = patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
-              const isPlayingNow = isActivePattern && channelsPlayingNow[channelIndex];
-              const isPulsing = isQueued && isPulseBeat;
-              const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
-
-              let displayColor: string;
-              let glowIntensity: number;
-
-              if (isSelectedPattern) {
-                displayColor = shiftColor;
-                glowIntensity = 1;
-              } else if (isQueued) {
-                const intensity = isPulsing ? 0.7 : 0.35;
-                const hex = Math.round(intensity * 255).toString(16).padStart(2, "0");
-                displayColor = shiftColor + hex;
-                glowIntensity = intensity;
-              } else if (patternHasNotes) {
-                displayColor = shiftColor + "B3";
-                glowIntensity = 0.7;
-              } else {
-                displayColor = shiftColor + "0D";
-                glowIntensity = 0.05;
-              }
-
-              const handleSelect = () => {
-                if (keyboard.shift && isEmptyPattern && channelIndex === currentChannel) {
-                  actions.copyPatternTo(patternIndex);
-                  actions.setChannelPattern(channelIndex, patternIndex);
-                } else {
-                  actions.setCurrentChannel(channelIndex);
-                  actions.setChannelPattern(channelIndex, patternIndex);
-                }
-                actions.setUiMode('pattern');
-              };
-
-              if (isEmptyPattern) {
-                return (
-                  <GridButton
-                    key={`${visibleRow}-${visibleCol}`}
-                    active={false}
-                    isPlayhead={false}
-                    rowColor={displayColor}
-                    dimmed={true}
-                    glowIntensity={glowIntensity}
-                    onToggle={handleSelect}
-                    onDragEnter={() => {}}
-                    metaOverlayColor={displayColor}
-                  />
-                );
-              }
-
-              return (
-                <GridButton
-                  key={`${visibleRow}-${visibleCol}`}
-                  active={true}
-                  isPlayhead={isPlayingNow || isPulsing}
-                  rowColor={displayColor}
-                  glowIntensity={glowIntensity}
-                  onToggle={handleSelect}
-                  onDragEnter={() => {}}
-                />
-              );
-            })}
-          </Box>
-        );
-      })}
-    </>
-  );
-
   return (
     <Box css={gridOuterContainerStyles}>
       <Box css={verticalStripContainerStyles}>
@@ -746,17 +718,14 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       </Box>
       <Box css={gridInnerContainerStyles}>
         <Box css={gridContainerStyles}>
-          {uiMode === 'channel' ? (
-            renderCtrlModeGrid()
-          ) : (
-            <ButtonGrid
-              values={buttonValues}
-              channelColor={channelColor}
-              onPress={handleButtonPress}
-              onDragEnter={handleButtonDragEnter}
-              onRelease={onCellRelease}
-            />
-          )}
+          <ButtonGrid
+            values={buttonValues}
+            channelColor={channelColor}
+            colorOverrides={colorOverrides}
+            onPress={handleButtonPress}
+            onDragEnter={handleButtonDragEnter}
+            onRelease={onCellRelease}
+          />
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>

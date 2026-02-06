@@ -51,9 +51,7 @@ const isSelected = (value: number): boolean => (value & 256) !== 0;
 const isNoteContinuation = (value: number): boolean => (value & 512) !== 0;
 const isCurrentlyPlaying = (value: number): boolean => (value & 1024) !== 0;
 const isLoopBoundaryPulsing = (value: number): boolean => (value & 2048) !== 0;
-const isModeHintChannel = (value: number): boolean => (value & 4096) !== 0;
-const isModeHintPattern = (value: number): boolean => (value & 8192) !== 0;
-const isModeHintLoop = (value: number): boolean => (value & 16384) !== 0;
+const isDimmed = (value: number): boolean => (value & 4096) !== 0;
 
 // Parse hex color to RGB
 const parseHex = (hex: string): { r: number; g: number; b: number } => {
@@ -65,11 +63,6 @@ const parseHex = (hex: string): { r: number; g: number; b: number } => {
   };
 };
 
-// Mode hint colors (bold, top layer)
-const MODE_HINT_CHANNEL = "rgb(51, 204, 255)";   // Cyan
-const MODE_HINT_PATTERN = "rgb(51, 255, 102)";   // Green
-const MODE_HINT_LOOP = "rgb(255, 204, 51)";       // Yellow
-
 // Get background color based on value and channel color
 const getBackgroundColor = (value: number, channelColor: string): string => {
   const level = getColorLevel(value);
@@ -80,11 +73,6 @@ const getBackgroundColor = (value: number, channelColor: string): string => {
   const cNote = isCNote(value);
   const loopBoundary = isLoopBoundary(value);
   const beatMarker = isBeatMarker(value);
-
-  // Mode hint colors (top layer, overrides everything)
-  if (isModeHintChannel(value)) return MODE_HINT_CHANNEL;
-  if (isModeHintPattern(value)) return MODE_HINT_PATTERN;
-  if (isModeHintLoop(value)) return MODE_HINT_LOOP;
 
   // Base brightness from grid markers
   let baseBrightness = 0;
@@ -151,15 +139,22 @@ const getBoxShadow = (value: number, channelColor: string): string => {
     return "inset 0 0 5px rgba(0, 0, 0, 0.5)";
   }
 
-  const glowColor = channelColor.slice(0, 7); // Strip alpha if present
-  const intensity = continuation ? 0.5 : 1;
+  // Scale glow to match button brightness
+  const levelScale = level <= 4 ? level * 0.25 : 1; // 0.25, 0.50, 0.75, 1.0 for color levels
+  const contScale = continuation ? 0.5 : 1;
+  const intensity = levelScale * contScale;
   const glowSize = Math.round(5 * intensity);
 
+  // Use the actual background color for the glow
+  const bgColor = getBackgroundColor(value, channelColor);
+
   if (playing && !continuation) {
-    return `0 0 8px ${glowColor}, 0 0 15px ${glowColor}, inset 0 0 8px rgba(255, 255, 255, 0.3)`;
+    const playGlowSize = Math.round(8 * levelScale);
+    const playGlowSize2 = Math.round(15 * levelScale);
+    return `0 0 ${playGlowSize}px ${bgColor}, 0 0 ${playGlowSize2}px ${bgColor}, inset 0 0 ${playGlowSize}px rgba(255, 255, 255, ${0.3 * levelScale})`;
   }
 
-  return `0 0 ${glowSize}px ${glowColor}, inset 0 0 ${glowSize}px rgba(255, 255, 255, ${0.2 * intensity})`;
+  return `0 0 ${glowSize}px ${bgColor}, inset 0 0 ${glowSize}px rgba(255, 255, 255, ${0.2 * intensity})`;
 };
 
 const rowStyles = css`
@@ -178,6 +173,7 @@ const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: Grid
   const bgColor = getBackgroundColor(value, channelColor);
   const boxShadow = getBoxShadow(value, channelColor);
   const pulsing = isLoopBoundaryPulsing(value);
+  const dimmed = isDimmed(value);
 
   return (
     <div
@@ -204,8 +200,8 @@ const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: Grid
         border: "1px solid rgba(255, 255, 255, 0.1)",
         cursor: "pointer",
         touchAction: "none",
-        background: bgColor,
-        boxShadow,
+        background: dimmed ? `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), ${bgColor}` : bgColor,
+        boxShadow: dimmed ? "inset 0 0 5px rgba(0, 0, 0, 0.5)" : boxShadow,
         animation: pulsing ? "loopBoundaryPulse 800ms ease-in-out infinite" : undefined,
       }}
     />
@@ -219,6 +215,8 @@ interface ButtonGridProps {
   values: number[][];
   /** Main channel color (hex) */
   channelColor: string;
+  /** Optional per-cell color overrides [row][col]. Non-null entries replace channelColor for that cell. */
+  colorOverrides?: (string | null)[][];
   /** Called when a cell is pressed with (row, col) */
   onPress: (row: number, col: number) => void;
   /** Called when dragging enters a cell with (row, col) */
@@ -227,7 +225,7 @@ interface ButtonGridProps {
   onRelease: () => void;
 }
 
-export const ButtonGrid = memo(({ values, channelColor, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
+export const ButtonGrid = memo(({ values, channelColor, colorOverrides, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
   // Inject pulsing animation CSS once
   useEffect(() => { injectPulsingStyle(); }, []);
 
@@ -248,7 +246,7 @@ export const ButtonGrid = memo(({ values, channelColor, onPress, onDragEnter, on
             <GridButtonCell
               key={colIndex}
               value={value}
-              channelColor={channelColor}
+              channelColor={colorOverrides?.[rowIndex]?.[colIndex] ?? channelColor}
               onPress={() => handlePress(rowIndex, colIndex)}
               onDragEnter={() => handleDragEnter(rowIndex, colIndex)}
             />
@@ -281,6 +279,4 @@ export const FLAG_SELECTED = 256;
 export const FLAG_CONTINUATION = 512;
 export const FLAG_PLAYING = 1024;
 export const FLAG_LOOP_BOUNDARY_PULSING = 2048;
-export const FLAG_MODE_HINT_CHANNEL = 4096;
-export const FLAG_MODE_HINT_PATTERN = 8192;
-export const FLAG_MODE_HINT_LOOP = 16384;
+export const FLAG_DIMMED = 4096;
