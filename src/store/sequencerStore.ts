@@ -13,6 +13,8 @@ export const DEFAULT_LOOP_START = 0;
 export const DEFAULT_LOOP_LENGTH = 16;
 
 // ============ Types ============
+export type UiMode = 'pattern' | 'channel' | 'loop';
+
 export interface PatternLoop {
   start: number;
   length: number;
@@ -22,6 +24,7 @@ export interface ViewState {
   rowOffsets: number[];        // Per-channel scroll position (0-1)
   colOffset: number;           // Horizontal scroll (0-1)
   selectedNote: { row: number; col: number } | null;
+  uiMode: UiMode;
 }
 
 export interface SequencerState {
@@ -97,6 +100,7 @@ const getInitialRowOffset = (channel: number): number => {
 const createInitialView = (): ViewState => ({
   rowOffsets: Array.from({ length: NUM_CHANNELS }, (_, i) => getInitialRowOffset(i)),
   colOffset: 0,
+  uiMode: 'pattern',
   selectedNote: null,
 });
 

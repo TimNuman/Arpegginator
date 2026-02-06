@@ -34,6 +34,7 @@ export const useIsPulseBeat = () => useSequencerStore(selectIsPulseBeat);
 export const useSelectedNote = () => useSequencerStore((s) => s.view.selectedNote);
 export const useRowOffsets = () => useSequencerStore((s) => s.view.rowOffsets);
 export const useColOffset = () => useSequencerStore((s) => s.view.colOffset);
+export const useUiMode = () => useSequencerStore((s) => s.view.uiMode);
 
 // Playback state selectors (primitives)
 export const useIsPlaying = () => useSequencerStore((s) => s.isPlaying);

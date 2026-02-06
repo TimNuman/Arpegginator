@@ -49,4 +49,6 @@ export {
   setSelectedNote,
   setRowOffset,
   setColOffset,
+  cycleUiMode,
+  setUiMode,
 } from './viewActions';

@@ -35,6 +35,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const selectedNote = useSequencerStore((s) => s.view.selectedNote);
   const rowOffsets = useSequencerStore((s) => s.view.rowOffsets);
   const colOffset = useSequencerStore((s) => s.view.colOffset);
+  const uiMode = useSequencerStore((s) => s.view.uiMode);
   const currentPattern = useCurrentPattern();
   const currentLoop = useCurrentLoop();
   const gridState = useGridState();
@@ -48,6 +49,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
   // Held note for keyboard input (two-key note length)
   const heldNote = useRef<{ row: number; col: number; key: string } | null>(null);
+
+
 
   // Calculate visible area
   const maxRowOffset = ROWS - VISIBLE_ROWS;
@@ -99,42 +102,71 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       return true;
     }
 
-    // Use the selectedNote from outer scope (Zustand store)
-    // (it's already defined at the top of the hook)
+    // Ctrl+Z/X/C: switch UI mode
+    if (state.ctrl && !state.meta && !state.alt && !state.shift) {
+      if (key === 'z') { actions.setUiMode('channel'); return true; }
+      if (key === 'x') { actions.setUiMode('pattern'); return true; }
+      if (key === 'c') { actions.setUiMode('loop'); return true; }
+    }
 
-    // Opt+Shift+Arrow: move loop start
-    if (state.alt && state.shift && !state.meta && (code === 'ArrowLeft' || code === 'ArrowRight')) {
-      const loopEnd = currentLoop.start + currentLoop.length;
-      let newStart = currentLoop.start;
-      if (code === 'ArrowLeft') {
-        newStart = Math.max(0, currentLoop.start - 1);
+    // Loop mode: Arrow keys adjust loop boundaries
+    if (uiMode === 'loop' && !state.meta && !state.alt && !state.ctrl && (code === 'ArrowLeft' || code === 'ArrowRight')) {
+      if (state.shift) {
+        // Shift+Arrow: adjust loop start
+        const loopEnd = currentLoop.start + currentLoop.length;
+        let newStart = currentLoop.start;
+        if (code === 'ArrowLeft') {
+          newStart = Math.max(0, currentLoop.start - 1);
+        } else {
+          newStart = Math.min(loopEnd - 1, currentLoop.start + 1);
+        }
+        if (newStart !== currentLoop.start) {
+          const newLength = loopEnd - newStart;
+          actions.setPatternLoop(currentChannel, currentPattern, newStart, newLength);
+        }
       } else {
-        newStart = Math.min(loopEnd - 1, currentLoop.start + 1);
-      }
-      if (newStart !== currentLoop.start) {
-        const newLength = loopEnd - newStart;
-        actions.setPatternLoop(currentChannel, currentPattern, newStart, newLength);
+        // Arrow: adjust loop end
+        const loopEnd = currentLoop.start + currentLoop.length;
+        let newEnd = loopEnd;
+        if (code === 'ArrowLeft') {
+          newEnd = Math.max(currentLoop.start + 1, loopEnd - 1);
+        } else {
+          newEnd = Math.min(COLS, loopEnd + 1);
+        }
+        if (newEnd !== loopEnd) {
+          const newLength = newEnd - currentLoop.start;
+          actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newLength);
+        }
       }
       return true;
     }
 
-    // Opt+Arrow: move loop end
-    if (state.alt && !state.shift && !state.meta && (code === 'ArrowLeft' || code === 'ArrowRight')) {
-      const loopEnd = currentLoop.start + currentLoop.length;
-      let newEnd = loopEnd;
-      if (code === 'ArrowLeft') {
-        newEnd = Math.max(currentLoop.start + 1, loopEnd - 1);
-      } else {
-        newEnd = Math.min(COLS, loopEnd + 1);
+    // In channel/loop mode, skip note-editing keybindings
+    if (uiMode !== 'pattern') {
+      // Allow cmd+key toggle enabled in loop mode (grid is still visible)
+      if (uiMode === 'loop' && state.meta && !state.shift && !state.ctrl && !state.alt && !event.repeat) {
+        const gridPos = KEY_MAP[key];
+        if (gridPos) {
+          const visibleRow = gridPos.row;
+          const visibleCol = gridPos.col;
+          const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+          const actualCol = startCol + visibleCol;
+          const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
+          if (note) {
+            actions.toggleEnabled(actualRow, note.sourceCol);
+            if (selectedNote && selectedNote.row === actualRow && selectedNote.col === note.sourceCol) {
+              actions.setSelectedNote(null);
+            }
+          } else {
+            actions.toggleEnabled(actualRow, actualCol);
+          }
+          return true;
+        }
       }
-      if (newEnd !== loopEnd) {
-        const newLength = newEnd - currentLoop.start;
-        actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newLength);
-      }
-      return true;
+      return false;
     }
 
-    // Note-related keyboard shortcuts (require selected note)
+    // Note-related keyboard shortcuts (require selected note, pattern mode only)
     if (selectedNote) {
       const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
       const noteLength = getNoteLength(noteValue);
@@ -291,9 +323,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     }
 
     return false;
-  }, [selectedNote, gridState, currentLoop, currentChannel, currentPattern, renderedNotes, startRow, startCol, playPreviewNote, followNoteWithCamera]);
+  }, [uiMode, selectedNote, gridState, currentLoop, currentChannel, currentPattern, renderedNotes, startRow, startCol, playPreviewNote, followNoteWithCamera]);
 
-  const handleKeyUp = useCallback((key: string, _code: string, _event: KeyboardEvent, _state: KeyboardState) => {
+  const handleKeyUp = useCallback((key: string, code: string, _event: KeyboardEvent, _state: KeyboardState) => {
     // Handle held note release
     const gridPos = KEY_MAP[key];
     if (gridPos && heldNote.current?.key === key) {
@@ -440,6 +472,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   return {
     // Keyboard state (for display)
     keyboard,
+    uiMode,
 
     // Computed view state
     startRow,

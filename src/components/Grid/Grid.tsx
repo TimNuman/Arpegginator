@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
 import { GridButton } from "../GridButton";
-import { ButtonGrid, BUTTON_OFF, BUTTON_COLOR_100, FLAG_PLAYHEAD, FLAG_C_NOTE, FLAG_LOOP_BOUNDARY, FLAG_BEAT_MARKER, FLAG_SELECTED, FLAG_CONTINUATION, FLAG_PLAYING } from "../ButtonGrid";
+import { ButtonGrid, BUTTON_OFF, BUTTON_COLOR_100, FLAG_PLAYHEAD, FLAG_C_NOTE, FLAG_LOOP_BOUNDARY, FLAG_BEAT_MARKER, FLAG_SELECTED, FLAG_CONTINUATION, FLAG_PLAYING, FLAG_LOOP_BOUNDARY_PULSING, FLAG_MODE_HINT_CHANNEL, FLAG_MODE_HINT_PATTERN, FLAG_MODE_HINT_LOOP } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useGridController } from "../../hooks/useGridController";
 import { CHANNEL_COLORS } from "./ChannelColors";
@@ -280,6 +280,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
   const {
     keyboard,
+    uiMode,
     startRow,
     startCol,
     endRow,
@@ -366,6 +367,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             // Loop boundary
             if (actualCol === currentLoop.start || actualCol === loopEnd - 1) {
               value |= FLAG_LOOP_BOUNDARY;
+              if (uiMode === 'loop') {
+                value |= FLAG_LOOP_BOUNDARY_PULSING;
+              }
             }
             // Beat marker (every 4th column, alternating groups)
             else if (Math.floor(actualCol / 4) % 2 === 0) {
@@ -379,6 +383,13 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           value |= FLAG_C_NOTE;
         }
 
+        // Mode hint on bottom row (Z/X/C keys) — only while ctrl is held
+        if (keyboard.ctrl && visibleRow === 7) {
+          if (visibleCol === 0) value |= FLAG_MODE_HINT_CHANNEL;
+          else if (visibleCol === 1) value |= FLAG_MODE_HINT_PATTERN;
+          else if (visibleCol === 2) value |= FLAG_MODE_HINT_LOOP;
+        }
+
         row.push(value);
       }
 
@@ -386,14 +397,20 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     }
 
     return values;
-  }, [renderedNotes, startRow, startCol, currentLoop.start, loopEnd, loopedStep, selectedNote]);
+  }, [renderedNotes, startRow, startCol, currentLoop.start, loopEnd, loopedStep, selectedNote, uiMode, keyboard.ctrl]);
 
   // Handle button press from ButtonGrid
   const handleButtonPress = useCallback((visibleRow: number, visibleCol: number) => {
+    // Ctrl+click on bottom row cols 0/1/2: switch UI mode
+    if (keyboard.ctrl && visibleRow === 7) {
+      if (visibleCol === 0) { actions.setUiMode('channel'); return; }
+      if (visibleCol === 1) { actions.setUiMode('pattern'); return; }
+      if (visibleCol === 2) { actions.setUiMode('loop'); return; }
+    }
     const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
     const actualCol = startCol + visibleCol;
     onCellPress(actualRow, actualCol);
-  }, [startRow, startCol, onCellPress]);
+  }, [startRow, startCol, onCellPress, keyboard.ctrl]);
 
   // Handle button drag enter from ButtonGrid
   const handleButtonDragEnter = useCallback((visibleRow: number, visibleCol: number) => {
@@ -407,66 +424,55 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   type OledRow = { label: string; valueParts: OledValuePart[] };
 
   const getOledContent = useCallback((): { rows: OledRow[] } => {
-    const selectedNoteValue = selectedNote
-      ? gridState[selectedNote.row]?.[selectedNote.col]
-      : null;
-    const selectedNoteLength = selectedNoteValue
-      ? getNoteLength(selectedNoteValue)
-      : 0;
-    const selectedRepeatAmount = selectedNoteValue
-      ? getRepeatAmount(selectedNoteValue)
-      : 1;
-    const selectedRepeatSpace = selectedNoteValue
-      ? getRepeatSpace(selectedNoteValue)
-      : 4;
+    // Pattern mode: show note info if a note is selected
+    if (uiMode === 'pattern' && selectedNote) {
+      const selectedNoteValue = gridState[selectedNote.row]?.[selectedNote.col];
+      const selectedNoteLength = selectedNoteValue ? getNoteLength(selectedNoteValue) : 0;
 
-    if (selectedNote && selectedNoteLength > 0) {
-      const noteName = midiNoteToName(selectedNote.row);
-      const highlightLength = keyboard.shift && !keyboard.meta;
-      const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
-      const highlightRepeatSpace = keyboard.meta && keyboard.shift;
+      if (selectedNoteLength > 0) {
+        const noteName = midiNoteToName(selectedNote.row);
+        const selectedRepeatAmount = getRepeatAmount(selectedNoteValue);
+        const selectedRepeatSpace = getRepeatSpace(selectedNoteValue);
+        const highlightLength = keyboard.shift && !keyboard.meta;
+        const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
+        const highlightRepeatSpace = keyboard.meta && keyboard.shift;
 
-      return {
-        rows: [
-          { label: "NOTE", valueParts: [{ text: noteName }] },
-          {
-            label: "LENGTH",
-            valueParts: [{ text: `${selectedNoteLength}`, highlight: highlightLength }],
-          },
-          {
-            label: "REPEAT",
-            valueParts: [
-              { text: `${selectedRepeatAmount}`, highlight: highlightRepeatAmount },
-              { text: "x" },
-              { text: `${selectedRepeatSpace}`, highlight: highlightRepeatSpace },
-            ],
-          },
-        ],
-      };
+        return {
+          rows: [
+            { label: "NOTE", valueParts: [{ text: noteName }] },
+            {
+              label: "LENGTH",
+              valueParts: [{ text: `${selectedNoteLength}`, highlight: highlightLength }],
+            },
+            {
+              label: "REPEAT",
+              valueParts: [
+                { text: `${selectedRepeatAmount}`, highlight: highlightRepeatAmount },
+                { text: "x" },
+                { text: `${selectedRepeatSpace}`, highlight: highlightRepeatSpace },
+              ],
+            },
+          ],
+        };
+      }
     }
 
-    if (keyboard.ctrl && keyboard.alt) {
-      return {
-        rows: [
-          { label: "MODE", valueParts: [{ text: "MUTE/SOLO" }] },
-          { label: "CH", valueParts: [{ text: `${currentChannel + 1}` }] },
-          { label: "", valueParts: [] },
-        ],
-      };
-    } else if (keyboard.ctrl) {
+    if (uiMode === 'channel') {
       return {
         rows: [
           { label: "MODE", valueParts: [{ text: "CHANNEL" }] },
           { label: "SELECT", valueParts: [{ text: `CH ${currentChannel + 1}` }] },
-          { label: "", valueParts: [] },
+          { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
         ],
       };
-    } else if (keyboard.alt) {
+    }
+
+    if (uiMode === 'loop') {
       const highlightStart = keyboard.shift;
       const highlightEnd = !keyboard.shift;
       return {
         rows: [
-          { label: "LOOP", valueParts: [{ text: "" }] },
+          { label: "MODE", valueParts: [{ text: "LOOP" }] },
           {
             label: "START",
             valueParts: [{ text: `${currentLoop.start + 1}`, highlight: highlightStart }],
@@ -477,7 +483,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           },
         ],
       };
-    } else if (keyboard.shift) {
+    }
+
+    // Pattern mode with shift held
+    if (keyboard.shift) {
       return {
         rows: [
           { label: "MODE", valueParts: [{ text: "EXTEND" }] },
@@ -487,6 +496,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       };
     }
 
+    // Default: pattern mode summary
     return {
       rows: [
         { label: "CH", valueParts: [{ text: `${currentChannel + 1}` }] },
@@ -494,7 +504,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         { label: "LOOP", valueParts: [{ text: `${currentLoop.start + 1}-${loopEnd}` }] },
       ],
     };
-  }, [selectedNote, gridState, keyboard, currentChannel, currentPattern, currentLoop, loopEnd]);
+  }, [uiMode, selectedNote, gridState, keyboard, currentChannel, currentPattern, currentLoop, loopEnd]);
 
   const oledContent = getOledContent();
 
@@ -528,6 +538,14 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   }, [selectedNote, gridState, isPlaying, onPlayNote, currentChannel]);
 
   const handleArrowLeft = useCallback(() => {
+    if (uiMode === 'loop') {
+      const loopEndVal = currentLoop.start + currentLoop.length;
+      const newEnd = Math.max(currentLoop.start + 1, loopEndVal - 1);
+      if (newEnd !== loopEndVal) {
+        actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newEnd - currentLoop.start);
+      }
+      return;
+    }
     if (selectedNote) {
       const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
       if (noteLength > 0) {
@@ -539,9 +557,17 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         }
       }
     }
-  }, [selectedNote, gridState, isPlaying, onPlayNote, currentChannel]);
+  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern]);
 
   const handleArrowRight = useCallback(() => {
+    if (uiMode === 'loop') {
+      const loopEndVal = currentLoop.start + currentLoop.length;
+      const newEnd = Math.min(COLS, loopEndVal + 1);
+      if (newEnd !== loopEndVal) {
+        actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newEnd - currentLoop.start);
+      }
+      return;
+    }
     if (selectedNote) {
       const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
       if (noteLength > 0) {
@@ -553,7 +579,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         }
       }
     }
-  }, [selectedNote, gridState, isPlaying, onPlayNote, currentChannel]);
+  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern]);
 
   // Render Ctrl mode grid (channel/pattern selector)
   const renderCtrlModeGrid = () => (
@@ -568,6 +594,23 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         return (
           <Box key={visibleRow} css={rowStyles}>
             {Array.from({ length: VISIBLE_COLS }, (_, visibleCol) => {
+              // Ctrl held: mode hint buttons on bottom row
+              if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
+                const modeColors = ['#33CCFF', '#33FF66', '#FFCC33'];
+                const modes: Array<'channel' | 'pattern' | 'loop'> = ['channel', 'pattern', 'loop'];
+                return (
+                  <GridButton
+                    key={`${visibleRow}-${visibleCol}`}
+                    active={true}
+                    isPlayhead={false}
+                    rowColor={modeColors[visibleCol]}
+                    glowIntensity={1}
+                    onToggle={() => actions.setUiMode(modes[visibleCol])}
+                    onDragEnter={() => {}}
+                  />
+                );
+              }
+
               const patternIndex = visibleCol - 1;
 
               // Column 0: mute/solo buttons
@@ -646,10 +689,11 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
                 if (keyboard.shift && isEmptyPattern && channelIndex === currentChannel) {
                   actions.copyPatternTo(patternIndex);
                   actions.setChannelPattern(channelIndex, patternIndex);
-                  return;
+                } else {
+                  actions.setCurrentChannel(channelIndex);
+                  actions.setChannelPattern(channelIndex, patternIndex);
                 }
-                actions.setCurrentChannel(channelIndex);
-                actions.setChannelPattern(channelIndex, patternIndex);
+                actions.setUiMode('pattern');
               };
 
               if (isEmptyPattern) {
@@ -702,7 +746,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       </Box>
       <Box css={gridInnerContainerStyles}>
         <Box css={gridContainerStyles}>
-          {keyboard.ctrl ? (
+          {uiMode === 'channel' ? (
             renderCtrlModeGrid()
           ) : (
             <ButtonGrid
@@ -716,14 +760,11 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
-            <Box css={[modifierKeyStyles, keyboard.shift && modifierKeyActiveStyles]}>
-              shift
-            </Box>
             <Box css={[modifierKeyStyles, keyboard.ctrl && modifierKeyActiveStyles]}>
               ctrl
             </Box>
-            <Box css={[modifierKeyStyles, keyboard.alt && modifierKeyActiveStyles]}>
-              opt
+            <Box css={[modifierKeyStyles, keyboard.shift && modifierKeyActiveStyles]}>
+              shift
             </Box>
             <Box css={[modifierKeyStyles, keyboard.meta && modifierKeyActiveStyles]}>
               cmd
@@ -738,7 +779,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             totalItems={COLS}
             visibleItems={VISIBLE_COLS}
             itemSize={buttonSize}
-          />
+            />
         </Box>
         <Box css={debugStyles}>
           <span>Notes: {startRow} - {endRow}</span>

@@ -1,6 +1,21 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useEffect } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
+
+// Inject pulsing keyframes once
+let pulsingStyleInjected = false;
+const injectPulsingStyle = () => {
+  if (pulsingStyleInjected) return;
+  pulsingStyleInjected = true;
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes loopBoundaryPulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+};
 
 /**
  * Button state encoding:
@@ -35,6 +50,10 @@ const isBeatMarker = (value: number): boolean => (value & 128) !== 0;
 const isSelected = (value: number): boolean => (value & 256) !== 0;
 const isNoteContinuation = (value: number): boolean => (value & 512) !== 0;
 const isCurrentlyPlaying = (value: number): boolean => (value & 1024) !== 0;
+const isLoopBoundaryPulsing = (value: number): boolean => (value & 2048) !== 0;
+const isModeHintChannel = (value: number): boolean => (value & 4096) !== 0;
+const isModeHintPattern = (value: number): boolean => (value & 8192) !== 0;
+const isModeHintLoop = (value: number): boolean => (value & 16384) !== 0;
 
 // Parse hex color to RGB
 const parseHex = (hex: string): { r: number; g: number; b: number } => {
@@ -46,6 +65,11 @@ const parseHex = (hex: string): { r: number; g: number; b: number } => {
   };
 };
 
+// Mode hint colors (bold, top layer)
+const MODE_HINT_CHANNEL = "rgb(51, 204, 255)";   // Cyan
+const MODE_HINT_PATTERN = "rgb(51, 255, 102)";   // Green
+const MODE_HINT_LOOP = "rgb(255, 204, 51)";       // Yellow
+
 // Get background color based on value and channel color
 const getBackgroundColor = (value: number, channelColor: string): string => {
   const level = getColorLevel(value);
@@ -56,6 +80,11 @@ const getBackgroundColor = (value: number, channelColor: string): string => {
   const cNote = isCNote(value);
   const loopBoundary = isLoopBoundary(value);
   const beatMarker = isBeatMarker(value);
+
+  // Mode hint colors (top layer, overrides everything)
+  if (isModeHintChannel(value)) return MODE_HINT_CHANNEL;
+  if (isModeHintPattern(value)) return MODE_HINT_PATTERN;
+  if (isModeHintLoop(value)) return MODE_HINT_LOOP;
 
   // Base brightness from grid markers
   let baseBrightness = 0;
@@ -148,6 +177,7 @@ interface GridButtonCellProps {
 const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: GridButtonCellProps) => {
   const bgColor = getBackgroundColor(value, channelColor);
   const boxShadow = getBoxShadow(value, channelColor);
+  const pulsing = isLoopBoundaryPulsing(value);
 
   return (
     <div
@@ -176,6 +206,7 @@ const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: Grid
         touchAction: "none",
         background: bgColor,
         boxShadow,
+        animation: pulsing ? "loopBoundaryPulse 800ms ease-in-out infinite" : undefined,
       }}
     />
   );
@@ -197,6 +228,9 @@ interface ButtonGridProps {
 }
 
 export const ButtonGrid = memo(({ values, channelColor, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
+  // Inject pulsing animation CSS once
+  useEffect(() => { injectPulsingStyle(); }, []);
+
   // Create stable callbacks for each cell
   const handlePress = useCallback((row: number, col: number) => {
     onPress(row, col);
@@ -246,3 +280,7 @@ export const FLAG_BEAT_MARKER = 128;
 export const FLAG_SELECTED = 256;
 export const FLAG_CONTINUATION = 512;
 export const FLAG_PLAYING = 1024;
+export const FLAG_LOOP_BOUNDARY_PULSING = 2048;
+export const FLAG_MODE_HINT_CHANNEL = 4096;
+export const FLAG_MODE_HINT_PATTERN = 8192;
+export const FLAG_MODE_HINT_LOOP = 16384;
