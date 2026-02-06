@@ -1,10 +1,11 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { css, Global } from '@emotion/react';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
 import { useMidi } from './hooks/useMidi';
-import { useSequencer, CHANNEL_COLORS } from './hooks/useSequencer';
+import { useSequencerStore } from './store/sequencerStore';
+import * as actions from './actions';
 
 const darkTheme = createTheme({
   palette: {
@@ -97,61 +98,29 @@ function App() {
     [playNote, stopNote]
   );
 
-  const {
-    gridState,
-    currentChannel,
-    setCurrentChannel,
-    currentPattern,
-    currentPatterns,
-    setChannelPattern,
-    queuedPatterns,
-    channelsHaveNotes,
-    allPatternsHaveNotes,
-    channelsPlayingNow,
-    isPulseBeat,
-    isPlaying,
-    isExternalPlayback,
-    bpm,
-    currentStep,
-    toggleCell,
-    setNote,
-    moveNote,
-    placeNote,
-    setNoteRepeatAmount,
-    setNoteRepeatSpace,
-    copyPatternTo,
-    clearGrid,
-    play,
-    stop,
-    pause,
-    resetPlayhead,
-    setBpm,
-    currentLoop,
-    setPatternLoop,
-    // Mute/Solo
-    mutedChannels,
-    soloedChannels,
-    toggleMute,
-    toggleSolo,
-    // External sync
-    externalTick,
-    playExternal,
-    stopExternal,
-  } = useSequencer({
-    onStepTrigger: handleStepTrigger,
-  });
+  const isPlaying = useSequencerStore((s) => s.isPlaying);
+  const isExternalPlayback = useSequencerStore((s) => s.isExternalPlayback);
+  const bpm = useSequencerStore((s) => s.bpm);
 
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
 
+  // Wire up step trigger callback
+  useEffect(() => {
+    actions.setStepTriggerCallback(handleStepTrigger);
+    return () => {
+      actions.setStepTriggerCallback(null);
+    };
+  }, [handleStepTrigger]);
+
   // Keep transport refs in sync for MIDI sync callbacks
-  playExternalRef.current = playExternal;
+  playExternalRef.current = actions.playExternal;
   stopExternalRef.current = () => {
-    stopExternal();
+    actions.stopExternal();
     stopAllNotes();
   };
-  externalTickRef.current = externalTick;
-  setBpmRef.current = setBpm; // Update BPM display from external clock
+  externalTickRef.current = actions.externalTick;
+  setBpmRef.current = actions.setBpm;
 
   const handlePlayNote = useCallback(
     (note: number, channel: number, steps: number = 1) => {
@@ -166,23 +135,22 @@ function App() {
     [playNote, stopNote, bpm]
   );
 
+  const handlePlay = useCallback(() => {
+    actions.play();
+  }, []);
+
   const handleStop = useCallback(() => {
-    stop();
+    actions.stop();
     stopAllNotes();
-  }, [stop, stopAllNotes]);
+  }, [stopAllNotes]);
 
-  const handlePause = useCallback(() => {
-    pause();
-    stopAllNotes();
-  }, [pause, stopAllNotes]);
+  const handleClear = useCallback(() => {
+    actions.clearGrid();
+  }, []);
 
-  const handleTogglePlay = useCallback(() => {
-    if (isPlaying) {
-      handlePause();
-    } else {
-      play();
-    }
-  }, [isPlaying, handlePause, play]);
+  const handleSetBpm = useCallback((newBpm: number) => {
+    actions.setBpm(newBpm);
+  }, []);
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -196,10 +164,10 @@ function App() {
           isPlaying={isPlaying}
           isExternalPlayback={isExternalPlayback}
           bpm={bpm}
-          onPlay={play}
+          onPlay={handlePlay}
           onStop={handleStop}
-          onClear={clearGrid}
-          onBpmChange={setBpm}
+          onClear={handleClear}
+          onBpmChange={handleSetBpm}
           midiOutputs={outputs}
           midiInputs={inputs}
           selectedOutput={selectedOutput}
@@ -208,38 +176,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        <Grid
-          gridState={gridState}
-          currentStep={currentStep}
-          onToggleCell={toggleCell}
-          onSetNote={setNote}
-          channelColor={CHANNEL_COLORS[currentChannel]}
-          currentChannel={currentChannel}
-          onChannelChange={setCurrentChannel}
-          currentPattern={currentPattern}
-          currentPatterns={currentPatterns}
-          onPatternChange={setChannelPattern}
-          queuedPatterns={queuedPatterns}
-          channelsHaveNotes={channelsHaveNotes}
-          onPlayNote={handlePlayNote}
-          allPatternsHaveNotes={allPatternsHaveNotes}
-          currentLoop={currentLoop}
-          onSetPatternLoop={setPatternLoop}
-          channelsPlayingNow={channelsPlayingNow}
-          isPulseBeat={isPulseBeat}
-          isPlaying={isPlaying}
-          onTogglePlay={handleTogglePlay}
-          onResetPlayhead={resetPlayhead}
-          mutedChannels={mutedChannels}
-          soloedChannels={soloedChannels}
-          onToggleMute={toggleMute}
-          onToggleSolo={toggleSolo}
-          onCopyPattern={copyPatternTo}
-          onMoveNote={moveNote}
-          onPlaceNote={placeNote}
-          onSetNoteRepeatAmount={setNoteRepeatAmount}
-          onSetNoteRepeatSpace={setNoteRepeatSpace}
-        />
+        <Grid onPlayNote={handlePlayNote} />
       </Box>
     </ThemeProvider>
   );
