@@ -354,6 +354,44 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             value |= FLAG_SELECTED;
           }
         } else {
+          // Off-screen note indicators on edge cells
+          let offScreen = false;
+          let offScreenPlaying = false;
+          const isTopEdge = visibleRow === 0;
+          const isBottomEdge = visibleRow === VISIBLE_ROWS - 1;
+          const isLeftEdge = visibleCol === 0;
+          const isRightEdge = visibleCol === VISIBLE_COLS - 1;
+
+          if (isTopEdge || isBottomEdge || isLeftEdge || isRightEdge) {
+            for (const note of renderedNotes) {
+              // Top edge: notes above visible area at this column
+              if (isTopEdge && note.row > endRow && note.col <= actualCol && note.col + note.length > actualCol) {
+                offScreen = true;
+                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+              }
+              // Bottom edge: notes below visible area at this column
+              if (isBottomEdge && note.row < startRow && note.col <= actualCol && note.col + note.length > actualCol) {
+                offScreen = true;
+                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+              }
+              // Right edge: notes to the right on this row
+              if (isRightEdge && note.row === actualRow && note.col > endCol) {
+                offScreen = true;
+                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+              }
+              // Left edge: notes to the left on this row (note ends before visible area)
+              if (isLeftEdge && note.row === actualRow && note.col + note.length <= startCol) {
+                offScreen = true;
+                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+              }
+              if (offScreen && offScreenPlaying) break; // No need to keep searching
+            }
+          }
+
+          if (offScreen) {
+            value = offScreenPlaying ? BUTTON_COLOR_50 : BUTTON_COLOR_25;
+          }
+
           // Empty cell - add grid markers
           const isInLoop = actualCol >= currentLoop.start && actualCol < loopEnd;
 
@@ -477,7 +515,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
     return { buttonValues: values, colorOverrides: colors };
   }, [
-    uiMode, renderedNotes, startRow, startCol, currentLoop.start, loopEnd, loopedStep,
+    uiMode, renderedNotes, startRow, startCol, endRow, endCol, currentLoop.start, loopEnd, loopedStep,
     selectedNote, keyboard.ctrl,
     // Channel mode deps
     allPatternsHaveNotes, currentPatterns, queuedPatterns, channelsPlayingNow,
