@@ -7,7 +7,7 @@ import {
   useCurrentPattern,
 } from '../store/selectors';
 import * as actions from '../actions';
-import { findNoteAtCell, getNoteLength, getRepeatAmount, getRepeatSpace, renderNotesToArray } from '../types/grid';
+import { findNoteAtCell, getNoteLength, getRepeatAmount, getRepeatSpace, isNotePattern, renderNotesToArray } from '../types/grid';
 
 // Keyboard to grid position mapping
 const KEY_MAP: Record<string, { row: number; col: number }> = {
@@ -409,6 +409,18 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         }
         actions.setSelectedNote({ row, col: sourceCol });
       }
+      playPreviewNote(row);
+      return;
+    }
+
+    // Check for disabled note at this cell — enable and select it
+    const cellValue = gridState[row]?.[col];
+    if (isNotePattern(cellValue) && !cellValue.enabled) {
+      if (currentSelectedNote) {
+        actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
+      }
+      actions.toggleEnabled(row, col);
+      actions.setSelectedNote({ row, col });
       playPreviewNote(row);
       return;
     }

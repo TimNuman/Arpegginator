@@ -1,10 +1,3 @@
-export interface GridCell {
-  row: number;
-  col: number;
-  active: boolean;
-  color: string;
-}
-
 // NotePattern: a note with repeat settings
 export interface NotePattern {
   length: number; // Note length in steps
@@ -98,17 +91,6 @@ export const renderNotesToArray = (
   return notes;
 };
 
-// Create a lookup map for quick access: key is "row-col" for note starts
-export const createRenderedNotesMap = (
-  notes: RenderedNote[],
-): Map<string, RenderedNote> => {
-  const map = new Map<string, RenderedNote>();
-  for (const note of notes) {
-    map.set(`${note.row}-${note.col}`, note);
-  }
-  return map;
-};
-
 // Check if a cell is covered by any rendered note (start or continuation)
 export const findNoteAtCell = (
   notes: RenderedNote[],
@@ -124,9 +106,3 @@ export const findNoteAtCell = (
 };
 
 export type GridState = NoteValue[][];
-
-export interface TransportState {
-  isPlaying: boolean;
-  bpm: number;
-  currentStep: number;
-}

@@ -1,4 +1,4 @@
-import { getSequencerStore, ROWS, COLS, NUM_CHANNELS, PATTERNS_PER_CHANNEL, DEFAULT_LOOP_START, DEFAULT_LOOP_LENGTH } from '../store/sequencerStore';
+import { getSequencerStore, ROWS, COLS, DEFAULT_LOOP_START, DEFAULT_LOOP_LENGTH } from '../store/sequencerStore';
 import type { GridState } from '../types/grid';
 
 /**
@@ -51,25 +51,3 @@ export function clearGrid(): void {
   store._setPatternLoops(newLoops);
 }
 
-/**
- * Clear all channels
- */
-export function clearAllChannels(): void {
-  const store = getSequencerStore();
-
-  const emptyChannels = Array.from({ length: NUM_CHANNELS }, () =>
-    Array.from({ length: PATTERNS_PER_CHANNEL }, () =>
-      Array.from({ length: ROWS }, () => Array(COLS).fill(null))
-    )
-  );
-  store._setChannels(emptyChannels);
-  store._setCurrentPatterns(Array(NUM_CHANNELS).fill(0));
-
-  const defaultLoops = Array.from({ length: NUM_CHANNELS }, () =>
-    Array.from({ length: PATTERNS_PER_CHANNEL }, () => ({
-      start: DEFAULT_LOOP_START,
-      length: DEFAULT_LOOP_LENGTH,
-    }))
-  );
-  store._setPatternLoops(defaultLoops);
-}

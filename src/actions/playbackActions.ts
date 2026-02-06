@@ -137,7 +137,7 @@ export function stop(): void {
 /**
  * Pause playback (keep position)
  */
-export function pause(): void {
+function pause(): void {
   if (playbackInterval) {
     clearInterval(playbackInterval);
     playbackInterval = null;

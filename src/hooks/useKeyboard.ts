@@ -124,17 +124,3 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
 
   return state;
 }
-
-/**
- * Simple hook that just tracks modifier key states
- * Useful when you only need to know if shift/alt/ctrl/meta are pressed
- */
-export function useModifierKeys(): Pick<KeyboardState, 'shift' | 'alt' | 'ctrl' | 'meta'> {
-  const state = useKeyboard();
-  return {
-    shift: state.shift,
-    alt: state.alt,
-    ctrl: state.ctrl,
-    meta: state.meta,
-  };
-}

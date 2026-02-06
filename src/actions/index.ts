@@ -13,7 +13,6 @@ export {
 export {
   play,
   stop,
-  pause,
   tick,
   togglePlay,
   resetPlayhead,
@@ -36,7 +35,6 @@ export {
 export {
   copyPatternTo,
   clearGrid,
-  clearAllChannels,
 } from './patternActions';
 
 // Loop actions
@@ -49,6 +47,5 @@ export {
   setSelectedNote,
   setRowOffset,
   setColOffset,
-  cycleUiMode,
   setUiMode,
 } from './viewActions';

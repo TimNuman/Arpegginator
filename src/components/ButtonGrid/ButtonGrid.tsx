@@ -263,12 +263,7 @@ ButtonGrid.displayName = "ButtonGrid";
 export const BUTTON_OFF = 0;
 export const BUTTON_COLOR_25 = 1;
 export const BUTTON_COLOR_50 = 2;
-export const BUTTON_COLOR_75 = 3;
 export const BUTTON_COLOR_100 = 4;
-export const BUTTON_WHITE_25 = 5;
-export const BUTTON_WHITE_50 = 6;
-export const BUTTON_WHITE_75 = 7;
-export const BUTTON_WHITE_100 = 8;
 
 // Flags
 export const FLAG_PLAYHEAD = 16;

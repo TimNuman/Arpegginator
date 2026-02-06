@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { WebMidi, Output, Input } from 'webmidi';
 
 // Transport event callbacks
-export interface MidiTransportCallbacks {
+interface MidiTransportCallbacks {
   onStart?: () => void;
   onStop?: () => void;
   onContinue?: () => void;
@@ -26,7 +26,7 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   const [inputs, setInputs] = useState<Input[]>([]);
   const [selectedOutput, setSelectedOutput] = useState<Output | null>(null);
   const [selectedInput, setSelectedInput] = useState<Input | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
   const activeNotes = useRef<Map<number, Output>>(new Map());
   const transportCallbacksRef = useRef(transportCallbacks);
 
@@ -224,7 +224,6 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
     selectedInput,
     setSelectedOutput: selectOutput,
     setSelectedInput: selectInput,
-    error,
     playNote,
     stopNote,
     stopAllNotes,

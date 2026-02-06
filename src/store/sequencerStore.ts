@@ -6,7 +6,7 @@ import type { GridState, NoteValue } from '../types/grid';
 export const ROWS = 128;
 export const COLS = 64;
 export const NUM_CHANNELS = 8;
-export const PATTERNS_PER_CHANNEL = 8;
+const PATTERNS_PER_CHANNEL = 8;
 export const VISIBLE_ROWS = 8;
 export const VISIBLE_COLS = 16;
 export const DEFAULT_LOOP_START = 0;
@@ -20,7 +20,7 @@ export interface PatternLoop {
   length: number;
 }
 
-export interface ViewState {
+interface ViewState {
   rowOffsets: number[];        // Per-channel scroll position (0-1)
   colOffset: number;           // Horizontal scroll (0-1)
   selectedNote: { row: number; col: number } | null;
@@ -51,7 +51,6 @@ export interface SequencerState {
 
 export interface SequencerActions {
   // === Basic Setters (minimal logic) ===
-  _setChannels: (channels: GridState[][]) => void;
   _setCurrentChannel: (channel: number) => void;
   _setCurrentPatterns: (patterns: number[]) => void;
   _setPatternLoops: (loops: PatternLoop[][]) => void;
@@ -122,7 +121,6 @@ export const useSequencerStore = create<SequencerStore>()(
     view: createInitialView(),
 
     // Basic setters (direct state updates)
-    _setChannels: (channels) => set({ channels }),
     _setCurrentChannel: (channel) => set({ currentChannel: channel }),
     _setCurrentPatterns: (patterns) => set({ currentPatterns: patterns }),
     _setPatternLoops: (loops) => set({ patternLoops: loops }),

@@ -1,7 +1,5 @@
 import { getSequencerStore, type UiMode } from '../store/sequencerStore';
 
-const UI_MODES: UiMode[] = ['pattern', 'channel', 'loop'];
-
 /**
  * Set the selected note
  */
@@ -24,16 +22,6 @@ export function setRowOffset(channel: number, offset: number): void {
  */
 export function setColOffset(offset: number): void {
   getSequencerStore()._setView({ colOffset: offset });
-}
-
-/**
- * Cycle UI mode forward or backward
- */
-export function cycleUiMode(direction: 1 | -1): void {
-  const store = getSequencerStore();
-  const currentIndex = UI_MODES.indexOf(store.view.uiMode);
-  const nextIndex = (currentIndex + direction + UI_MODES.length) % UI_MODES.length;
-  store._setView({ uiMode: UI_MODES[nextIndex] });
 }
 
 /**
