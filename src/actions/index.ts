@@ -1,6 +1,7 @@
 // Note actions
 export {
   toggleCell,
+  toggleEnabled,
   setNote,
   moveNote,
   placeNote,

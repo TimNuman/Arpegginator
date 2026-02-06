@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useSequencerStore, type SequencerState } from './sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, renderNotesToArray, type RenderedNote } from '../types/grid';
+import { getNoteLength, getRepeatAmount, getRepeatSpace, isNoteEnabled, renderNotesToArray, type RenderedNote } from '../types/grid';
 
 // ============ Selector Functions ============
 
@@ -94,9 +94,10 @@ export function useChannelsPlayingNow(): boolean[] {
         ((((currentStep - loop.start) % loop.length) + loop.length) % loop.length);
 
       return ch[patternIdx].some((row) => {
-        if (getNoteLength(row[channelStep]) > 0) return true;
+        if (isNoteEnabled(row[channelStep])) return true;
         for (let col = loop.start; col < channelStep; col++) {
           const noteValue = row[col];
+          if (!isNoteEnabled(noteValue)) continue;
           const noteLength = getNoteLength(noteValue);
           if (noteLength > 0) {
             if (col + noteLength > channelStep) return true;

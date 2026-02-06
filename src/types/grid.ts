@@ -7,9 +7,10 @@ export interface GridCell {
 
 // NotePattern: a note with repeat settings
 export interface NotePattern {
-  length: number;        // Note length in steps
-  repeatAmount: number;  // How many times to repeat (1 = single note, 2+ = repeated)
-  repeatSpace: number;   // Steps between each repeat
+  length: number; // Note length in steps
+  repeatAmount: number; // How many times to repeat (1 = single note, 2+ = repeated)
+  repeatSpace: number; // Steps between each repeat
+  enabled: boolean; // Whether the note is active (disabled notes are retained but don't play/render)
 }
 
 // Note value: null = no note, NotePattern = note with settings
@@ -17,7 +18,7 @@ export type NoteValue = null | NotePattern;
 
 // Helper to check if a value is a NotePattern
 export const isNotePattern = (value: NoteValue): value is NotePattern => {
-  return value !== null && typeof value === 'object' && 'length' in value;
+  return value !== null && typeof value === "object" && "length" in value;
 };
 
 // Helper to get note length from NoteValue
@@ -38,32 +39,42 @@ export const getRepeatSpace = (value: NoteValue): number => {
   return value.repeatSpace;
 };
 
+// Helper to check if a note is enabled
+export const isNoteEnabled = (value: NoteValue): boolean => {
+  if (!isNotePattern(value)) return false;
+  return value.enabled;
+};
+
 // Helper to create a NotePattern
-export const createNotePattern = (length: number = 1, repeatAmount: number = 1, repeatSpace: number = 4): NotePattern => {
-  return { length, repeatAmount, repeatSpace };
+export const createNotePattern = (
+  length: number = 1,
+  repeatAmount: number = 1,
+  repeatSpace: number = 1,
+): NotePattern => {
+  return { length, repeatAmount, repeatSpace, enabled: true };
 };
 
 // A rendered note instance (for display purposes)
 export interface RenderedNote {
   row: number;
-  col: number;           // Where this note instance starts
-  length: number;        // Length of this note
-  sourceCol: number;     // Column of the parent NotePattern
-  isRepeat: boolean;     // True if this is a repeat (not the original)
+  col: number; // Where this note instance starts
+  length: number; // Length of this note
+  sourceCol: number; // Column of the parent NotePattern
+  isRepeat: boolean; // True if this is a repeat (not the original)
 }
 
-// Render all NotePatterns in a grid to a flat array of RenderedNotes
-// Notes are visible everywhere, repeats are bounded by gridWidth
+// Render all enabled NotePatterns in a grid to a flat array of RenderedNotes
+// Disabled notes are skipped entirely (they are invisible)
 export const renderNotesToArray = (
   grid: GridState,
-  gridWidth: number = 64
+  gridWidth: number = 64,
 ): RenderedNote[] => {
   const notes: RenderedNote[] = [];
 
   for (let row = 0; row < grid.length; row++) {
     for (let col = 0; col < grid[row].length; col++) {
       const noteValue = grid[row][col];
-      if (noteValue === null) continue;
+      if (noteValue === null || !noteValue.enabled) continue;
 
       const { length, repeatAmount, repeatSpace } = noteValue;
 
@@ -89,7 +100,7 @@ export const renderNotesToArray = (
 
 // Create a lookup map for quick access: key is "row-col" for note starts
 export const createRenderedNotesMap = (
-  notes: RenderedNote[]
+  notes: RenderedNote[],
 ): Map<string, RenderedNote> => {
   const map = new Map<string, RenderedNote>();
   for (const note of notes) {
@@ -102,7 +113,7 @@ export const createRenderedNotesMap = (
 export const findNoteAtCell = (
   notes: RenderedNote[],
   row: number,
-  col: number
+  col: number,
 ): RenderedNote | null => {
   for (const note of notes) {
     if (note.row === row && col >= note.col && col < note.col + note.length) {

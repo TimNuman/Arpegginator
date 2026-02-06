@@ -221,7 +221,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       }
     }
 
-    // Cmd+key: delete note at position
+    // Cmd+key: toggle enabled at position (enable/disable, preserving pattern)
     if (state.meta && !state.shift && !state.ctrl && !state.alt && !event.repeat) {
       const gridPos = KEY_MAP[key];
       if (gridPos) {
@@ -230,12 +230,24 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
         const actualCol = startCol + visibleCol;
 
+        // Check if there's a visible note at this cell
         const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
         if (note) {
-          actions.toggleCell(actualRow, note.sourceCol);
+          // Visible (enabled) note — disable it
+          actions.toggleEnabled(actualRow, note.sourceCol);
           // Deselect if this was selected
           if (selectedNote && selectedNote.row === actualRow && selectedNote.col === note.sourceCol) {
             actions.setSelectedNote(null);
+          }
+        } else {
+          // No visible note — check if there's a disabled note in the grid data
+          const noteValue = gridState[actualRow]?.[actualCol];
+          if (noteValue !== null && getNoteLength(noteValue) > 0) {
+            // Disabled note — re-enable it
+            actions.toggleEnabled(actualRow, actualCol);
+          } else {
+            // Empty — create a new note
+            actions.toggleEnabled(actualRow, actualCol);
           }
         }
         return true;
@@ -311,11 +323,17 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     // Get current selectedNote from store for fresh value
     const currentSelectedNote = useSequencerStore.getState().view.selectedNote;
 
-    // Cmd+click on a note: delete it
-    if (keyboard.meta && noteAtCell) {
-      actions.toggleCell(row, noteAtCell.sourceCol);
-      if (currentSelectedNote && currentSelectedNote.row === row && currentSelectedNote.col === noteAtCell.sourceCol) {
-        actions.setSelectedNote(null);
+    // Cmd+click: toggle enabled (enable/disable, preserving pattern)
+    if (keyboard.meta) {
+      if (noteAtCell) {
+        // Visible (enabled) note — disable it
+        actions.toggleEnabled(row, noteAtCell.sourceCol);
+        if (currentSelectedNote && currentSelectedNote.row === row && currentSelectedNote.col === noteAtCell.sourceCol) {
+          actions.setSelectedNote(null);
+        }
+      } else {
+        // No visible note — check for disabled note or create new
+        actions.toggleEnabled(row, col);
       }
       return;
     }

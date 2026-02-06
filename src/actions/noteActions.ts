@@ -20,7 +20,9 @@ const truncateOverlappingNote = (gridRow: NoteValue[], col: number): NoteValue[]
 };
 
 /**
- * Toggle a cell on/off at the given position
+ * Toggle a cell on/off at the given position.
+ * If the cell has a note (enabled or disabled), delete it.
+ * If the cell is empty, create a new note.
  */
 export function toggleCell(row: number, col: number): void {
   const store = getSequencerStore();
@@ -28,11 +30,37 @@ export function toggleCell(row: number, col: number): void {
   const pattern = currentPatterns[currentChannel];
   const currentValue = channels[currentChannel][pattern][row][col];
 
-  if (getNoteLength(currentValue) > 0) {
-    // Turn off
+  if (currentValue !== null && getNoteLength(currentValue) > 0) {
+    // Turn off - delete note
     store._updateCell(currentChannel, pattern, row, col, null);
   } else {
     // Turn on - need to handle truncation via full row update
+    const currentRow = [...channels[currentChannel][pattern][row]];
+    const truncatedRow = truncateOverlappingNote(currentRow, col);
+    truncatedRow[col] = createNotePattern(1);
+    store._updateRow(currentChannel, pattern, row, truncatedRow);
+  }
+}
+
+/**
+ * Toggle the enabled state of a note at the given position.
+ * If the cell has a note, toggle its enabled flag (preserving the pattern).
+ * If the cell is empty, create a new enabled note.
+ */
+export function toggleEnabled(row: number, col: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+  const currentValue = channels[currentChannel][pattern][row][col];
+
+  if (currentValue !== null && getNoteLength(currentValue) > 0) {
+    // Note exists - toggle enabled
+    store._updateCell(currentChannel, pattern, row, col, {
+      ...currentValue,
+      enabled: !currentValue.enabled,
+    });
+  } else {
+    // Empty - create a new enabled note
     const currentRow = [...channels[currentChannel][pattern][row]];
     const truncatedRow = truncateOverlappingNote(currentRow, col);
     truncatedRow[col] = createNotePattern(1);

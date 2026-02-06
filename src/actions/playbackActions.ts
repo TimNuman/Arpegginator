@@ -30,7 +30,7 @@ function getNotesAtStep(
   for (let row = 0; row < pattern.length; row++) {
     for (let col = loopStart; col <= step; col++) {
       const noteValue = pattern[row][col];
-      if (noteValue === null) continue;
+      if (noteValue === null || !noteValue.enabled) continue;
 
       const length = getNoteLength(noteValue);
       const repeatAmount = getRepeatAmount(noteValue);
