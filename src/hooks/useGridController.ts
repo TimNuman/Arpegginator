@@ -140,17 +140,23 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       const noteLength = getNoteLength(noteValue);
 
       if (noteLength > 0) {
-        // Cmd+Shift+Arrow: change repeat space
+        // Cmd+Shift+Arrow: change repeat space (auto-enable repeat if needed)
         if (state.meta && state.shift && (key === 'arrowleft' || key === 'arrowright')) {
-          const currentRepeatSpace = getRepeatSpace(noteValue);
-          let newRepeatSpace = currentRepeatSpace;
-          if (key === 'arrowleft') {
-            newRepeatSpace = Math.max(1, currentRepeatSpace - 1);
+          const currentRepeatAmount = getRepeatAmount(noteValue);
+          if (currentRepeatAmount <= 1 && key === 'arrowright') {
+            // No repeats yet — enable repeat first by setting amount to 2
+            actions.setNoteRepeatAmount(selectedNote.row, selectedNote.col, 2);
           } else {
-            newRepeatSpace = Math.min(16, currentRepeatSpace + 1);
-          }
-          if (newRepeatSpace !== currentRepeatSpace) {
-            actions.setNoteRepeatSpace(selectedNote.row, selectedNote.col, newRepeatSpace);
+            const currentRepeatSpace = getRepeatSpace(noteValue);
+            let newRepeatSpace = currentRepeatSpace;
+            if (key === 'arrowleft') {
+              newRepeatSpace = Math.max(1, currentRepeatSpace - 1);
+            } else {
+              newRepeatSpace = Math.min(16, currentRepeatSpace + 1);
+            }
+            if (newRepeatSpace !== currentRepeatSpace) {
+              actions.setNoteRepeatSpace(selectedNote.row, selectedNote.col, newRepeatSpace);
+            }
           }
           return true;
         }
