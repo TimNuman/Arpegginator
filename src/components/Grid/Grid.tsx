@@ -7,6 +7,7 @@ import {
   BUTTON_COLOR_100,
   BUTTON_COLOR_50,
   BUTTON_COLOR_25,
+  BUTTON_WHITE_25,
   FLAG_PLAYHEAD,
   FLAG_C_NOTE,
   FLAG_LOOP_BOUNDARY,
@@ -538,9 +539,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             value |= FLAG_SELECTED;
           }
 
-          // Repeat notes get a hue-shifted tint
+          // Repeat notes get a hue-shifted tint (dimmed in channel mode like other note cells)
           if (noteAtCell.isRepeat) {
             colorRow.push(repeatColor);
+            if (uiMode === "channel") value |= FLAG_DIMMED;
             row.push(value);
             continue;
           }
@@ -654,26 +656,23 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const currentPatternForChannel = currentPatterns[channelIndex];
 
           if (visibleCol === 0) {
-            // Column 0: mute/solo indicator (always shown)
+            // Column 0: mute/solo indicator
+            // Soloed = lighter, muted (or non-soloed when solo exists) = darker, normal = standard
             const isMuted = mutedChannels[channelIndex];
             const isSoloed = soloedChannels[channelIndex];
+            const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
             const isPlayingNow =
               currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
 
-            let cellColor: string;
             if (isSoloed) {
-              cellColor = chColor;
-            } else if (isMuted) {
-              cellColor = chColor + "1A";
-            } else if (anySoloed) {
-              cellColor = chColor + "4D";
+              value = BUTTON_WHITE_25;
+            } else if (isEffectivelyMuted) {
+              value = BUTTON_COLOR_25;
             } else {
-              cellColor = chColor + "80";
+              value = BUTTON_COLOR_100;
             }
-
-            value = BUTTON_COLOR_100;
             if (isPlayingNow) value |= FLAG_PLAYHEAD;
-            colorRow.push(cellColor);
+            colorRow.push(chColor);
             row.push(value);
             continue;
           }
@@ -695,21 +694,26 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
           if (!isEmptyPattern) {
             // Non-empty pattern: overlay channel button on top
-            let cellColor = chColor;
+            const isMuted = mutedChannels[channelIndex];
+            const isSoloed = soloedChannels[channelIndex];
+            const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
             value = BUTTON_COLOR_50;
 
             if (isSelectedPattern) {
               value = BUTTON_COLOR_100;
             } else if (isQueued) {
-              const intensity = isPulsing ? 0.7 : 0.35;
-              const hex = Math.round(intensity * 255)
-                .toString(16)
-                .padStart(2, "0");
-              cellColor = chColor + hex;
+              value = isPulsing ? BUTTON_COLOR_100 : BUTTON_COLOR_50;
+            }
+
+            // Muted/effectively-muted channels get darker, soloed get lighter
+            if (isEffectivelyMuted) {
+              value = BUTTON_COLOR_25;
+            } else if (isSoloed && !isSelectedPattern) {
+              value = BUTTON_WHITE_25;
             }
 
             if (isPlayingNow || isPulsing) value |= FLAG_PLAYHEAD;
-            colorRow.push(cellColor);
+            colorRow.push(chColor);
             row.push(value);
             continue;
           }
@@ -799,7 +803,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         const channelIndex = visibleRow;
 
         if (visibleCol === 0) {
-          // Mute/solo toggle
+          // Click = toggle mute, Alt+click = toggle solo
           if (keyboard.alt) {
             actions.toggleSolo(channelIndex);
           } else {

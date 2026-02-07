@@ -270,6 +270,7 @@ export const BUTTON_OFF = 0;
 export const BUTTON_COLOR_25 = 1;
 export const BUTTON_COLOR_50 = 2;
 export const BUTTON_COLOR_100 = 4;
+export const BUTTON_WHITE_25 = 5;
 
 // Flags
 export const FLAG_PLAYHEAD = 16;

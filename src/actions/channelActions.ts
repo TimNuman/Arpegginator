@@ -32,21 +32,38 @@ export function setChannelPattern(channel: number, pattern: number): void {
 }
 
 /**
- * Toggle mute for a channel
+ * Toggle mute for a channel.
+ * A channel can't be muted and soloed at the same time — muting unsolos.
  */
 export function toggleMute(channel: number): void {
   const store = getSequencerStore();
   const newMuted = [...store.mutedChannels];
   newMuted[channel] = !newMuted[channel];
   store._setMutedChannels(newMuted);
+
+  // Muting a soloed channel unsolos it
+  if (newMuted[channel] && store.soloedChannels[channel]) {
+    const newSoloed = [...store.soloedChannels];
+    newSoloed[channel] = false;
+    store._setSoloedChannels(newSoloed);
+  }
 }
 
 /**
- * Toggle solo for a channel
+ * Toggle solo for a channel.
+ * A channel can't be soloed and muted at the same time — soloing unmutes.
+ * Unsoloing also unmutes (never goes back to muted state).
  */
 export function toggleSolo(channel: number): void {
   const store = getSequencerStore();
   const newSoloed = [...store.soloedChannels];
   newSoloed[channel] = !newSoloed[channel];
   store._setSoloedChannels(newSoloed);
+
+  // Always unmute when toggling solo (both on and off)
+  if (store.mutedChannels[channel]) {
+    const newMuted = [...store.mutedChannels];
+    newMuted[channel] = false;
+    store._setMutedChannels(newMuted);
+  }
 }
