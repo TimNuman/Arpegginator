@@ -1,6 +1,7 @@
-import { create } from 'zustand';
-import { immer } from 'zustand/middleware/immer';
-import type { GridState, NoteValue } from '../types/grid';
+import { create } from "zustand";
+import { immer } from "zustand/middleware/immer";
+import type { GridState, NoteValue } from "../types/grid";
+import { createNotePattern } from "../types/grid";
 
 // ============ Constants ============
 export const ROWS = 128;
@@ -13,7 +14,7 @@ export const DEFAULT_LOOP_START = 0;
 export const DEFAULT_LOOP_LENGTH = 16;
 
 // ============ Types ============
-export type UiMode = 'pattern' | 'channel' | 'loop';
+export type UiMode = "pattern" | "channel" | "loop";
 
 export interface PatternLoop {
   start: number;
@@ -21,18 +22,18 @@ export interface PatternLoop {
 }
 
 interface ViewState {
-  rowOffsets: number[];        // Per-channel scroll position (0-1)
-  colOffset: number;           // Horizontal scroll (0-1)
+  rowOffsets: number[]; // Per-channel scroll position (0-1)
+  colOffset: number; // Horizontal scroll (0-1)
   selectedNote: { row: number; col: number } | null;
   uiMode: UiMode;
 }
 
 export interface SequencerState {
   // === Core Sequencer State ===
-  channels: GridState[][];           // [channel][pattern][row][col]
+  channels: GridState[][]; // [channel][pattern][row][col]
   currentChannel: number;
-  currentPatterns: number[];         // Active pattern per channel
-  patternLoops: PatternLoop[][];     // [channel][pattern]
+  currentPatterns: number[]; // Active pattern per channel
+  patternLoops: PatternLoop[][]; // [channel][pattern]
   queuedPatterns: (number | null)[]; // Queued pattern per channel
 
   // === Playback State ===
@@ -64,9 +65,20 @@ export interface SequencerActions {
   _setView: (view: Partial<ViewState>) => void;
 
   // === Atomic Pattern Updates (used by actions) ===
-  _updateCell: (channel: number, pattern: number, row: number, col: number, value: NoteValue) => void;
+  _updateCell: (
+    channel: number,
+    pattern: number,
+    row: number,
+    col: number,
+    value: NoteValue,
+  ) => void;
   _updatePattern: (channel: number, pattern: number, grid: GridState) => void;
-  _updateRow: (channel: number, pattern: number, row: number, rowData: NoteValue[]) => void;
+  _updateRow: (
+    channel: number,
+    pattern: number,
+    row: number,
+    rowData: NoteValue[],
+  ) => void;
 }
 
 export type SequencerStore = SequencerState & SequencerActions;
@@ -78,28 +90,39 @@ const createEmptyGrid = (): GridState =>
 const createEmptyPatterns = (): GridState[] =>
   Array.from({ length: PATTERNS_PER_CHANNEL }, () => createEmptyGrid());
 
-const createEmptyChannels = (): GridState[][] =>
-  Array.from({ length: NUM_CHANNELS }, () => createEmptyPatterns());
+const createEmptyChannels = (): GridState[][] => {
+  const channels = Array.from({ length: NUM_CHANNELS }, () =>
+    createEmptyPatterns(),
+  );
+  // Seed channel 1 pattern 0 with a basic drumbeat for testing
+  const drums = channels[0][0];
+  drums[36][0] = createNotePattern(1, 4, 4); // kick
+  drums[40][4] = createNotePattern(1, 2, 8); // snare
+  drums[42][0] = createNotePattern(1, 16, 1); // closed hat
+  return channels;
+};
 
 const createDefaultLoops = (): PatternLoop[][] =>
   Array.from({ length: NUM_CHANNELS }, () =>
     Array.from({ length: PATTERNS_PER_CHANNEL }, () => ({
       start: DEFAULT_LOOP_START,
       length: DEFAULT_LOOP_LENGTH,
-    }))
+    })),
   );
 
 const getInitialRowOffset = (channel: number): number => {
   const maxRowOffset = ROWS - VISIBLE_ROWS;
   return channel < 4
-    ? 1 - 36 / maxRowOffset   // Drums: MIDI note 36
-    : 1 - 60 / maxRowOffset;  // Melodic: middle C (60)
+    ? 1 - 36 / maxRowOffset // Drums: MIDI note 36
+    : 1 - 60 / maxRowOffset; // Melodic: middle C (60)
 };
 
 const createInitialView = (): ViewState => ({
-  rowOffsets: Array.from({ length: NUM_CHANNELS }, (_, i) => getInitialRowOffset(i)),
+  rowOffsets: Array.from({ length: NUM_CHANNELS }, (_, i) =>
+    getInitialRowOffset(i),
+  ),
   colOffset: 0,
-  uiMode: 'pattern',
+  uiMode: "pattern",
   selectedNote: null,
 });
 
@@ -153,7 +176,7 @@ export const useSequencerStore = create<SequencerStore>()(
       set((state) => {
         state.channels[channel][pattern][row] = rowData;
       }),
-  }))
+  })),
 );
 
 // ============ Utility to get store outside React ============
