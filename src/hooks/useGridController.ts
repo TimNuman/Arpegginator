@@ -335,37 +335,6 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
       // In channel/loop/volume mode, skip note-editing keybindings
       if (uiMode !== "pattern") {
-        // Allow cmd+key toggle enabled in loop mode (grid is still visible)
-        if (
-          uiMode === "loop" &&
-          state.meta &&
-          !state.shift &&
-          !state.ctrl &&
-          !state.alt &&
-          !event.repeat
-        ) {
-          const gridPos = KEY_MAP[key];
-          if (gridPos) {
-            const visibleRow = gridPos.row;
-            const visibleCol = gridPos.col;
-            const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-            const actualCol = startCol + visibleCol;
-            const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
-            if (note) {
-              actions.toggleEnabled(actualRow, note.sourceCol);
-              if (
-                selectedNote &&
-                selectedNote.row === actualRow &&
-                selectedNote.col === note.sourceCol
-              ) {
-                actions.setSelectedNote(null);
-              }
-            } else {
-              actions.toggleEnabled(actualRow, actualCol);
-            }
-            return true;
-          }
-        }
         return false;
       }
 

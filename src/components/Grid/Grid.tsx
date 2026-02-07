@@ -392,7 +392,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   // Calculate looped step for playhead display
   const loopEnd = currentLoop.start + currentLoop.length;
   const loopedStep =
-    currentStep >= 0 && uiMode !== "loop"
+    currentStep >= 0
       ? currentLoop.start +
         ((((currentStep - currentLoop.start) % currentLoop.length) +
           currentLoop.length) %
@@ -859,7 +859,24 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         return;
       }
 
-      // Pattern / loop mode: delegate to grid controller
+      // Loop mode: click sets loop boundaries, no note editing
+      if (uiMode === "loop") {
+        const actualCol = startCol + visibleCol;
+        const loopEndCol = currentLoop.start + currentLoop.length;
+        // Shift+click sets loop start, plain click sets loop end
+        if (keyboard.shift) {
+          const newStart = Math.min(actualCol, loopEndCol - 1);
+          const newLength = loopEndCol - newStart;
+          actions.setPatternLoop(currentChannel, currentPattern, newStart, newLength);
+        } else {
+          const newEnd = Math.max(actualCol + 1, currentLoop.start + 1);
+          const newLength = newEnd - currentLoop.start;
+          actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newLength);
+        }
+        return;
+      }
+
+      // Pattern mode: delegate to grid controller
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
       const actualCol = startCol + visibleCol;
       onCellPress(actualRow, actualCol);
@@ -876,6 +893,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       currentPatterns,
       queuedPatterns,
       currentChannel,
+      currentPattern,
+      currentLoop,
       selectedNote,
       gridState,
       renderedNotes,

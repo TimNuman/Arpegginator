@@ -2,7 +2,9 @@ import { memo, useCallback, useEffect } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
 
-// Inject pulsing keyframes once
+// Inject pulsing keyframes once.
+// The animation runs on ALL grid cells always (so they share a single timeline).
+// --pulse-active (0 or 1) controls whether opacity actually changes.
 let pulsingStyleInjected = false;
 const injectPulsingStyle = () => {
   if (pulsingStyleInjected) return;
@@ -10,8 +12,11 @@ const injectPulsingStyle = () => {
   const style = document.createElement('style');
   style.textContent = `
     @keyframes loopBoundaryPulse {
-      0%, 100% { opacity: 0.3; }
+      0%, 100% { opacity: calc(1 - 0.7 * var(--pulse-active, 0)); }
       50% { opacity: 1; }
+    }
+    .grid-button-cell {
+      animation: loopBoundaryPulse 800ms ease-in-out infinite;
     }
   `;
   document.head.appendChild(style);
@@ -191,7 +196,9 @@ const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: Grid
         onPress();
       }}
       onContextMenu={(e) => e.preventDefault()}
+      className="grid-button-cell"
       style={{
+        "--pulse-active": pulsing ? 1 : 0,
         width: 40,
         height: 40,
         margin: 2,
@@ -202,8 +209,7 @@ const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: Grid
         touchAction: "none",
         background: dimmed ? `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), ${bgColor}` : bgColor,
         boxShadow: dimmed ? "inset 0 0 5px rgba(0, 0, 0, 0.5)" : boxShadow,
-        animation: pulsing ? "loopBoundaryPulse 800ms ease-in-out infinite" : undefined,
-      }}
+      } as React.CSSProperties}
     />
   );
 });
