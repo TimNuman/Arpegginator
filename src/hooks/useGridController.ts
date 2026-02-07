@@ -216,13 +216,17 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // Backspace: reset playhead
+      // Backspace: deselect note, or reset playhead if nothing selected
       if (key === "backspace") {
-        actions.resetPlayhead();
+        if (selectedNote) {
+          actions.setSelectedNote(null);
+        } else {
+          actions.resetPlayhead();
+        }
         return true;
       }
 
-      // Ctrl+Z/X/C: switch UI mode
+      // Ctrl+Z/X/C/V: switch UI mode
       if (state.ctrl && !state.meta && !state.alt && !state.shift) {
         if (key === "z") {
           actions.setUiMode("channel");
@@ -234,6 +238,10 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         }
         if (key === "c") {
           actions.setUiMode("loop");
+          return true;
+        }
+        if (key === "v") {
+          actions.setUiMode("volume");
           return true;
         }
       }
@@ -288,7 +296,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // In channel/loop mode, skip note-editing keybindings
+      // In channel/loop/volume mode, skip note-editing keybindings
       if (uiMode !== "pattern") {
         // Allow cmd+key toggle enabled in loop mode (grid is still visible)
         if (

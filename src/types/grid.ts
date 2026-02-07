@@ -4,6 +4,7 @@ export interface NotePattern {
   repeatAmount: number; // How many times to repeat (1 = single note, 2+ = repeated)
   repeatSpace: number; // Steps between each repeat
   enabled: boolean; // Whether the note is active (disabled notes are retained but don't play/render)
+  velocity: number[]; // Looping velocity array over repeats, default [100]
 }
 
 // Note value: null = no note, NotePattern = note with settings
@@ -38,13 +39,25 @@ export const isNoteEnabled = (value: NoteValue): boolean => {
   return value.enabled;
 };
 
+// Helper to get velocity array from NoteValue
+export const getVelocity = (value: NoteValue): number[] => {
+  if (!isNotePattern(value)) return [100];
+  return value.velocity;
+};
+
+// Helper to get velocity for a specific repeat index (loops the array)
+export const getVelocityAtRepeat = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 100;
+  return value.velocity[repeatIndex % value.velocity.length];
+};
+
 // Helper to create a NotePattern
 export const createNotePattern = (
   length: number = 1,
   repeatAmount: number = 1,
   repeatSpace: number = 1,
 ): NotePattern => {
-  return { length, repeatAmount, repeatSpace, enabled: true };
+  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100] };
 };
 
 // A rendered note instance (for display purposes)

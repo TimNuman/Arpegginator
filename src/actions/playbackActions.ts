@@ -1,17 +1,17 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, type GridState } from '../types/grid';
+import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, type GridState } from '../types/grid';
 
 // Interval reference for internal playback
 let playbackInterval: number | null = null;
 
 // Callback reference for step trigger
-let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number) => void) | null = null;
+let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number, velocity: number) => void) | null = null;
 
 /**
  * Set the step trigger callback (called when a note should play)
  */
 export function setStepTriggerCallback(
-  callback: ((channel: number, row: number, step: number, noteLength: number) => void) | null
+  callback: ((channel: number, row: number, step: number, noteLength: number, velocity: number) => void) | null
 ): void {
   stepTriggerCallback = callback;
 }
@@ -24,8 +24,8 @@ function getNotesAtStep(
   step: number,
   loopStart: number,
   loopEnd: number
-): { row: number; length: number }[] {
-  const notes: { row: number; length: number }[] = [];
+): { row: number; length: number; velocity: number }[] {
+  const notes: { row: number; length: number; velocity: number }[] = [];
 
   for (let row = 0; row < pattern.length; row++) {
     for (let col = loopStart; col <= step; col++) {
@@ -39,7 +39,7 @@ function getNotesAtStep(
       for (let r = 0; r < repeatAmount; r++) {
         const playStep = col + r * repeatSpace;
         if (playStep === step && playStep < loopEnd) {
-          notes.push({ row, length });
+          notes.push({ row, length, velocity: getVelocityAtRepeat(noteValue, r) });
           break;
         }
       }
@@ -83,8 +83,8 @@ export function tick(): void {
     // Trigger notes
     if (shouldPlay && stepTriggerCallback && channelStep >= loop.start && channelStep < loopEnd) {
       const notesToPlay = getNotesAtStep(channels[ch][patternIdx], channelStep, loop.start, loopEnd);
-      for (const { row, length } of notesToPlay) {
-        stepTriggerCallback(ch, row, channelStep, length);
+      for (const { row, length, velocity } of notesToPlay) {
+        stepTriggerCallback(ch, row, channelStep, length, velocity);
       }
     }
   }

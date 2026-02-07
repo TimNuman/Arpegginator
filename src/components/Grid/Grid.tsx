@@ -42,6 +42,7 @@ import {
   getNoteLength,
   getRepeatAmount,
   getRepeatSpace,
+  getVelocityAtRepeat,
   findNoteAtCell,
 } from "../../types/grid";
 
@@ -97,8 +98,11 @@ const shiftHue = (hex: string, degrees: number): string => {
   return `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`;
 };
 
-// Mode hint colors
-const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33"] as const;
+// Mode hint colors (channel, pattern, loop, volume)
+const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33", "#FF66CC"] as const;
+
+// Velocity levels for volume mode (8 rows, top to bottom: 127 → 5)
+const VELOCITY_LEVELS = [127, 110, 92, 75, 57, 40, 22, 5] as const;
 
 // Convert MIDI note number to note name
 const midiNoteToName = (midiNote: number): string => {
@@ -394,6 +398,79 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
   // Compute button values and color overrides for all modes
   const { buttonValues, colorOverrides } = useMemo(() => {
+    // Volume mode with selected note: completely custom grid
+    if (uiMode === "volume" && selectedNote) {
+      const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+      const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
+      const repeatSpace = noteValue ? getRepeatSpace(noteValue) : 1;
+      const values: number[][] = [];
+      const colors: (string | null)[][] = [];
+
+      // Determine which repeat index is currently playing
+      let playingRepeatIndex = -1;
+      if (loopedStep >= 0 && noteValue) {
+        for (let r = 0; r < repeatAmount; r++) {
+          const stepStart = selectedNote.col + r * repeatSpace;
+          const stepEnd = stepStart + getNoteLength(noteValue);
+          if (loopedStep >= stepStart && loopedStep < stepEnd) {
+            playingRepeatIndex = r;
+            break;
+          }
+        }
+      }
+
+      for (let visibleRow = 0; visibleRow < VISIBLE_ROWS; visibleRow++) {
+        const row: number[] = [];
+        const colorRow: (string | null)[] = [];
+        const velocityThreshold = VELOCITY_LEVELS[visibleRow];
+
+        for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
+          // Ctrl mode hints
+          if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
+            row.push(BUTTON_COLOR_100);
+            colorRow.push(MODE_HINT_COLORS[visibleCol]);
+            continue;
+          }
+
+          if (visibleCol >= repeatAmount) {
+            // Beyond the number of repeats — dark
+            row.push(BUTTON_OFF);
+            colorRow.push(null);
+            continue;
+          }
+
+          const isPlayingCol = visibleCol === playingRepeatIndex;
+          const vel = noteValue ? getVelocityAtRepeat(noteValue, visibleCol) : 100;
+          // Fill from bottom up: cell is lit if velocity >= this row's threshold
+          if (vel >= velocityThreshold) {
+            // Map velocity to color intensity: brighter at top
+            let intensity = visibleRow >= 6 ? BUTTON_COLOR_25
+              : visibleRow >= 4 ? BUTTON_COLOR_50
+              : BUTTON_COLOR_100;
+            if (isPlayingCol) intensity |= FLAG_PLAYING;
+            row.push(intensity);
+          } else {
+            row.push(isPlayingCol ? FLAG_PLAYHEAD : BUTTON_OFF);
+          }
+          colorRow.push(null);
+        }
+        values.push(row);
+        colors.push(colorRow);
+      }
+
+      // Ctrl held: dim everything except mode hints
+      if (keyboard.ctrl) {
+        for (let r = 0; r < VISIBLE_ROWS; r++) {
+          for (let c = 0; c < VISIBLE_COLS; c++) {
+            if (r === 7 && c <= 3) continue;
+            values[r][c] |= FLAG_DIMMED;
+          }
+        }
+      }
+
+      return { buttonValues: values, colorOverrides: colors };
+    }
+
     const values: number[][] = [];
     const colors: (string | null)[][] = [];
     const anySoloed = soloedChannels.some((s) => s);
@@ -539,8 +616,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           value |= FLAG_C_NOTE;
         }
 
-        // Mode hint on bottom row (Z/X/C keys) — only while ctrl is held
-        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
+        // Mode hint on bottom row (Z/X/C/V keys) — only while ctrl is held
+        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
           value = BUTTON_COLOR_100;
           colorRow.push(MODE_HINT_COLORS[visibleCol]);
           row.push(value);
@@ -635,11 +712,20 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       }
     }
 
+    // Volume mode without selected note: dim the grid (waiting for note selection)
+    if (uiMode === "volume" && !selectedNote) {
+      for (let r = 0; r < VISIBLE_ROWS; r++) {
+        for (let c = 0; c < VISIBLE_COLS; c++) {
+          values[r][c] |= FLAG_DIMMED;
+        }
+      }
+    }
+
     // Ctrl held (mode selection): dim everything except mode hint buttons
     if (keyboard.ctrl) {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
-          if (r === 7 && c <= 2) continue; // Skip mode hint buttons
+          if (r === 7 && c <= 3) continue; // Skip mode hint buttons
           values[r][c] |= FLAG_DIMMED;
         }
       }
@@ -668,17 +754,20 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     mutedChannels,
     soloedChannels,
     currentChannel,
+    // Volume mode deps
+    gridState,
   ]);
 
   // Handle button press from ButtonGrid
   const handleButtonPress = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      // Ctrl+click on bottom row cols 0/1/2: switch UI mode (works in all modes)
-      if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
-        const modes: Array<"channel" | "pattern" | "loop"> = [
+      // Ctrl+click on bottom row cols 0-3: switch UI mode (works in all modes)
+      if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
+        const modes: Array<"channel" | "pattern" | "loop" | "volume"> = [
           "channel",
           "pattern",
           "loop",
+          "volume",
         ];
         actions.setUiMode(modes[visibleCol]);
         return;
@@ -726,6 +815,28 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         return;
       }
 
+      // Volume mode
+      if (uiMode === "volume") {
+        if (selectedNote) {
+          // In velocity editor: set velocity for this repeat
+          const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+          const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
+          if (visibleCol < repeatAmount) {
+            const velocity = VELOCITY_LEVELS[visibleRow];
+            actions.setNoteVelocity(selectedNote.row, selectedNote.col, visibleCol, velocity);
+          }
+        } else {
+          // No note selected: click to select a note, then stay in volume mode
+          const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+          const actualCol = startCol + visibleCol;
+          const noteAtCell = findNoteAtCell(renderedNotes, actualRow, actualCol);
+          if (noteAtCell) {
+            actions.setSelectedNote({ row: actualRow, col: noteAtCell.sourceCol });
+          }
+        }
+        return;
+      }
+
       // Pattern / loop mode: delegate to grid controller
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
       const actualCol = startCol + visibleCol;
@@ -743,13 +854,16 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       currentPatterns,
       queuedPatterns,
       currentChannel,
+      selectedNote,
+      gridState,
+      renderedNotes,
     ],
   );
 
   // Handle button drag enter from ButtonGrid
   const handleButtonDragEnter = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      if (uiMode === "channel") return; // No drag in channel mode
+      if (uiMode === "channel" || uiMode === "volume") return; // No drag in channel/volume mode
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
       const actualCol = startCol + visibleCol;
       onCellDragEnter(actualRow, actualCol);
@@ -803,6 +917,28 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           ],
         };
       }
+    }
+
+    if (uiMode === "volume") {
+      if (selectedNote) {
+        const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+        const noteName = midiNoteToName(selectedNote.row);
+        const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
+        return {
+          rows: [
+            { label: "MODE", valueParts: [{ text: "VOLUME" }] },
+            { label: "NOTE", valueParts: [{ text: noteName }] },
+            { label: "STEPS", valueParts: [{ text: `${repeatAmount}` }] },
+          ],
+        };
+      }
+      return {
+        rows: [
+          { label: "MODE", valueParts: [{ text: "VOLUME" }] },
+          { label: "", valueParts: [{ text: "SELECT" }] },
+          { label: "", valueParts: [{ text: "A NOTE" }] },
+        ],
+      };
     }
 
     if (uiMode === "channel") {

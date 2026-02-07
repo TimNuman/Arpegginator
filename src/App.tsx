@@ -84,10 +84,10 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, row: number, _step: number, noteLength: number) => {
+    (channel: number, row: number, _step: number, noteLength: number, velocity: number) => {
       const note = getRowNote(row);
       // Use channel + 1 for MIDI channel (1-8)
-      playNote(note, 100, channel + 1);
+      playNote(note, velocity, channel + 1);
       // Calculate note duration based on BPM and note length
       // One step = one 16th note = (60 / bpm / 4) seconds
       const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;

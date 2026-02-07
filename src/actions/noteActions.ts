@@ -191,3 +191,28 @@ export function setNoteRepeatSpace(row: number, col: number, repeatSpace: number
     });
   }
 }
+
+/**
+ * Set velocity for a specific repeat index of a note.
+ * Materializes the looping velocity array up to the given index and sets the value.
+ */
+export function setNoteVelocity(row: number, col: number, repeatIndex: number, velocity: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  // Materialize the looping array up to repeatIndex + 1 entries
+  const materialized: number[] = [];
+  for (let i = 0; i <= repeatIndex; i++) {
+    materialized.push(noteValue.velocity[i % noteValue.velocity.length]);
+  }
+  materialized[repeatIndex] = velocity;
+
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    velocity: materialized,
+  });
+}

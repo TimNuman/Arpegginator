@@ -7,6 +7,7 @@ export {
   placeNote,
   setNoteRepeatAmount,
   setNoteRepeatSpace,
+  setNoteVelocity,
 } from './noteActions';
 
 // Playback actions
