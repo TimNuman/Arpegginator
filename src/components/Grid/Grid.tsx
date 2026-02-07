@@ -1,7 +1,22 @@
 import { memo, useCallback, useMemo } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
-import { ButtonGrid, BUTTON_OFF, BUTTON_COLOR_100, BUTTON_COLOR_50, BUTTON_COLOR_25, FLAG_PLAYHEAD, FLAG_C_NOTE, FLAG_LOOP_BOUNDARY, FLAG_BEAT_MARKER, FLAG_SELECTED, FLAG_CONTINUATION, FLAG_PLAYING, FLAG_LOOP_BOUNDARY_PULSING, FLAG_DIMMED } from "../ButtonGrid";
+import {
+  ButtonGrid,
+  BUTTON_OFF,
+  BUTTON_COLOR_100,
+  BUTTON_COLOR_50,
+  BUTTON_COLOR_25,
+  FLAG_PLAYHEAD,
+  FLAG_C_NOTE,
+  FLAG_LOOP_BOUNDARY,
+  FLAG_BEAT_MARKER,
+  FLAG_SELECTED,
+  FLAG_CONTINUATION,
+  FLAG_PLAYING,
+  FLAG_LOOP_BOUNDARY_PULSING,
+  FLAG_DIMMED,
+} from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useGridController } from "../../hooks/useGridController";
 import { CHANNEL_COLORS } from "./ChannelColors";
@@ -30,13 +45,76 @@ import {
   findNoteAtCell,
 } from "../../types/grid";
 
+// Shift a hex color's hue by a given amount (in degrees)
+const shiftHue = (hex: string, degrees: number): string => {
+  // Parse hex
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0,
+    s = 0;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+
+  // Shift hue
+  h = (((h * 360 + degrees) % 360) + 360) % 360;
+
+  // HSL to RGB
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+
+  let rr: number, gg: number, bb: number;
+  if (s === 0) {
+    rr = gg = bb = l;
+  } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    rr = hue2rgb(p, q, h / 360 + 1 / 3);
+    gg = hue2rgb(p, q, h / 360);
+    bb = hue2rgb(p, q, h / 360 - 1 / 3);
+  }
+
+  const toHex = (v: number) =>
+    Math.round(v * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`;
+};
+
 // Mode hint colors
-const MODE_HINT_COLORS = ['#33CCFF', '#33FF66', '#FFCC33'] as const;
+const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33"] as const;
 
 // Convert MIDI note number to note name
 const midiNoteToName = (midiNote: number): string => {
   const noteNames = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    "C",
+    "C#",
+    "D",
+    "D#",
+    "E",
+    "F",
+    "F#",
+    "G",
+    "G#",
+    "A",
+    "A#",
+    "B",
   ];
   const octave = Math.floor(midiNote / 12) - 1;
   const noteName = noteNames[midiNote % 12];
@@ -307,7 +385,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   // Calculate looped step for playhead display
   const loopEnd = currentLoop.start + currentLoop.length;
   const loopedStep =
-    currentStep >= 0 && uiMode !== 'loop'
+    currentStep >= 0 && uiMode !== "loop"
       ? currentLoop.start +
         ((((currentStep - currentLoop.start) % currentLoop.length) +
           currentLoop.length) %
@@ -319,6 +397,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     const values: number[][] = [];
     const colors: (string | null)[][] = [];
     const anySoloed = soloedChannels.some((s) => s);
+    const repeatColor = shiftHue(channelColor, -30);
 
     for (let visibleRow = 0; visibleRow < VISIBLE_ROWS; visibleRow++) {
       const row: number[] = [];
@@ -339,7 +418,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const isNoteStart = noteAtCell.col === actualCol;
           const noteStartCol = noteAtCell.col;
           const noteEndCol = noteAtCell.col + noteAtCell.length - 1;
-          const isNoteCurrentlyPlaying = loopedStep >= noteStartCol && loopedStep <= noteEndCol;
+          const isNoteCurrentlyPlaying =
+            loopedStep >= noteStartCol && loopedStep <= noteEndCol;
 
           value = BUTTON_COLOR_100;
 
@@ -351,8 +431,19 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             value |= FLAG_PLAYING;
           }
 
-          if (selectedNote && selectedNote.row === actualRow && selectedNote.col === noteAtCell.sourceCol) {
+          if (
+            selectedNote &&
+            selectedNote.row === actualRow &&
+            selectedNote.col === noteAtCell.sourceCol
+          ) {
             value |= FLAG_SELECTED;
+          }
+
+          // Repeat notes get a hue-shifted tint
+          if (noteAtCell.isRepeat) {
+            colorRow.push(repeatColor);
+            row.push(value);
+            continue;
           }
         } else {
           // Off-screen note indicators on edge cells
@@ -366,24 +457,54 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           if (isTopEdge || isBottomEdge || isLeftEdge || isRightEdge) {
             for (const note of renderedNotes) {
               // Top edge: notes above visible area at this column
-              if (isTopEdge && note.row > endRow && note.col <= actualCol && note.col + note.length > actualCol) {
+              if (
+                isTopEdge &&
+                note.row > endRow &&
+                note.col <= actualCol &&
+                note.col + note.length > actualCol
+              ) {
                 offScreen = true;
-                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+                if (
+                  loopedStep >= note.col &&
+                  loopedStep < note.col + note.length
+                )
+                  offScreenPlaying = true;
               }
               // Bottom edge: notes below visible area at this column
-              if (isBottomEdge && note.row < startRow && note.col <= actualCol && note.col + note.length > actualCol) {
+              if (
+                isBottomEdge &&
+                note.row < startRow &&
+                note.col <= actualCol &&
+                note.col + note.length > actualCol
+              ) {
                 offScreen = true;
-                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+                if (
+                  loopedStep >= note.col &&
+                  loopedStep < note.col + note.length
+                )
+                  offScreenPlaying = true;
               }
               // Right edge: notes to the right on this row
               if (isRightEdge && note.row === actualRow && note.col > endCol) {
                 offScreen = true;
-                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+                if (
+                  loopedStep >= note.col &&
+                  loopedStep < note.col + note.length
+                )
+                  offScreenPlaying = true;
               }
               // Left edge: notes to the left on this row (note ends before visible area)
-              if (isLeftEdge && note.row === actualRow && note.col + note.length <= startCol) {
+              if (
+                isLeftEdge &&
+                note.row === actualRow &&
+                note.col + note.length <= startCol
+              ) {
                 offScreen = true;
-                if (loopedStep >= note.col && loopedStep < note.col + note.length) offScreenPlaying = true;
+                if (
+                  loopedStep >= note.col &&
+                  loopedStep < note.col + note.length
+                )
+                  offScreenPlaying = true;
               }
               if (offScreen && offScreenPlaying) break; // No need to keep searching
             }
@@ -394,7 +515,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           }
 
           // Empty cell - add grid markers
-          const isInLoop = actualCol >= currentLoop.start && actualCol < loopEnd;
+          const isInLoop =
+            actualCol >= currentLoop.start && actualCol < loopEnd;
 
           if (isInLoop) {
             if (actualCol === loopedStep) {
@@ -403,7 +525,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
             if (actualCol === currentLoop.start || actualCol === loopEnd - 1) {
               value |= FLAG_LOOP_BOUNDARY;
-              if (uiMode === 'loop') {
+              if (uiMode === "loop") {
                 value |= FLAG_LOOP_BOUNDARY_PULSING;
               }
             } else if (Math.floor(actualCol / 4) % 2 === 0) {
@@ -426,7 +548,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         }
 
         // Channel mode: overlay channel selector on top of note grid
-        if (uiMode === 'channel') {
+        if (uiMode === "channel") {
           const channelIndex = visibleRow;
           const chColor = CHANNEL_COLORS[channelIndex];
           const patternsForChannel = allPatternsHaveNotes[channelIndex];
@@ -436,7 +558,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             // Column 0: mute/solo indicator (always shown)
             const isMuted = mutedChannels[channelIndex];
             const isSoloed = soloedChannels[channelIndex];
-            const isPlayingNow = currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
+            const isPlayingNow =
+              currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
 
             let cellColor: string;
             if (isSoloed) {
@@ -457,13 +580,19 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           }
 
           const patternIndex = visibleCol - 1;
-          const patternHasNotes = patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
-          const isSelectedPattern = channelIndex === currentChannel && patternIndex === currentPatternForChannel;
+          const patternHasNotes =
+            patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
+          const isSelectedPattern =
+            channelIndex === currentChannel &&
+            patternIndex === currentPatternForChannel;
           const isActivePattern = patternIndex === currentPatternForChannel;
-          const isQueued = patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
-          const isPlayingNow = isActivePattern && channelsPlayingNow[channelIndex];
+          const isQueued =
+            patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
+          const isPlayingNow =
+            isActivePattern && channelsPlayingNow[channelIndex];
           const isPulsing = isQueued && isPulseBeat;
-          const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
+          const isEmptyPattern =
+            !patternHasNotes && !isSelectedPattern && !isQueued;
 
           if (!isEmptyPattern) {
             // Non-empty pattern: overlay channel button on top
@@ -474,7 +603,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
               value = BUTTON_COLOR_100;
             } else if (isQueued) {
               const intensity = isPulsing ? 0.7 : 0.35;
-              const hex = Math.round(intensity * 255).toString(16).padStart(2, "0");
+              const hex = Math.round(intensity * 255)
+                .toString(16)
+                .padStart(2, "0");
               cellColor = chColor + hex;
             }
 
@@ -495,7 +626,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     }
 
     // Channel mode: dim cells without channel overlay (note grid base layer)
-    if (uiMode === 'channel') {
+    if (uiMode === "channel") {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
           if (colors[r][c] !== null) continue; // Has channel overlay, skip
@@ -516,68 +647,115 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
     return { buttonValues: values, colorOverrides: colors };
   }, [
-    uiMode, renderedNotes, startRow, startCol, endRow, endCol, currentLoop.start, loopEnd, loopedStep,
-    selectedNote, keyboard.ctrl,
+    uiMode,
+    renderedNotes,
+    startRow,
+    startCol,
+    endRow,
+    endCol,
+    currentLoop.start,
+    loopEnd,
+    loopedStep,
+    selectedNote,
+    keyboard.ctrl,
+    channelColor,
     // Channel mode deps
-    allPatternsHaveNotes, currentPatterns, queuedPatterns, channelsPlayingNow,
-    isPulseBeat, mutedChannels, soloedChannels, currentChannel,
+    allPatternsHaveNotes,
+    currentPatterns,
+    queuedPatterns,
+    channelsPlayingNow,
+    isPulseBeat,
+    mutedChannels,
+    soloedChannels,
+    currentChannel,
   ]);
 
   // Handle button press from ButtonGrid
-  const handleButtonPress = useCallback((visibleRow: number, visibleCol: number) => {
-    // Ctrl+click on bottom row cols 0/1/2: switch UI mode (works in all modes)
-    if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
-      const modes: Array<'channel' | 'pattern' | 'loop'> = ['channel', 'pattern', 'loop'];
-      actions.setUiMode(modes[visibleCol]);
-      return;
-    }
-
-    if (uiMode === 'channel') {
-      const channelIndex = visibleRow;
-
-      if (visibleCol === 0) {
-        // Mute/solo toggle
-        if (keyboard.alt) {
-          actions.toggleSolo(channelIndex);
-        } else {
-          actions.toggleMute(channelIndex);
-        }
+  const handleButtonPress = useCallback(
+    (visibleRow: number, visibleCol: number) => {
+      // Ctrl+click on bottom row cols 0/1/2: switch UI mode (works in all modes)
+      if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 2) {
+        const modes: Array<"channel" | "pattern" | "loop"> = [
+          "channel",
+          "pattern",
+          "loop",
+        ];
+        actions.setUiMode(modes[visibleCol]);
         return;
       }
 
-      // Pattern selection (cols 1-7)
-      const patternIndex = visibleCol - 1;
-      const patternsForChannel = allPatternsHaveNotes[channelIndex];
-      const currentPatternForChannel = currentPatterns[channelIndex];
-      const patternHasNotes = patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
-      const isSelectedPattern = channelIndex === currentChannel && patternIndex === currentPatternForChannel;
-      const isQueued = patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
-      const isEmptyPattern = !patternHasNotes && !isSelectedPattern && !isQueued;
+      if (uiMode === "channel") {
+        const channelIndex = visibleRow;
 
-      if (keyboard.shift && isEmptyPattern && channelIndex === currentChannel) {
-        actions.copyPatternTo(patternIndex);
-        actions.setChannelPattern(channelIndex, patternIndex);
-      } else {
-        actions.setCurrentChannel(channelIndex);
-        actions.setChannelPattern(channelIndex, patternIndex);
+        if (visibleCol === 0) {
+          // Mute/solo toggle
+          if (keyboard.alt) {
+            actions.toggleSolo(channelIndex);
+          } else {
+            actions.toggleMute(channelIndex);
+          }
+          return;
+        }
+
+        // Pattern selection (cols 1-7)
+        const patternIndex = visibleCol - 1;
+        const patternsForChannel = allPatternsHaveNotes[channelIndex];
+        const currentPatternForChannel = currentPatterns[channelIndex];
+        const patternHasNotes =
+          patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
+        const isSelectedPattern =
+          channelIndex === currentChannel &&
+          patternIndex === currentPatternForChannel;
+        const isQueued =
+          patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
+        const isEmptyPattern =
+          !patternHasNotes && !isSelectedPattern && !isQueued;
+
+        if (
+          keyboard.shift &&
+          isEmptyPattern &&
+          channelIndex === currentChannel
+        ) {
+          actions.copyPatternTo(patternIndex);
+          actions.setChannelPattern(channelIndex, patternIndex);
+        } else {
+          actions.setCurrentChannel(channelIndex);
+          actions.setChannelPattern(channelIndex, patternIndex);
+        }
+        actions.setUiMode("pattern");
+        return;
       }
-      actions.setUiMode('pattern');
-      return;
-    }
 
-    // Pattern / loop mode: delegate to grid controller
-    const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-    const actualCol = startCol + visibleCol;
-    onCellPress(actualRow, actualCol);
-  }, [keyboard.ctrl, keyboard.alt, keyboard.shift, uiMode, startRow, startCol, onCellPress, allPatternsHaveNotes, currentPatterns, queuedPatterns, currentChannel]);
+      // Pattern / loop mode: delegate to grid controller
+      const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+      const actualCol = startCol + visibleCol;
+      onCellPress(actualRow, actualCol);
+    },
+    [
+      keyboard.ctrl,
+      keyboard.alt,
+      keyboard.shift,
+      uiMode,
+      startRow,
+      startCol,
+      onCellPress,
+      allPatternsHaveNotes,
+      currentPatterns,
+      queuedPatterns,
+      currentChannel,
+    ],
+  );
 
   // Handle button drag enter from ButtonGrid
-  const handleButtonDragEnter = useCallback((visibleRow: number, visibleCol: number) => {
-    if (uiMode === 'channel') return; // No drag in channel mode
-    const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-    const actualCol = startCol + visibleCol;
-    onCellDragEnter(actualRow, actualCol);
-  }, [uiMode, startRow, startCol, onCellDragEnter]);
+  const handleButtonDragEnter = useCallback(
+    (visibleRow: number, visibleCol: number) => {
+      if (uiMode === "channel") return; // No drag in channel mode
+      const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+      const actualCol = startCol + visibleCol;
+      onCellDragEnter(actualRow, actualCol);
+    },
+    [uiMode, startRow, startCol, onCellDragEnter],
+  );
 
   // OLED display content
   type OledValuePart = { text: string; highlight?: boolean };
@@ -585,9 +763,11 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
   const getOledContent = useCallback((): { rows: OledRow[] } => {
     // Pattern mode: show note info if a note is selected
-    if (uiMode === 'pattern' && selectedNote) {
+    if (uiMode === "pattern" && selectedNote) {
       const selectedNoteValue = gridState[selectedNote.row]?.[selectedNote.col];
-      const selectedNoteLength = selectedNoteValue ? getNoteLength(selectedNoteValue) : 0;
+      const selectedNoteLength = selectedNoteValue
+        ? getNoteLength(selectedNoteValue)
+        : 0;
 
       if (selectedNoteLength > 0) {
         const noteName = midiNoteToName(selectedNote.row);
@@ -602,14 +782,22 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             { label: "NOTE", valueParts: [{ text: noteName }] },
             {
               label: "LENGTH",
-              valueParts: [{ text: `${selectedNoteLength}`, highlight: highlightLength }],
+              valueParts: [
+                { text: `${selectedNoteLength}`, highlight: highlightLength },
+              ],
             },
             {
               label: "REPEAT",
               valueParts: [
-                { text: `${selectedRepeatAmount}`, highlight: highlightRepeatAmount },
+                {
+                  text: `${selectedRepeatAmount}`,
+                  highlight: highlightRepeatAmount,
+                },
                 { text: "x" },
-                { text: `${selectedRepeatSpace}`, highlight: highlightRepeatSpace },
+                {
+                  text: `${selectedRepeatSpace}`,
+                  highlight: highlightRepeatSpace,
+                },
               ],
             },
           ],
@@ -617,17 +805,20 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       }
     }
 
-    if (uiMode === 'channel') {
+    if (uiMode === "channel") {
       return {
         rows: [
           { label: "MODE", valueParts: [{ text: "CHANNEL" }] },
-          { label: "SELECT", valueParts: [{ text: `CH ${currentChannel + 1}` }] },
+          {
+            label: "SELECT",
+            valueParts: [{ text: `CH ${currentChannel + 1}` }],
+          },
           { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
         ],
       };
     }
 
-    if (uiMode === 'loop') {
+    if (uiMode === "loop") {
       const highlightStart = keyboard.shift;
       const highlightEnd = !keyboard.shift;
       return {
@@ -635,7 +826,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           { label: "MODE", valueParts: [{ text: "LOOP" }] },
           {
             label: "START",
-            valueParts: [{ text: `${currentLoop.start + 1}`, highlight: highlightStart }],
+            valueParts: [
+              { text: `${currentLoop.start + 1}`, highlight: highlightStart },
+            ],
           },
           {
             label: "END",
@@ -661,21 +854,40 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       rows: [
         { label: "CH", valueParts: [{ text: `${currentChannel + 1}` }] },
         { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
-        { label: "LOOP", valueParts: [{ text: `${currentLoop.start + 1}-${loopEnd}` }] },
+        {
+          label: "LOOP",
+          valueParts: [{ text: `${currentLoop.start + 1}-${loopEnd}` }],
+        },
       ],
     };
-  }, [uiMode, selectedNote, gridState, keyboard, currentChannel, currentPattern, currentLoop, loopEnd]);
+  }, [
+    uiMode,
+    selectedNote,
+    gridState,
+    keyboard,
+    currentChannel,
+    currentPattern,
+    currentLoop,
+    loopEnd,
+  ]);
 
   const oledContent = getOledContent();
 
   // Arrow button handlers
   const handleArrowUp = useCallback(() => {
     if (selectedNote) {
-      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
+      const noteLength = getNoteLength(
+        gridState[selectedNote.row]?.[selectedNote.col],
+      );
       if (noteLength > 0) {
         const newRow = Math.min(ROWS - 1, selectedNote.row + 1);
         if (newRow !== selectedNote.row) {
-          actions.moveNote(selectedNote.row, selectedNote.col, newRow, selectedNote.col);
+          actions.moveNote(
+            selectedNote.row,
+            selectedNote.col,
+            newRow,
+            selectedNote.col,
+          );
           actions.setSelectedNote({ row: newRow, col: selectedNote.col });
           if (!isPlaying && onPlayNote) onPlayNote(newRow, currentChannel);
         }
@@ -685,11 +897,18 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
   const handleArrowDown = useCallback(() => {
     if (selectedNote) {
-      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
+      const noteLength = getNoteLength(
+        gridState[selectedNote.row]?.[selectedNote.col],
+      );
       if (noteLength > 0) {
         const newRow = Math.max(0, selectedNote.row - 1);
         if (newRow !== selectedNote.row) {
-          actions.moveNote(selectedNote.row, selectedNote.col, newRow, selectedNote.col);
+          actions.moveNote(
+            selectedNote.row,
+            selectedNote.col,
+            newRow,
+            selectedNote.col,
+          );
           actions.setSelectedNote({ row: newRow, col: selectedNote.col });
           if (!isPlaying && onPlayNote) onPlayNote(newRow, currentChannel);
         }
@@ -698,50 +917,98 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   }, [selectedNote, gridState, isPlaying, onPlayNote, currentChannel]);
 
   const handleArrowLeft = useCallback(() => {
-    if (uiMode === 'loop') {
+    if (uiMode === "loop") {
       const loopEndVal = currentLoop.start + currentLoop.length;
       const newEnd = Math.max(currentLoop.start + 1, loopEndVal - 1);
       if (newEnd !== loopEndVal) {
-        actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newEnd - currentLoop.start);
+        actions.setPatternLoop(
+          currentChannel,
+          currentPattern,
+          currentLoop.start,
+          newEnd - currentLoop.start,
+        );
         followWithCamera(startRow, newEnd - 1);
       }
       return;
     }
     if (selectedNote) {
-      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
+      const noteLength = getNoteLength(
+        gridState[selectedNote.row]?.[selectedNote.col],
+      );
       if (noteLength > 0) {
         const newCol = Math.max(0, selectedNote.col - 1);
         if (newCol !== selectedNote.col) {
-          actions.moveNote(selectedNote.row, selectedNote.col, selectedNote.row, newCol);
+          actions.moveNote(
+            selectedNote.row,
+            selectedNote.col,
+            selectedNote.row,
+            newCol,
+          );
           actions.setSelectedNote({ row: selectedNote.row, col: newCol });
-          if (!isPlaying && onPlayNote) onPlayNote(selectedNote.row, currentChannel);
+          if (!isPlaying && onPlayNote)
+            onPlayNote(selectedNote.row, currentChannel);
         }
       }
     }
-  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern, startRow, followWithCamera]);
+  }, [
+    uiMode,
+    selectedNote,
+    gridState,
+    isPlaying,
+    onPlayNote,
+    currentChannel,
+    currentLoop,
+    currentPattern,
+    startRow,
+    followWithCamera,
+  ]);
 
   const handleArrowRight = useCallback(() => {
-    if (uiMode === 'loop') {
+    if (uiMode === "loop") {
       const loopEndVal = currentLoop.start + currentLoop.length;
       const newEnd = Math.min(COLS, loopEndVal + 1);
       if (newEnd !== loopEndVal) {
-        actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newEnd - currentLoop.start);
+        actions.setPatternLoop(
+          currentChannel,
+          currentPattern,
+          currentLoop.start,
+          newEnd - currentLoop.start,
+        );
         followWithCamera(startRow, newEnd - 1);
       }
       return;
     }
     if (selectedNote) {
-      const noteLength = getNoteLength(gridState[selectedNote.row]?.[selectedNote.col]);
+      const noteLength = getNoteLength(
+        gridState[selectedNote.row]?.[selectedNote.col],
+      );
       if (noteLength > 0) {
         const newCol = Math.min(COLS - 1, selectedNote.col + 1);
         if (newCol !== selectedNote.col) {
-          actions.moveNote(selectedNote.row, selectedNote.col, selectedNote.row, newCol);
+          actions.moveNote(
+            selectedNote.row,
+            selectedNote.col,
+            selectedNote.row,
+            newCol,
+          );
           actions.setSelectedNote({ row: selectedNote.row, col: newCol });
-          if (!isPlaying && onPlayNote) onPlayNote(selectedNote.row, currentChannel);
+          if (!isPlaying && onPlayNote)
+            onPlayNote(selectedNote.row, currentChannel);
         }
       }
     }
-  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern, startRow, followWithCamera]);
+  }, [
+    uiMode,
+    selectedNote,
+    gridState,
+    isPlaying,
+    onPlayNote,
+    currentChannel,
+    currentLoop,
+    currentPattern,
+    startRow,
+    followWithCamera,
+  ]);
 
   return (
     <Box css={gridOuterContainerStyles}>
@@ -770,13 +1037,28 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
-            <Box css={[modifierKeyStyles, keyboard.ctrl && modifierKeyActiveStyles]}>
+            <Box
+              css={[
+                modifierKeyStyles,
+                keyboard.ctrl && modifierKeyActiveStyles,
+              ]}
+            >
               ctrl
             </Box>
-            <Box css={[modifierKeyStyles, keyboard.shift && modifierKeyActiveStyles]}>
+            <Box
+              css={[
+                modifierKeyStyles,
+                keyboard.shift && modifierKeyActiveStyles,
+              ]}
+            >
               shift
             </Box>
-            <Box css={[modifierKeyStyles, keyboard.meta && modifierKeyActiveStyles]}>
+            <Box
+              css={[
+                modifierKeyStyles,
+                keyboard.meta && modifierKeyActiveStyles,
+              ]}
+            >
               cmd
             </Box>
           </Box>
@@ -789,16 +1071,26 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             totalItems={COLS}
             visibleItems={VISIBLE_COLS}
             itemSize={buttonSize}
-            />
+          />
         </Box>
         <Box css={debugStyles}>
-          <span>Notes: {startRow} - {endRow}</span>
-          <span>Beats: {startCol} - {endCol}</span>
+          <span>
+            Notes: {startRow} - {endRow}
+          </span>
+          <span>
+            Beats: {startCol} - {endCol}
+          </span>
         </Box>
       </Box>
       {/* OLED Screen and controls */}
       <Box css={oledContainerStyles}>
-        <Box css={css`display: flex; flex-direction: column; align-items: center;`}>
+        <Box
+          css={css`
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          `}
+        >
           <Box css={oledScreenStyles}>
             {oledContent.rows.map((row, index) => (
               <Box key={index} css={oledRowStyles}>
@@ -807,7 +1099,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
                   {row.valueParts.map((part, partIndex) => (
                     <span
                       key={partIndex}
-                      css={part.highlight ? oledHighlightStyles : oledValueStyles}
+                      css={
+                        part.highlight ? oledHighlightStyles : oledValueStyles
+                      }
                     >
                       {part.text}
                     </span>
@@ -823,12 +1117,20 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           {/* Arrow Keys */}
           <Box css={arrowButtonContainerStyles}>
             <Box css={arrowButtonRowStyles}>
-              <Box css={arrowButtonStyles} onClick={handleArrowUp}>▲</Box>
+              <Box css={arrowButtonStyles} onClick={handleArrowUp}>
+                ▲
+              </Box>
             </Box>
             <Box css={arrowButtonRowStyles}>
-              <Box css={arrowButtonStyles} onClick={handleArrowLeft}>◀</Box>
-              <Box css={arrowButtonStyles} onClick={handleArrowDown}>▼</Box>
-              <Box css={arrowButtonStyles} onClick={handleArrowRight}>▶</Box>
+              <Box css={arrowButtonStyles} onClick={handleArrowLeft}>
+                ◀
+              </Box>
+              <Box css={arrowButtonStyles} onClick={handleArrowDown}>
+                ▼
+              </Box>
+              <Box css={arrowButtonStyles} onClick={handleArrowRight}>
+                ▶
+              </Box>
             </Box>
           </Box>
         </Box>
