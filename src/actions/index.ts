@@ -8,6 +8,8 @@ export {
   setNoteRepeatAmount,
   setNoteRepeatSpace,
   setNoteVelocity,
+  setVelocityLength,
+  toggleVelocityLoopMode,
 } from './noteActions';
 
 // Playback actions
@@ -22,6 +24,7 @@ export {
   playExternal,
   externalTick,
   stopExternal,
+  getVelocityContinueCounter,
 } from './playbackActions';
 
 // Channel actions

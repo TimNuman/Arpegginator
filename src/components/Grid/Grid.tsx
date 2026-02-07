@@ -42,7 +42,10 @@ import {
   getNoteLength,
   getRepeatAmount,
   getRepeatSpace,
+  getVelocity,
   getVelocityAtRepeat,
+  getVelocityAtRepeatFill,
+  getVelocityLoopMode,
   findNoteAtCell,
 } from "../../types/grid";
 
@@ -403,17 +406,29 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
       const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
       const repeatSpace = noteValue ? getRepeatSpace(noteValue) : 1;
+      const velocityArrayLength = noteValue ? getVelocity(noteValue).length : 1;
+      const velLoopMode = noteValue ? getVelocityLoopMode(noteValue) : "reset";
       const values: number[][] = [];
       const colors: (string | null)[][] = [];
 
-      // Determine which repeat index is currently playing
+      // Determine which repeat index is currently playing, and which velocity column to highlight
       let playingRepeatIndex = -1;
+      let playingVelocityCol = -1;
       if (loopedStep >= 0 && noteValue) {
         for (let r = 0; r < repeatAmount; r++) {
           const stepStart = selectedNote.col + r * repeatSpace;
           const stepEnd = stepStart + getNoteLength(noteValue);
           if (loopedStep >= stepStart && loopedStep < stepEnd) {
             playingRepeatIndex = r;
+            if (velLoopMode === "continue") {
+              // Continue mode: highlight the velocity array position being read
+              const counter = actions.getVelocityContinueCounter(currentChannel, selectedNote.row, selectedNote.col);
+              const lastUsed = Math.max(0, counter - 1);
+              playingVelocityCol = lastUsed % velocityArrayLength;
+            } else {
+              // Reset and fill mode: highlight the repeat column that's playing
+              playingVelocityCol = r;
+            }
             break;
           }
         }
@@ -439,14 +454,21 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             continue;
           }
 
-          const isPlayingCol = visibleCol === playingRepeatIndex;
-          const vel = noteValue ? getVelocityAtRepeat(noteValue, visibleCol) : 100;
+          const isPlayingCol = visibleCol === playingVelocityCol;
+          const isExplicit = visibleCol < velocityArrayLength;
+          const vel = noteValue
+            ? (velLoopMode === "fill" ? getVelocityAtRepeatFill(noteValue, visibleCol) : getVelocityAtRepeat(noteValue, visibleCol))
+            : 100;
           // Fill from bottom up: cell is lit if velocity >= this row's threshold
           if (vel >= velocityThreshold) {
-            // Map velocity to color intensity: brighter at top
-            let intensity = visibleRow >= 6 ? BUTTON_COLOR_25
-              : visibleRow >= 4 ? BUTTON_COLOR_50
-              : BUTTON_COLOR_100;
+            // Explicit columns (within velocity array) are full brightness,
+            // looping/inherited columns are 50%
+            let intensity: number;
+            if (isExplicit) {
+              intensity = BUTTON_COLOR_100;
+            } else {
+              intensity = BUTTON_COLOR_50;
+            }
             if (isPlayingCol) intensity |= FLAG_PLAYING;
             row.push(intensity);
           } else {
@@ -923,12 +945,13 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       if (selectedNote) {
         const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
         const noteName = midiNoteToName(selectedNote.row);
-        const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
+        const loopMode = noteValue ? getVelocityLoopMode(noteValue) : "reset";
+        const loopModeLabel = loopMode === "reset" ? "RST" : loopMode === "continue" ? "CNT" : "FIL";
         return {
           rows: [
-            { label: "MODE", valueParts: [{ text: "VOLUME" }] },
             { label: "NOTE", valueParts: [{ text: noteName }] },
-            { label: "STEPS", valueParts: [{ text: `${repeatAmount}` }] },
+            { label: "VLOOP", valueParts: [{ text: loopModeLabel, highlight: loopMode === "continue" }] },
+            { label: "LEN", valueParts: [{ text: `${noteValue ? getVelocity(noteValue).length : 1}` }] },
           ],
         };
       }

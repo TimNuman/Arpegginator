@@ -1,3 +1,6 @@
+// Velocity loop mode: "reset" resets with pattern loop, "continue" keeps counting across loops, "fill" clamps to last value
+export type VelocityLoopMode = "reset" | "continue" | "fill";
+
 // NotePattern: a note with repeat settings
 export interface NotePattern {
   length: number; // Note length in steps
@@ -5,6 +8,7 @@ export interface NotePattern {
   repeatSpace: number; // Steps between each repeat
   enabled: boolean; // Whether the note is active (disabled notes are retained but don't play/render)
   velocity: number[]; // Looping velocity array over repeats, default [100]
+  velocityLoopMode: VelocityLoopMode; // How velocity loops interact with pattern loops
 }
 
 // Note value: null = no note, NotePattern = note with settings
@@ -45,10 +49,23 @@ export const getVelocity = (value: NoteValue): number[] => {
   return value.velocity;
 };
 
+// Helper to get velocity loop mode from NoteValue
+export const getVelocityLoopMode = (value: NoteValue): VelocityLoopMode => {
+  if (!isNotePattern(value)) return "reset";
+  return value.velocityLoopMode;
+};
+
 // Helper to get velocity for a specific repeat index (loops the array)
 export const getVelocityAtRepeat = (value: NoteValue, repeatIndex: number): number => {
   if (!isNotePattern(value)) return 100;
   return value.velocity[repeatIndex % value.velocity.length];
+};
+
+// Helper to get velocity clamped to last entry (for "fill" mode)
+export const getVelocityAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 100;
+  const idx = Math.min(repeatIndex, value.velocity.length - 1);
+  return value.velocity[idx];
 };
 
 // Helper to create a NotePattern
@@ -57,7 +74,7 @@ export const createNotePattern = (
   repeatAmount: number = 1,
   repeatSpace: number = 1,
 ): NotePattern => {
-  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100] };
+  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset" };
 };
 
 // A rendered note instance (for display purposes)

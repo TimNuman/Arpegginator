@@ -1,5 +1,5 @@
 import { getSequencerStore } from '../store/sequencerStore';
-import { getNoteLength, createNotePattern, type NoteValue } from '../types/grid';
+import { getNoteLength, createNotePattern, type NoteValue, type VelocityLoopMode } from '../types/grid';
 
 /**
  * Helper to truncate any note that would overlap with a new note at col
@@ -193,8 +193,25 @@ export function setNoteRepeatSpace(row: number, col: number, repeatSpace: number
 }
 
 /**
+ * Materialize velocity array to a target length, respecting the loop mode.
+ * "reset"/"continue": loop (modulo). "fill": clamp to last value.
+ */
+function materializeVelocity(velocity: number[], targetLength: number, loopMode: VelocityLoopMode): number[] {
+  const result: number[] = [];
+  for (let i = 0; i < targetLength; i++) {
+    if (loopMode === "fill") {
+      result.push(velocity[Math.min(i, velocity.length - 1)]);
+    } else {
+      result.push(velocity[i % velocity.length]);
+    }
+  }
+  return result;
+}
+
+/**
  * Set velocity for a specific repeat index of a note.
- * Materializes the looping velocity array up to the given index and sets the value.
+ * Materializes the looping velocity array to at least repeatIndex + 1 entries,
+ * but preserves any existing length beyond that.
  */
 export function setNoteVelocity(row: number, col: number, repeatIndex: number, velocity: number): void {
   const store = getSequencerStore();
@@ -204,15 +221,55 @@ export function setNoteVelocity(row: number, col: number, repeatIndex: number, v
   const noteValue = channels[currentChannel][pattern][row][col];
   if (noteValue === null) return;
 
-  // Materialize the looping array up to repeatIndex + 1 entries
-  const materialized: number[] = [];
-  for (let i = 0; i <= repeatIndex; i++) {
-    materialized.push(noteValue.velocity[i % noteValue.velocity.length]);
-  }
+  // Materialize to at least repeatIndex + 1, but keep existing length if longer
+  const targetLength = Math.max(noteValue.velocity.length, repeatIndex + 1);
+  const materialized = materializeVelocity(noteValue.velocity, targetLength, noteValue.velocityLoopMode);
   materialized[repeatIndex] = velocity;
 
   store._updateCell(currentChannel, pattern, row, col, {
     ...noteValue,
     velocity: materialized,
+  });
+}
+
+/**
+ * Set the velocity array length for a note.
+ * Expanding: materializes values for new entries (respecting loop mode).
+ * Shrinking: truncates from the end (minimum length 1).
+ */
+export function setVelocityLength(row: number, col: number, newLength: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  const clamped = Math.max(1, newLength);
+  const result = materializeVelocity(noteValue.velocity, clamped, noteValue.velocityLoopMode);
+
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    velocity: result,
+  });
+}
+
+/**
+ * Cycle velocity loop mode: reset → continue → fill → reset.
+ */
+export function toggleVelocityLoopMode(row: number, col: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  const modes: VelocityLoopMode[] = ["reset", "continue", "fill"];
+  const currentIndex = modes.indexOf(noteValue.velocityLoopMode);
+  const newMode = modes[(currentIndex + 1) % modes.length];
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    velocityLoopMode: newMode,
   });
 }

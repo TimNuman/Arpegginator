@@ -296,6 +296,43 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
+      // Volume mode: Arrow up/down toggles velocity loop mode
+      if (
+        uiMode === "volume" &&
+        selectedNote &&
+        !state.meta &&
+        !state.alt &&
+        !state.ctrl &&
+        !state.shift &&
+        (code === "ArrowUp" || code === "ArrowDown")
+      ) {
+        actions.toggleVelocityLoopMode(selectedNote.row, selectedNote.col);
+        return true;
+      }
+
+      // Volume mode: Arrow left/right adjusts velocity array length
+      if (
+        uiMode === "volume" &&
+        selectedNote &&
+        !state.meta &&
+        !state.alt &&
+        !state.ctrl &&
+        !state.shift &&
+        (code === "ArrowLeft" || code === "ArrowRight")
+      ) {
+        const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+        if (noteValue) {
+          const currentLength = noteValue.velocity.length;
+          const newLength = code === "ArrowRight"
+            ? currentLength + 1
+            : currentLength - 1;
+          if (newLength >= 1) {
+            actions.setVelocityLength(selectedNote.row, selectedNote.col, newLength);
+          }
+        }
+        return true;
+      }
+
       // In channel/loop/volume mode, skip note-editing keybindings
       if (uiMode !== "pattern") {
         // Allow cmd+key toggle enabled in loop mode (grid is still visible)
