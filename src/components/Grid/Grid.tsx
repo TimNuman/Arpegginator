@@ -294,6 +294,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     onCellDragEnter,
     onRowOffsetChange,
     onColOffsetChange,
+    followWithCamera,
   } = controller;
 
   const channelColor = CHANNEL_COLORS[currentChannel];
@@ -306,7 +307,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   // Calculate looped step for playhead display
   const loopEnd = currentLoop.start + currentLoop.length;
   const loopedStep =
-    currentStep >= 0
+    currentStep >= 0 && uiMode !== 'loop'
       ? currentLoop.start +
         ((((currentStep - currentLoop.start) % currentLoop.length) +
           currentLoop.length) %
@@ -702,6 +703,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const newEnd = Math.max(currentLoop.start + 1, loopEndVal - 1);
       if (newEnd !== loopEndVal) {
         actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newEnd - currentLoop.start);
+        followWithCamera(startRow, newEnd - 1);
       }
       return;
     }
@@ -716,7 +718,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         }
       }
     }
-  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern]);
+  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern, startRow, followWithCamera]);
 
   const handleArrowRight = useCallback(() => {
     if (uiMode === 'loop') {
@@ -724,6 +726,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const newEnd = Math.min(COLS, loopEndVal + 1);
       if (newEnd !== loopEndVal) {
         actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newEnd - currentLoop.start);
+        followWithCamera(startRow, newEnd - 1);
       }
       return;
     }
@@ -738,7 +741,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         }
       }
     }
-  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern]);
+  }, [uiMode, selectedNote, gridState, isPlaying, onPlayNote, currentChannel, currentLoop, currentPattern, startRow, followWithCamera]);
 
   return (
     <Box css={gridOuterContainerStyles}>

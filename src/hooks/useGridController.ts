@@ -50,7 +50,10 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   // Held note for keyboard input (two-key note length)
   const heldNote = useRef<{ row: number; col: number; key: string } | null>(null);
 
-
+  // Playhead follow mode refs
+  const manualScrollOverride = useRef(false);
+  const prevLoopedStep = useRef(-1);
+  const prevIsPlaying = useRef(false);
 
   // Calculate visible area
   const maxRowOffset = ROWS - VISIBLE_ROWS;
@@ -59,6 +62,48 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const startCol = Math.round(colOffset * maxColOffset);
   const endRow = startRow + VISIBLE_ROWS - 1;
   const endCol = startCol + VISIBLE_COLS - 1;
+
+  // Compute looped step for playhead follow
+  const loopEnd = currentLoop.start + currentLoop.length;
+  const loopedStep = currentStep >= 0
+    ? currentLoop.start + ((((currentStep - currentLoop.start) % currentLoop.length) + currentLoop.length) % currentLoop.length)
+    : -1;
+
+  // Playhead follow mode — inline, no useEffect
+  const FOLLOW_COL = 4;
+
+  // Detect play/stop transitions → clear manual override
+  if (isPlaying && !prevIsPlaying.current) {
+    manualScrollOverride.current = false;
+  }
+  if (!isPlaying && prevIsPlaying.current) {
+    manualScrollOverride.current = false;
+  }
+  prevIsPlaying.current = isPlaying;
+
+  // Playhead follow — only while playing
+  if (isPlaying) {
+    // Detect loop wraparound → clear manual override so camera jumps back
+    if (loopedStep >= 0 && prevLoopedStep.current >= 0 && loopedStep < prevLoopedStep.current) {
+      manualScrollOverride.current = false;
+    }
+    prevLoopedStep.current = loopedStep;
+
+    // Auto-scroll to follow playhead
+    if (loopedStep >= 0 && currentLoop.length > VISIBLE_COLS && !manualScrollOverride.current && uiMode !== 'loop') {
+      let targetStartCol = loopedStep - FOLLOW_COL;
+      targetStartCol = Math.max(targetStartCol, currentLoop.start);
+      const maxLoopStartCol = loopEnd - VISIBLE_COLS;
+      targetStartCol = Math.min(targetStartCol, maxLoopStartCol);
+      targetStartCol = Math.max(0, Math.min(COLS - VISIBLE_COLS, targetStartCol));
+      const newColOffset = Math.max(0, Math.min(1, targetStartCol / maxColOffset));
+      if (Math.abs(newColOffset - colOffset) > 0.001) {
+        actions.setColOffset(newColOffset);
+      }
+    }
+  } else {
+    prevLoopedStep.current = -1;
+  }
 
   // Helper to play a preview note
   const playPreviewNote = useCallback((row: number, steps?: number) => {
@@ -123,6 +168,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         if (newStart !== currentLoop.start) {
           const newLength = loopEnd - newStart;
           actions.setPatternLoop(currentChannel, currentPattern, newStart, newLength);
+          followNoteWithCamera(startRow, newStart);
         }
       } else {
         // Arrow: adjust loop end
@@ -136,6 +182,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         if (newEnd !== loopEnd) {
           const newLength = newEnd - currentLoop.start;
           actions.setPatternLoop(currentChannel, currentPattern, currentLoop.start, newLength);
+          followNoteWithCamera(startRow, newEnd - 1);
         }
       }
       return true;
@@ -184,7 +231,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
             if (key === 'arrowleft') {
               newRepeatSpace = Math.max(1, currentRepeatSpace - 1);
             } else {
-              newRepeatSpace = Math.min(16, currentRepeatSpace + 1);
+              newRepeatSpace = Math.min(64, currentRepeatSpace + 1);
             }
             if (newRepeatSpace !== currentRepeatSpace) {
               actions.setNoteRepeatSpace(selectedNote.row, selectedNote.col, newRepeatSpace);
@@ -200,7 +247,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           if (key === 'arrowleft') {
             newRepeatAmount = Math.max(1, currentRepeatAmount - 1);
           } else {
-            newRepeatAmount = Math.min(16, currentRepeatAmount + 1);
+            newRepeatAmount = Math.min(64, currentRepeatAmount + 1);
           }
           if (newRepeatAmount !== currentRepeatAmount) {
             actions.setNoteRepeatAmount(selectedNote.row, selectedNote.col, newRepeatAmount);
@@ -478,8 +525,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   }, [currentChannel]);
 
   const handleColOffsetChange = useCallback((offset: number) => {
+    if (isPlaying) {
+      manualScrollOverride.current = true;
+    }
     actions.setColOffset(offset);
-  }, []);
+  }, [isPlaying]);
 
   return {
     // Keyboard state (for display)
@@ -507,5 +557,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     // Scroll handlers (memoized)
     onRowOffsetChange: handleRowOffsetChange,
     onColOffsetChange: handleColOffsetChange,
+
+    // Camera follow helper (for loop editing in Grid.tsx)
+    followWithCamera: followNoteWithCamera,
   };
 }
