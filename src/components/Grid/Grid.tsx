@@ -461,32 +461,25 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             continue;
           }
 
-          if (visibleCol >= repeatAmount) {
-            // Beyond the number of repeats — dark
-            row.push(BUTTON_OFF);
-            colorRow.push(null);
-            continue;
-          }
-
           const isPlayingCol = visibleCol === playingVelocityCol;
           const isExplicit = visibleCol < velocityArrayLength;
-          const vel = noteValue
-            ? (velLoopMode === "fill" ? getVelocityAtRepeatFill(noteValue, visibleCol) : getVelocityAtRepeat(noteValue, visibleCol))
-            : 100;
-          // Fill from bottom up: cell is lit if velocity >= this row's threshold
-          if (vel >= velocityThreshold) {
-            // Explicit columns (within velocity array) are full brightness,
-            // looping/inherited columns are 50%
-            let intensity: number;
-            if (isExplicit) {
-              intensity = BUTTON_COLOR_100;
-            } else {
-              intensity = BUTTON_COLOR_50;
-            }
-            if (isPlayingCol) intensity |= FLAG_PLAYING;
-            row.push(intensity);
-          } else {
+          const isInRepeatRange = visibleCol < repeatAmount;
+
+          if (!isExplicit && !isInRepeatRange) {
+            // Beyond both velocity array and repeat range — dark
             row.push(isPlayingCol ? FLAG_PLAYHEAD : BUTTON_OFF);
+          } else {
+            const vel = noteValue
+              ? (velLoopMode === "fill" ? getVelocityAtRepeatFill(noteValue, visibleCol) : getVelocityAtRepeat(noteValue, visibleCol))
+              : 100;
+            if (vel >= velocityThreshold) {
+              // Explicit = full brightness, looped within repeat range = 50%
+              let intensity = isExplicit ? BUTTON_COLOR_100 : BUTTON_COLOR_50;
+              if (isPlayingCol) intensity |= FLAG_PLAYING;
+              row.push(intensity);
+            } else {
+              row.push(isPlayingCol ? FLAG_PLAYHEAD : BUTTON_OFF);
+            }
           }
           colorRow.push(null);
         }
@@ -961,14 +954,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       // Volume mode
       if (uiMode === "volume") {
         if (selectedNote) {
-          // In velocity editor: set velocity for this repeat
-          const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
-          const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
-          if (visibleCol < repeatAmount) {
-            // Cmd+click: set to 0
-            const velocity = keyboard.meta ? 0 : VELOCITY_LEVELS[visibleRow];
-            actions.setNoteVelocity(selectedNote.row, selectedNote.col, visibleCol, velocity);
-          }
+          // In velocity editor: click any column to set velocity (expands array if needed)
+          const velocity = keyboard.meta ? 0 : VELOCITY_LEVELS[visibleRow];
+          actions.setNoteVelocity(selectedNote.row, selectedNote.col, visibleCol, velocity);
         } else {
           // No note selected: click to select a note, then stay in volume mode
           const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
