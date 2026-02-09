@@ -1,6 +1,9 @@
 // Velocity loop mode: "reset" resets with pattern loop, "continue" keeps counting across loops, "fill" clamps to last value
 export type VelocityLoopMode = "reset" | "continue" | "fill";
 
+// Chance sub-modes: different aspects of randomization per repeat
+export type ChanceSubMode = "hit" | "velocity" | "timing" | "flam";
+
 // NotePattern: a note with repeat settings
 export interface NotePattern {
   length: number; // Note length in steps
@@ -9,6 +12,10 @@ export interface NotePattern {
   enabled: boolean; // Whether the note is active (disabled notes are retained but don't play/render)
   velocity: number[]; // Looping velocity array over repeats, default [100]
   velocityLoopMode: VelocityLoopMode; // How velocity loops interact with pattern loops
+  chance: number[]; // Per-repeat chance array (0-100%), fixed to repeatAmount entries, default [100]
+  velocityVariation: number[]; // Per-repeat ± velocity deviation (0-127), default [0]
+  timingOffset: number[]; // Per-repeat micro-timing offset as % of step (signed, e.g. -20 to +20), default [0]
+  flamChance: number[]; // Per-repeat flam probability (0-100%), default [0]
 }
 
 // Note value: null = no note, NotePattern = note with settings
@@ -68,13 +75,43 @@ export const getVelocityAtRepeatFill = (value: NoteValue, repeatIndex: number): 
   return value.velocity[idx];
 };
 
+// Helper to get chance array from NoteValue
+export const getChance = (value: NoteValue): number[] => {
+  if (!isNotePattern(value)) return [100];
+  return value.chance;
+};
+
+// Helper to get chance for a specific repeat index (wraps around array)
+export const getChanceAtRepeat = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 100;
+  return value.chance[repeatIndex % value.chance.length];
+};
+
+// Helper to get velocity variation for a specific repeat index
+export const getVelocityVariationAtRepeat = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 0;
+  return value.velocityVariation[repeatIndex % value.velocityVariation.length];
+};
+
+// Helper to get timing offset for a specific repeat index
+export const getTimingOffsetAtRepeat = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 0;
+  return value.timingOffset[repeatIndex % value.timingOffset.length];
+};
+
+// Helper to get flam chance for a specific repeat index
+export const getFlamChanceAtRepeat = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 0;
+  return value.flamChance[repeatIndex % value.flamChance.length];
+};
+
 // Helper to create a NotePattern
 export const createNotePattern = (
   length: number = 1,
   repeatAmount: number = 1,
   repeatSpace: number = 1,
 ): NotePattern => {
-  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset" };
+  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], velocityVariation: [0], timingOffset: [0], flamChance: [0] };
 };
 
 // A rendered note instance (for display purposes)

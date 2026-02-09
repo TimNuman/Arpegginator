@@ -1,4 +1,5 @@
 import { getSequencerStore, type UiMode } from '../store/sequencerStore';
+import type { ChanceSubMode } from '../types/grid';
 
 /**
  * Set the selected note
@@ -29,4 +30,11 @@ export function setColOffset(offset: number): void {
  */
 export function setUiMode(mode: UiMode): void {
   getSequencerStore()._setView({ uiMode: mode });
+}
+
+/**
+ * Set chance sub-mode (hit, velocity, timing, flam)
+ */
+export function setChanceSubMode(mode: ChanceSubMode): void {
+  getSequencerStore()._setView({ chanceSubMode: mode });
 }

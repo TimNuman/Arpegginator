@@ -47,6 +47,10 @@ import {
   getVelocityAtRepeat,
   getVelocityAtRepeatFill,
   getVelocityLoopMode,
+  getChanceAtRepeat,
+  getVelocityVariationAtRepeat,
+  getTimingOffsetAtRepeat,
+  getFlamChanceAtRepeat,
   findNoteAtCell,
 } from "../../types/grid";
 
@@ -102,11 +106,23 @@ const shiftHue = (hex: string, degrees: number): string => {
   return `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`;
 };
 
-// Mode hint colors (channel, pattern, loop, volume)
-const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33", "#FF66CC"] as const;
+// Mode hint colors (channel, pattern, loop, volume, chance)
+const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33", "#FF66CC", "#FF6633"] as const;
 
 // Velocity levels for volume mode (8 rows, top to bottom: 127 → 5)
 const VELOCITY_LEVELS = [127, 110, 92, 75, 57, 40, 22, 5] as const;
+
+// Chance levels for chance mode (8 rows, top to bottom: 100% → 12%)
+const CHANCE_LEVELS = [100, 87, 75, 62, 50, 37, 25, 12] as const;
+
+// Velocity variation levels (8 rows, top to bottom: max ± deviation 127 → 5)
+const VELOCITY_VAR_LEVELS = [127, 110, 92, 75, 57, 40, 22, 5] as const;
+
+// Timing offset levels (8 rows, top to bottom: +20% → -20% of step, signed)
+const TIMING_LEVELS = [20, 15, 10, 5, -5, -10, -15, -20] as const;
+
+// Flam chance levels (8 rows, top to bottom: probability 100% → 12%)
+const FLAM_LEVELS = [100, 87, 75, 62, 50, 37, 25, 12] as const;
 
 // Convert MIDI note number to note name
 const midiNoteToName = (midiNote: number): string => {
@@ -364,6 +380,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const {
     keyboard,
     uiMode,
+    chanceSubMode,
     startRow,
     startCol,
     endRow,
@@ -442,7 +459,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
         for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
           // Ctrl mode hints
-          if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
+          if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 4) {
             row.push(BUTTON_COLOR_100);
             colorRow.push(MODE_HINT_COLORS[visibleCol]);
             continue;
@@ -485,7 +502,112 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       if (keyboard.ctrl) {
         for (let r = 0; r < VISIBLE_ROWS; r++) {
           for (let c = 0; c < VISIBLE_COLS; c++) {
-            if (r === 7 && c <= 3) continue;
+            if (r === 7 && c <= 4) continue;
+            values[r][c] |= FLAG_DIMMED;
+          }
+        }
+      }
+
+      return { buttonValues: values, colorOverrides: colors };
+    }
+
+    // Chance mode with selected note: custom grid (sub-mode aware bar graph)
+    if (uiMode === "chance" && selectedNote) {
+      const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+      const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
+      const repeatSpace = noteValue ? getRepeatSpace(noteValue) : 1;
+      const values: number[][] = [];
+      const colors: (string | null)[][] = [];
+
+      // Select thresholds and getter based on active sub-mode
+      const levels = chanceSubMode === "hit" ? CHANCE_LEVELS
+        : chanceSubMode === "velocity" ? VELOCITY_VAR_LEVELS
+        : chanceSubMode === "timing" ? TIMING_LEVELS
+        : FLAM_LEVELS;
+      const getValueAtRepeat = chanceSubMode === "hit"
+        ? (nv: typeof noteValue, idx: number) => (nv ? getChanceAtRepeat(nv, idx) : 100)
+        : chanceSubMode === "velocity"
+        ? (nv: typeof noteValue, idx: number) => (nv ? getVelocityVariationAtRepeat(nv, idx) : 0)
+        : chanceSubMode === "timing"
+        ? (nv: typeof noteValue, idx: number) => (nv ? getTimingOffsetAtRepeat(nv, idx) : 0)
+        : (nv: typeof noteValue, idx: number) => (nv ? getFlamChanceAtRepeat(nv, idx) : 0);
+
+      // Determine which column to highlight as playing
+      let playingCol = -1;
+      if (loopedStep >= 0 && noteValue) {
+        for (let r = 0; r < repeatAmount; r++) {
+          const stepStart = selectedNote.col + r * repeatSpace;
+          const stepEnd = stepStart + getNoteLength(noteValue);
+          if (loopedStep >= stepStart && loopedStep < stepEnd) {
+            playingCol = r;
+            break;
+          }
+        }
+      }
+
+      for (let visibleRow = 0; visibleRow < VISIBLE_ROWS; visibleRow++) {
+        const row: number[] = [];
+        const colorRow: (string | null)[] = [];
+        const threshold = levels[visibleRow];
+
+        for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
+          // Ctrl mode hints
+          if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 4) {
+            row.push(BUTTON_COLOR_100);
+            colorRow.push(MODE_HINT_COLORS[visibleCol]);
+            continue;
+          }
+
+          if (visibleCol >= repeatAmount) {
+            row.push(BUTTON_OFF);
+            colorRow.push(null);
+            continue;
+          }
+
+          const isPlayingColumn = visibleCol === playingCol;
+          const val = getValueAtRepeat(noteValue, visibleCol);
+
+          if (chanceSubMode === "timing") {
+            // Timing mode: horizontal line — single lit cell at the matching row
+            // Find which row this value maps to (exact match or nearest)
+            const matchRow = val === 0
+              ? -1 // No dot for 0ms (centered, between rows 3 and 4)
+              : TIMING_LEVELS.indexOf(val as typeof TIMING_LEVELS[number]);
+            // If value matches this row, light it up; also show a dim center line at rows 3-4 boundary
+            const isCenterRow = visibleRow === 3 || visibleRow === 4;
+            if (matchRow === visibleRow) {
+              let intensity = BUTTON_COLOR_100;
+              if (isPlayingColumn) intensity |= FLAG_PLAYING;
+              row.push(intensity);
+            } else if (val === 0 && isCenterRow) {
+              // For 0ms offset, show dim dots at center rows to indicate "center"
+              let intensity = BUTTON_COLOR_25;
+              if (isPlayingColumn) intensity |= FLAG_PLAYING;
+              row.push(intensity);
+            } else {
+              row.push(isPlayingColumn ? FLAG_PLAYHEAD : BUTTON_OFF);
+            }
+          } else {
+            // Bar graph mode (hit, velocity, flam): fill from bottom up
+            if (val >= threshold) {
+              let intensity = BUTTON_COLOR_100;
+              if (isPlayingColumn) intensity |= FLAG_PLAYING;
+              row.push(intensity);
+            } else {
+              row.push(isPlayingColumn ? FLAG_PLAYHEAD : BUTTON_OFF);
+            }
+          }
+          colorRow.push(null);
+        }
+        values.push(row);
+        colors.push(colorRow);
+      }
+
+      // Ctrl held: dim everything except mode hints
+      if (keyboard.ctrl) {
+        for (let r = 0; r < VISIBLE_ROWS; r++) {
+          for (let c = 0; c < VISIBLE_COLS; c++) {
+            if (r === 7 && c <= 4) continue;
             values[r][c] |= FLAG_DIMMED;
           }
         }
@@ -641,7 +763,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         }
 
         // Mode hint on bottom row (Z/X/C/V keys) — only while ctrl is held
-        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
+        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 4) {
           value = BUTTON_COLOR_100;
           colorRow.push(MODE_HINT_COLORS[visibleCol]);
           row.push(value);
@@ -738,8 +860,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       }
     }
 
-    // Volume mode without selected note: dim the grid (waiting for note selection)
-    if (uiMode === "volume" && !selectedNote) {
+    // Volume/chance mode without selected note: dim the grid (waiting for note selection)
+    if ((uiMode === "volume" || uiMode === "chance") && !selectedNote) {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
           values[r][c] |= FLAG_DIMMED;
@@ -751,7 +873,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     if (keyboard.ctrl) {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
-          if (r === 7 && c <= 3) continue; // Skip mode hint buttons
+          if (r === 7 && c <= 4) continue; // Skip mode hint buttons
           values[r][c] |= FLAG_DIMMED;
         }
       }
@@ -760,6 +882,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     return { buttonValues: values, colorOverrides: colors };
   }, [
     uiMode,
+    chanceSubMode,
     renderedNotes,
     startRow,
     startCol,
@@ -787,13 +910,14 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   // Handle button press from ButtonGrid
   const handleButtonPress = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      // Ctrl+click on bottom row cols 0-3: switch UI mode (works in all modes)
-      if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
-        const modes: Array<"channel" | "pattern" | "loop" | "volume"> = [
+      // Ctrl+click on bottom row cols 0-4: switch UI mode (works in all modes)
+      if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 4) {
+        const modes: Array<"channel" | "pattern" | "loop" | "volume" | "chance"> = [
           "channel",
           "pattern",
           "loop",
           "volume",
+          "chance",
         ];
         actions.setUiMode(modes[visibleCol]);
         return;
@@ -848,11 +972,53 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
           const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
           if (visibleCol < repeatAmount) {
-            const velocity = VELOCITY_LEVELS[visibleRow];
+            // Cmd+click: set to 0
+            const velocity = keyboard.meta ? 0 : VELOCITY_LEVELS[visibleRow];
             actions.setNoteVelocity(selectedNote.row, selectedNote.col, visibleCol, velocity);
           }
         } else {
           // No note selected: click to select a note, then stay in volume mode
+          const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+          const actualCol = startCol + visibleCol;
+          const noteAtCell = findNoteAtCell(renderedNotes, actualRow, actualCol);
+          if (noteAtCell) {
+            actions.setSelectedNote({ row: actualRow, col: noteAtCell.sourceCol });
+          }
+        }
+        return;
+      }
+
+      // Chance mode (sub-mode aware)
+      if (uiMode === "chance") {
+        if (selectedNote) {
+          const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
+          const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
+          if (visibleCol < repeatAmount) {
+            if (keyboard.meta) {
+              // Cmd+click: set to 0
+              if (chanceSubMode === "hit") {
+                actions.setNoteChance(selectedNote.row, selectedNote.col, visibleCol, 0);
+              } else if (chanceSubMode === "velocity") {
+                actions.setNoteVelocityVariation(selectedNote.row, selectedNote.col, visibleCol, 0);
+              } else if (chanceSubMode === "timing") {
+                actions.setNoteTimingOffset(selectedNote.row, selectedNote.col, visibleCol, 0);
+              } else {
+                actions.setNoteFlamChance(selectedNote.row, selectedNote.col, visibleCol, 0);
+              }
+            } else {
+              if (chanceSubMode === "hit") {
+                actions.setNoteChance(selectedNote.row, selectedNote.col, visibleCol, CHANCE_LEVELS[visibleRow]);
+              } else if (chanceSubMode === "velocity") {
+                actions.setNoteVelocityVariation(selectedNote.row, selectedNote.col, visibleCol, VELOCITY_VAR_LEVELS[visibleRow]);
+              } else if (chanceSubMode === "timing") {
+                actions.setNoteTimingOffset(selectedNote.row, selectedNote.col, visibleCol, TIMING_LEVELS[visibleRow]);
+              } else {
+                actions.setNoteFlamChance(selectedNote.row, selectedNote.col, visibleCol, FLAM_LEVELS[visibleRow]);
+              }
+            }
+          }
+        } else {
+          // No note selected: click to select a note
           const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
           const actualCol = startCol + visibleCol;
           const noteAtCell = findNoteAtCell(renderedNotes, actualRow, actualCol);
@@ -889,7 +1055,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       keyboard.ctrl,
       keyboard.alt,
       keyboard.shift,
+      keyboard.meta,
       uiMode,
+      chanceSubMode,
       startRow,
       startCol,
       onCellPress,
@@ -908,7 +1076,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   // Handle button drag enter from ButtonGrid
   const handleButtonDragEnter = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      if (uiMode === "channel" || uiMode === "volume") return; // No drag in channel/volume mode
+      if (uiMode === "channel" || uiMode === "volume" || uiMode === "chance") return; // No drag in channel/volume/chance mode
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
       const actualCol = startCol + visibleCol;
       onCellDragEnter(actualRow, actualCol);
@@ -987,6 +1155,30 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       };
     }
 
+    if (uiMode === "chance") {
+      const subModeLabel = chanceSubMode === "hit" ? "HIT"
+        : chanceSubMode === "velocity" ? "VEL"
+        : chanceSubMode === "timing" ? "TIME"
+        : "FLAM";
+      if (selectedNote) {
+        const noteName = midiNoteToName(selectedNote.row);
+        return {
+          rows: [
+            { label: "NOTE", valueParts: [{ text: noteName }] },
+            { label: "CHANCE", valueParts: [{ text: subModeLabel, highlight: true }] },
+            { label: "", valueParts: [{ text: "\u25B2\u25BC to change" }] },
+          ],
+        };
+      }
+      return {
+        rows: [
+          { label: "CHANCE", valueParts: [{ text: subModeLabel, highlight: true }] },
+          { label: "", valueParts: [{ text: "SELECT" }] },
+          { label: "", valueParts: [{ text: "A NOTE" }] },
+        ],
+      };
+    }
+
     if (uiMode === "channel") {
       return {
         rows: [
@@ -1044,6 +1236,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     };
   }, [
     uiMode,
+    chanceSubMode,
     selectedNote,
     gridState,
     keyboard,

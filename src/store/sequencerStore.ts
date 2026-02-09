@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import type { GridState, NoteValue } from "../types/grid";
+import type { GridState, NoteValue, ChanceSubMode } from "../types/grid";
 import { createNotePattern } from "../types/grid";
 
 // ============ Constants ============
@@ -14,7 +14,7 @@ export const DEFAULT_LOOP_START = 0;
 export const DEFAULT_LOOP_LENGTH = 16;
 
 // ============ Types ============
-export type UiMode = "pattern" | "channel" | "loop" | "volume";
+export type UiMode = "pattern" | "channel" | "loop" | "volume" | "chance";
 
 export interface PatternLoop {
   start: number;
@@ -26,6 +26,7 @@ interface ViewState {
   colOffset: number; // Horizontal scroll (0-1)
   selectedNote: { row: number; col: number } | null;
   uiMode: UiMode;
+  chanceSubMode: ChanceSubMode; // Active sub-mode within chance mode
 }
 
 export interface SequencerState {
@@ -123,6 +124,7 @@ const createInitialView = (): ViewState => ({
   ),
   colOffset: 0,
   uiMode: "pattern",
+  chanceSubMode: "hit",
   selectedNote: null,
 });
 

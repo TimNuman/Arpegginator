@@ -20,6 +20,7 @@ import {
   getRepeatSpace,
   isNotePattern,
   renderNotesToArray,
+  type ChanceSubMode,
 } from "../types/grid";
 
 // Keyboard to grid position mapping
@@ -73,6 +74,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const rowOffsets = useSequencerStore((s) => s.view.rowOffsets);
   const colOffset = useSequencerStore((s) => s.view.colOffset);
   const uiMode = useSequencerStore((s) => s.view.uiMode);
+  const chanceSubMode = useSequencerStore((s) => s.view.chanceSubMode);
   const currentPattern = useCurrentPattern();
   const currentLoop = useCurrentLoop();
   const gridState = useGridState();
@@ -226,7 +228,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // Ctrl+Z/X/C/V: switch UI mode
+      // Ctrl+Z/X/C/V/B: switch UI mode
       if (state.ctrl && !state.meta && !state.alt && !state.shift) {
         if (key === "z") {
           actions.setUiMode("channel");
@@ -242,6 +244,10 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         }
         if (key === "v") {
           actions.setUiMode("volume");
+          return true;
+        }
+        if (key === "b") {
+          actions.setUiMode("chance");
           return true;
         }
       }
@@ -333,7 +339,25 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // In channel/loop/volume mode, skip note-editing keybindings
+      // Chance mode: Arrow up/down cycles chance sub-mode
+      if (
+        uiMode === "chance" &&
+        !state.meta &&
+        !state.alt &&
+        !state.ctrl &&
+        !state.shift &&
+        (code === "ArrowUp" || code === "ArrowDown")
+      ) {
+        const modes: ChanceSubMode[] = ["hit", "velocity", "timing", "flam"];
+        const currentIndex = modes.indexOf(chanceSubMode);
+        const nextIndex = code === "ArrowDown"
+          ? (currentIndex + 1) % modes.length
+          : (currentIndex - 1 + modes.length) % modes.length;
+        actions.setChanceSubMode(modes[nextIndex]);
+        return true;
+      }
+
+      // In channel/loop/volume/chance mode, skip note-editing keybindings
       if (uiMode !== "pattern") {
         return false;
       }
@@ -556,6 +580,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     },
     [
       uiMode,
+      chanceSubMode,
       selectedNote,
       gridState,
       currentLoop,
@@ -744,6 +769,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     // Keyboard state (for display)
     keyboard,
     uiMode,
+    chanceSubMode,
 
     // Computed view state
     startRow,

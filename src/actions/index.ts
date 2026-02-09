@@ -10,6 +10,10 @@ export {
   setNoteVelocity,
   setVelocityLength,
   toggleVelocityLoopMode,
+  setNoteChance,
+  setNoteVelocityVariation,
+  setNoteTimingOffset,
+  setNoteFlamChance,
 } from './noteActions';
 
 // Playback actions
@@ -26,6 +30,7 @@ export {
   stopExternal,
   getVelocityContinueCounter,
 } from './playbackActions';
+export type { StepTriggerExtras } from './playbackActions';
 
 // Channel actions
 export {
@@ -52,4 +57,5 @@ export {
   setRowOffset,
   setColOffset,
   setUiMode,
+  setChanceSubMode,
 } from './viewActions';

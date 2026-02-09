@@ -1,11 +1,17 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, type GridState } from '../types/grid';
+import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, getChanceAtRepeat, getVelocityVariationAtRepeat, getTimingOffsetAtRepeat, getFlamChanceAtRepeat, type GridState } from '../types/grid';
+
+// Extra parameters passed alongside each triggered note
+export interface StepTriggerExtras {
+  timingOffsetPercent?: number; // Fixed micro-timing offset as % of step (signed, from timingOffset array)
+  flamCount?: number;            // Number of flam grace notes (0 = none)
+}
 
 // Interval reference for internal playback
 let playbackInterval: number | null = null;
 
 // Callback reference for step trigger
-let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number, velocity: number) => void) | null = null;
+let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
 
 // Velocity continue mode: tracks cumulative trigger count per note across pattern loops
 // Key: "channel:row:col" → cumulative trigger count (shared across all repeats of the note)
@@ -13,7 +19,6 @@ const velocityContinueCounters = new Map<string, number>();
 
 /**
  * Get the current cumulative velocity counter for a note.
- * Returns the counter value (the next velocity index to be used).
  */
 export function getVelocityContinueCounter(channel: number, row: number, col: number): number {
   const key = `${channel}:${row}:${col}`;
@@ -24,7 +29,7 @@ export function getVelocityContinueCounter(channel: number, row: number, col: nu
  * Set the step trigger callback (called when a note should play)
  */
 export function setStepTriggerCallback(
-  callback: ((channel: number, row: number, step: number, noteLength: number, velocity: number) => void) | null
+  callback: ((channel: number, row: number, step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => void) | null
 ): void {
   stepTriggerCallback = callback;
 }
@@ -38,8 +43,8 @@ function getNotesAtStep(
   loopStart: number,
   loopEnd: number,
   channel: number
-): { row: number; length: number; velocity: number }[] {
-  const notes: { row: number; length: number; velocity: number }[] = [];
+): { row: number; length: number; velocity: number; extras?: StepTriggerExtras }[] {
+  const notes: { row: number; length: number; velocity: number; extras?: StepTriggerExtras }[] = [];
 
   for (let row = 0; row < pattern.length; row++) {
     for (let col = loopStart; col <= step; col++) {
@@ -49,26 +54,56 @@ function getNotesAtStep(
       const length = getNoteLength(noteValue);
       const repeatAmount = getRepeatAmount(noteValue);
       const repeatSpace = getRepeatSpace(noteValue);
-      const loopMode = getVelocityLoopMode(noteValue);
+      const velLoopMode = getVelocityLoopMode(noteValue);
 
       for (let r = 0; r < repeatAmount; r++) {
         const playStep = col + r * repeatSpace;
         if (playStep === step && playStep < loopEnd) {
+          // Resolve velocity
           let velocity: number;
-          if (loopMode === "continue") {
-            // Use cumulative counter per note that persists across pattern loops
+          if (velLoopMode === "continue") {
             const key = `${channel}:${row}:${col}`;
             const count = velocityContinueCounters.get(key) ?? 0;
             velocity = getVelocityAtRepeat(noteValue, count);
             velocityContinueCounters.set(key, count + 1);
-          } else if (loopMode === "fill") {
-            // Clamp to last velocity value instead of looping
+          } else if (velLoopMode === "fill") {
             velocity = getVelocityAtRepeatFill(noteValue, r);
           } else {
-            // "reset" mode: velocity index = repeat index (resets each loop)
             velocity = getVelocityAtRepeat(noteValue, r);
           }
-          notes.push({ row, length, velocity });
+
+          // Resolve chance (fixed per-repeat, no loop modes)
+          const chance = getChanceAtRepeat(noteValue, r);
+
+          // Roll against chance — skip note if fails
+          if (chance < 100 && Math.random() * 100 >= chance) {
+            break;
+          }
+
+          // Apply velocity variation: random ± deviation, clamped 1–127
+          const velVar = getVelocityVariationAtRepeat(noteValue, r);
+          if (velVar > 0) {
+            const deviation = (Math.random() * 2 - 1) * velVar;
+            velocity = Math.max(1, Math.min(127, Math.round(velocity + deviation)));
+          }
+
+          // Build extras for timing offset and flam
+          const extras: StepTriggerExtras = {};
+
+          // Timing offset: fixed micro-timing as % of step (signed value)
+          const timingOffsetPct = getTimingOffsetAtRepeat(noteValue, r);
+          if (timingOffsetPct !== 0) {
+            extras.timingOffsetPercent = timingOffsetPct;
+          }
+
+          // Flam: roll against flam probability
+          const flamProb = getFlamChanceAtRepeat(noteValue, r);
+          if (flamProb > 0 && Math.random() * 100 < flamProb) {
+            extras.flamCount = 1; // Default 1 grace note, configurable later
+          }
+
+          const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
+          notes.push({ row, length, velocity, extras: hasExtras ? extras : undefined });
           break;
         }
       }
@@ -112,8 +147,8 @@ export function tick(): void {
     // Trigger notes
     if (shouldPlay && stepTriggerCallback && channelStep >= loop.start && channelStep < loopEnd) {
       const notesToPlay = getNotesAtStep(channels[ch][patternIdx], channelStep, loop.start, loopEnd, ch);
-      for (const { row, length, velocity } of notesToPlay) {
-        stepTriggerCallback(ch, row, channelStep, length, velocity);
+      for (const { row, length, velocity, extras } of notesToPlay) {
+        stepTriggerCallback(ch, row, channelStep, length, velocity, extras);
       }
     }
   }

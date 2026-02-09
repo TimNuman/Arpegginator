@@ -193,16 +193,16 @@ export function setNoteRepeatSpace(row: number, col: number, repeatSpace: number
 }
 
 /**
- * Materialize velocity array to a target length, respecting the loop mode.
+ * Materialize a looping array to a target length, respecting the loop mode.
  * "reset"/"continue": loop (modulo). "fill": clamp to last value.
  */
-function materializeVelocity(velocity: number[], targetLength: number, loopMode: VelocityLoopMode): number[] {
+function materializeArray(arr: number[], targetLength: number, loopMode: VelocityLoopMode): number[] {
   const result: number[] = [];
   for (let i = 0; i < targetLength; i++) {
     if (loopMode === "fill") {
-      result.push(velocity[Math.min(i, velocity.length - 1)]);
+      result.push(arr[Math.min(i, arr.length - 1)]);
     } else {
-      result.push(velocity[i % velocity.length]);
+      result.push(arr[i % arr.length]);
     }
   }
   return result;
@@ -223,7 +223,7 @@ export function setNoteVelocity(row: number, col: number, repeatIndex: number, v
 
   // Materialize to at least repeatIndex + 1, but keep existing length if longer
   const targetLength = Math.max(noteValue.velocity.length, repeatIndex + 1);
-  const materialized = materializeVelocity(noteValue.velocity, targetLength, noteValue.velocityLoopMode);
+  const materialized = materializeArray(noteValue.velocity, targetLength, noteValue.velocityLoopMode);
   materialized[repeatIndex] = velocity;
 
   store._updateCell(currentChannel, pattern, row, col, {
@@ -246,7 +246,7 @@ export function setVelocityLength(row: number, col: number, newLength: number): 
   if (noteValue === null) return;
 
   const clamped = Math.max(1, newLength);
-  const result = materializeVelocity(noteValue.velocity, clamped, noteValue.velocityLoopMode);
+  const result = materializeArray(noteValue.velocity, clamped, noteValue.velocityLoopMode);
 
   store._updateCell(currentChannel, pattern, row, col, {
     ...noteValue,
@@ -271,5 +271,106 @@ export function toggleVelocityLoopMode(row: number, col: number): void {
   store._updateCell(currentChannel, pattern, row, col, {
     ...noteValue,
     velocityLoopMode: newMode,
+  });
+}
+
+/**
+ * Set chance for a specific repeat index of a note.
+ * The chance array is always sized to repeatAmount entries.
+ */
+export function setNoteChance(row: number, col: number, repeatIndex: number, chance: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  // Ensure array is exactly repeatAmount entries
+  const targetLength = noteValue.repeatAmount;
+  const materialized: number[] = [];
+  for (let i = 0; i < targetLength; i++) {
+    materialized.push(noteValue.chance[i % noteValue.chance.length] ?? 100);
+  }
+  materialized[repeatIndex] = chance;
+
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    chance: materialized,
+  });
+}
+
+/**
+ * Set velocity variation for a specific repeat index of a note.
+ * The array is always sized to repeatAmount entries.
+ */
+export function setNoteVelocityVariation(row: number, col: number, repeatIndex: number, value: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  const targetLength = noteValue.repeatAmount;
+  const materialized: number[] = [];
+  for (let i = 0; i < targetLength; i++) {
+    materialized.push(noteValue.velocityVariation[i % noteValue.velocityVariation.length] ?? 0);
+  }
+  materialized[repeatIndex] = value;
+
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    velocityVariation: materialized,
+  });
+}
+
+/**
+ * Set micro-timing offset (as % of step, signed) for a specific repeat index of a note.
+ * The array is always sized to repeatAmount entries.
+ */
+export function setNoteTimingOffset(row: number, col: number, repeatIndex: number, value: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  const targetLength = noteValue.repeatAmount;
+  const materialized: number[] = [];
+  for (let i = 0; i < targetLength; i++) {
+    materialized.push(noteValue.timingOffset[i % noteValue.timingOffset.length] ?? 0);
+  }
+  materialized[repeatIndex] = value;
+
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    timingOffset: materialized,
+  });
+}
+
+/**
+ * Set flam chance for a specific repeat index of a note.
+ * The array is always sized to repeatAmount entries.
+ */
+export function setNoteFlamChance(row: number, col: number, repeatIndex: number, value: number): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, channels } = store;
+  const pattern = currentPatterns[currentChannel];
+
+  const noteValue = channels[currentChannel][pattern][row][col];
+  if (noteValue === null) return;
+
+  const targetLength = noteValue.repeatAmount;
+  const materialized: number[] = [];
+  for (let i = 0; i < targetLength; i++) {
+    materialized.push(noteValue.flamChance[i % noteValue.flamChance.length] ?? 0);
+  }
+  materialized[repeatIndex] = value;
+
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    flamChance: materialized,
   });
 }

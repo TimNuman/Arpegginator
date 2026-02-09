@@ -6,6 +6,7 @@ import { Transport } from './components/Transport';
 import { useMidi } from './hooks/useMidi';
 import { useSequencerStore } from './store/sequencerStore';
 import * as actions from './actions';
+import type { StepTriggerExtras } from './actions';
 
 const darkTheme = createTheme({
   palette: {
@@ -84,16 +85,49 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, row: number, _step: number, noteLength: number, velocity: number) => {
+    (channel: number, row: number, _step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => {
       const note = getRowNote(row);
-      // Use channel + 1 for MIDI channel (1-8)
-      playNote(note, velocity, channel + 1);
-      // Calculate note duration based on BPM and note length
-      // One step = one 16th note = (60 / bpm / 4) seconds
+      const midiChannel = channel + 1;
       const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;
-      // Shorten the last step by 10% to create a small gap between consecutive notes
       const noteDurationMs = stepDurationMs * (noteLength - 0.1);
-      setTimeout(() => stopNote(note, channel + 1), noteDurationMs);
+
+      // Calculate timing offset in ms from % of step (positive = late, negative = early, clamped to 0)
+      const timingOffsetMs = extras?.timingOffsetPercent
+        ? Math.max(0, (extras.timingOffsetPercent / 100) * stepDurationMs)
+        : 0;
+
+      // Flam: main note on the beat, grace note(s) a 32nd note later
+      const flamCount = extras?.flamCount ?? 0;
+      const thirtySecondMs = stepDurationMs / 2;
+
+      if (flamCount > 0) {
+        const flamVelocity = Math.round(velocity * 0.6);
+        // Main note plays on the beat (with timing offset if any)
+        if (timingOffsetMs > 0) {
+          setTimeout(() => {
+            playNote(note, velocity, midiChannel);
+          }, timingOffsetMs);
+        } else {
+          playNote(note, velocity, midiChannel);
+        }
+        // Grace note(s) follow a 32nd note later — retrigger cuts off main note naturally
+        for (let f = 0; f < flamCount; f++) {
+          const flamTime = timingOffsetMs + (f + 1) * thirtySecondMs;
+          setTimeout(() => {
+            playNote(note, flamVelocity, midiChannel);
+          }, flamTime);
+        }
+        // Stop after full note duration from the beat
+        setTimeout(() => stopNote(note, midiChannel), timingOffsetMs + noteDurationMs);
+      } else if (timingOffsetMs > 0) {
+        setTimeout(() => {
+          playNote(note, velocity, midiChannel);
+          setTimeout(() => stopNote(note, midiChannel), noteDurationMs);
+        }, timingOffsetMs);
+      } else {
+        playNote(note, velocity, midiChannel);
+        setTimeout(() => stopNote(note, midiChannel), noteDurationMs);
+      }
     },
     [playNote, stopNote]
   );
