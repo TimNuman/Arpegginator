@@ -1,5 +1,5 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, getChanceAtRepeat, getVelocityVariationAtRepeat, getTimingOffsetAtRepeat, getFlamChanceAtRepeat, type GridState } from '../types/grid';
+import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, getChanceAtRepeat, getTimingOffsetAtRepeat, getFlamChanceAtRepeat, type GridState } from '../types/grid';
 
 // Extra parameters passed alongside each triggered note
 export interface StepTriggerExtras {
@@ -78,13 +78,6 @@ function getNotesAtStep(
           // Roll against chance — skip note if fails
           if (chance < 100 && Math.random() * 100 >= chance) {
             break;
-          }
-
-          // Apply velocity variation: random ± deviation, clamped 1–127
-          const velVar = getVelocityVariationAtRepeat(noteValue, r);
-          if (velVar > 0) {
-            const deviation = (Math.random() * 2 - 1) * velVar;
-            velocity = Math.max(1, Math.min(127, Math.round(velocity + deviation)));
           }
 
           // Build extras for timing offset and flam

@@ -182,7 +182,7 @@ export const Transport = ({
           min={40}
           max={240}
           onChange={(_, value) => onBpmChange(value as number)}
-          disabled={isSlaveMode}
+          disabled={isExternalPlayback}
         />
         <Typography css={bpmValueStyles}>{bpm}</Typography>
       </Box>

@@ -91,10 +91,16 @@ function App() {
       const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;
       const noteDurationMs = stepDurationMs * (noteLength - 0.1);
 
-      // Calculate timing offset in ms from % of step (positive = late, negative = early, clamped to 0)
+      // Timing offset: convert % of step to ms.
+      // To support negative offsets (early notes) we add a lookahead so all
+      // scheduled times stay positive for setTimeout.
+      const maxOffsetPercent = 20; // matches TIMING_LEVELS max
+      const lookaheadMs = (maxOffsetPercent / 100) * stepDurationMs;
       const timingOffsetMs = extras?.timingOffsetPercent
-        ? Math.max(0, (extras.timingOffsetPercent / 100) * stepDurationMs)
+        ? (extras.timingOffsetPercent / 100) * stepDurationMs
         : 0;
+      // Delay = lookahead + offset. 0% → plays at lookahead, -20% → plays at 0, +20% → plays at 2×lookahead
+      const noteDelayMs = lookaheadMs + timingOffsetMs;
 
       // Flam: main note on the beat, grace note(s) a 32nd note later
       const flamCount = extras?.flamCount ?? 0;
@@ -102,31 +108,24 @@ function App() {
 
       if (flamCount > 0) {
         const flamVelocity = Math.round(velocity * 0.6);
-        // Main note plays on the beat (with timing offset if any)
-        if (timingOffsetMs > 0) {
-          setTimeout(() => {
-            playNote(note, velocity, midiChannel);
-          }, timingOffsetMs);
-        } else {
+        // Main note plays at its delayed time
+        setTimeout(() => {
           playNote(note, velocity, midiChannel);
-        }
+        }, noteDelayMs);
         // Grace note(s) follow a 32nd note later — retrigger cuts off main note naturally
         for (let f = 0; f < flamCount; f++) {
-          const flamTime = timingOffsetMs + (f + 1) * thirtySecondMs;
+          const flamTime = noteDelayMs + (f + 1) * thirtySecondMs;
           setTimeout(() => {
             playNote(note, flamVelocity, midiChannel);
           }, flamTime);
         }
-        // Stop after full note duration from the beat
-        setTimeout(() => stopNote(note, midiChannel), timingOffsetMs + noteDurationMs);
-      } else if (timingOffsetMs > 0) {
+        // Stop after full note duration
+        setTimeout(() => stopNote(note, midiChannel), noteDelayMs + noteDurationMs);
+      } else {
         setTimeout(() => {
           playNote(note, velocity, midiChannel);
           setTimeout(() => stopNote(note, midiChannel), noteDurationMs);
-        }, timingOffsetMs);
-      } else {
-        playNote(note, velocity, midiChannel);
-        setTimeout(() => stopNote(note, midiChannel), noteDurationMs);
+        }, noteDelayMs);
       }
     },
     [playNote, stopNote]

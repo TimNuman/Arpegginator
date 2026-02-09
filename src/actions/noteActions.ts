@@ -301,31 +301,6 @@ export function setNoteChance(row: number, col: number, repeatIndex: number, cha
 }
 
 /**
- * Set velocity variation for a specific repeat index of a note.
- * The array is always sized to repeatAmount entries.
- */
-export function setNoteVelocityVariation(row: number, col: number, repeatIndex: number, value: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
-
-  const targetLength = noteValue.repeatAmount;
-  const materialized: number[] = [];
-  for (let i = 0; i < targetLength; i++) {
-    materialized.push(noteValue.velocityVariation[i % noteValue.velocityVariation.length] ?? 0);
-  }
-  materialized[repeatIndex] = value;
-
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
-    velocityVariation: materialized,
-  });
-}
-
-/**
  * Set micro-timing offset (as % of step, signed) for a specific repeat index of a note.
  * The array is always sized to repeatAmount entries.
  */

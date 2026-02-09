@@ -348,7 +348,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         !state.shift &&
         (code === "ArrowUp" || code === "ArrowDown")
       ) {
-        const modes: ChanceSubMode[] = ["hit", "velocity", "timing", "flam"];
+        const modes: ChanceSubMode[] = ["hit", "timing", "flam"];
         const currentIndex = modes.indexOf(chanceSubMode);
         const nextIndex = code === "ArrowDown"
           ? (currentIndex + 1) % modes.length

@@ -48,7 +48,6 @@ import {
   getVelocityAtRepeatFill,
   getVelocityLoopMode,
   getChanceAtRepeat,
-  getVelocityVariationAtRepeat,
   getTimingOffsetAtRepeat,
   getFlamChanceAtRepeat,
   findNoteAtCell,
@@ -114,9 +113,6 @@ const VELOCITY_LEVELS = [127, 110, 92, 75, 57, 40, 22, 5] as const;
 
 // Chance levels for chance mode (8 rows, top to bottom: 100% → 12%)
 const CHANCE_LEVELS = [100, 87, 75, 62, 50, 37, 25, 12] as const;
-
-// Velocity variation levels (8 rows, top to bottom: max ± deviation 127 → 5)
-const VELOCITY_VAR_LEVELS = [127, 110, 92, 75, 57, 40, 22, 5] as const;
 
 // Timing offset levels (8 rows, top to bottom: +20% → -20% of step, signed)
 const TIMING_LEVELS = [20, 15, 10, 5, -5, -10, -15, -20] as const;
@@ -521,13 +517,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
       // Select thresholds and getter based on active sub-mode
       const levels = chanceSubMode === "hit" ? CHANCE_LEVELS
-        : chanceSubMode === "velocity" ? VELOCITY_VAR_LEVELS
         : chanceSubMode === "timing" ? TIMING_LEVELS
         : FLAM_LEVELS;
       const getValueAtRepeat = chanceSubMode === "hit"
         ? (nv: typeof noteValue, idx: number) => (nv ? getChanceAtRepeat(nv, idx) : 100)
-        : chanceSubMode === "velocity"
-        ? (nv: typeof noteValue, idx: number) => (nv ? getVelocityVariationAtRepeat(nv, idx) : 0)
         : chanceSubMode === "timing"
         ? (nv: typeof noteValue, idx: number) => (nv ? getTimingOffsetAtRepeat(nv, idx) : 0)
         : (nv: typeof noteValue, idx: number) => (nv ? getFlamChanceAtRepeat(nv, idx) : 0);
@@ -998,8 +991,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
               // Cmd+click: set to 0
               if (chanceSubMode === "hit") {
                 actions.setNoteChance(selectedNote.row, selectedNote.col, visibleCol, 0);
-              } else if (chanceSubMode === "velocity") {
-                actions.setNoteVelocityVariation(selectedNote.row, selectedNote.col, visibleCol, 0);
               } else if (chanceSubMode === "timing") {
                 actions.setNoteTimingOffset(selectedNote.row, selectedNote.col, visibleCol, 0);
               } else {
@@ -1008,8 +999,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             } else {
               if (chanceSubMode === "hit") {
                 actions.setNoteChance(selectedNote.row, selectedNote.col, visibleCol, CHANCE_LEVELS[visibleRow]);
-              } else if (chanceSubMode === "velocity") {
-                actions.setNoteVelocityVariation(selectedNote.row, selectedNote.col, visibleCol, VELOCITY_VAR_LEVELS[visibleRow]);
               } else if (chanceSubMode === "timing") {
                 actions.setNoteTimingOffset(selectedNote.row, selectedNote.col, visibleCol, TIMING_LEVELS[visibleRow]);
               } else {
@@ -1157,7 +1146,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
     if (uiMode === "chance") {
       const subModeLabel = chanceSubMode === "hit" ? "HIT"
-        : chanceSubMode === "velocity" ? "VEL"
         : chanceSubMode === "timing" ? "TIME"
         : "FLAM";
       if (selectedNote) {

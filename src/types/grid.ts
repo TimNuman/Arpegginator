@@ -2,7 +2,7 @@
 export type VelocityLoopMode = "reset" | "continue" | "fill";
 
 // Chance sub-modes: different aspects of randomization per repeat
-export type ChanceSubMode = "hit" | "velocity" | "timing" | "flam";
+export type ChanceSubMode = "hit" | "timing" | "flam";
 
 // NotePattern: a note with repeat settings
 export interface NotePattern {
@@ -13,7 +13,6 @@ export interface NotePattern {
   velocity: number[]; // Looping velocity array over repeats, default [100]
   velocityLoopMode: VelocityLoopMode; // How velocity loops interact with pattern loops
   chance: number[]; // Per-repeat chance array (0-100%), fixed to repeatAmount entries, default [100]
-  velocityVariation: number[]; // Per-repeat ± velocity deviation (0-127), default [0]
   timingOffset: number[]; // Per-repeat micro-timing offset as % of step (signed, e.g. -20 to +20), default [0]
   flamChance: number[]; // Per-repeat flam probability (0-100%), default [0]
 }
@@ -87,12 +86,6 @@ export const getChanceAtRepeat = (value: NoteValue, repeatIndex: number): number
   return value.chance[repeatIndex % value.chance.length];
 };
 
-// Helper to get velocity variation for a specific repeat index
-export const getVelocityVariationAtRepeat = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 0;
-  return value.velocityVariation[repeatIndex % value.velocityVariation.length];
-};
-
 // Helper to get timing offset for a specific repeat index
 export const getTimingOffsetAtRepeat = (value: NoteValue, repeatIndex: number): number => {
   if (!isNotePattern(value)) return 0;
@@ -111,7 +104,7 @@ export const createNotePattern = (
   repeatAmount: number = 1,
   repeatSpace: number = 1,
 ): NotePattern => {
-  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], velocityVariation: [0], timingOffset: [0], flamChance: [0] };
+  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], timingOffset: [0], flamChance: [0] };
 };
 
 // A rendered note instance (for display purposes)

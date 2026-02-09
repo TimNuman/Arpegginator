@@ -11,7 +11,6 @@ export {
   setVelocityLength,
   toggleVelocityLoopMode,
   setNoteChance,
-  setNoteVelocityVariation,
   setNoteTimingOffset,
   setNoteFlamChance,
 } from './noteActions';
