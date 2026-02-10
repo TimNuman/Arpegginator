@@ -13,6 +13,8 @@ export {
   setNoteChance,
   setNoteTimingOffset,
   setNoteFlamChance,
+  setSubModeLength,
+  toggleSubModeLoopMode,
 } from './noteActions';
 
 // Playback actions
@@ -28,6 +30,9 @@ export {
   externalTick,
   stopExternal,
   getVelocityContinueCounter,
+  getChanceContinueCounter,
+  getTimingContinueCounter,
+  getFlamContinueCounter,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 

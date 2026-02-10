@@ -1,8 +1,8 @@
 // Velocity loop mode: "reset" resets with pattern loop, "continue" keeps counting across loops, "fill" clamps to last value
 export type VelocityLoopMode = "reset" | "continue" | "fill";
 
-// Chance sub-modes: different aspects of randomization per repeat
-export type ChanceSubMode = "hit" | "timing" | "flam";
+// Chance sub-modes: velocity and different aspects of randomization per repeat
+export type ChanceSubMode = "velocity" | "hit" | "timing" | "flam";
 
 // NotePattern: a note with repeat settings
 export interface NotePattern {
@@ -12,9 +12,12 @@ export interface NotePattern {
   enabled: boolean; // Whether the note is active (disabled notes are retained but don't play/render)
   velocity: number[]; // Looping velocity array over repeats, default [100]
   velocityLoopMode: VelocityLoopMode; // How velocity loops interact with pattern loops
-  chance: number[]; // Per-repeat chance array (0-100%), fixed to repeatAmount entries, default [100]
+  chance: number[]; // Per-repeat chance array (0-100%), default [100]
+  chanceLoopMode: VelocityLoopMode; // How chance loops interact with pattern loops
   timingOffset: number[]; // Per-repeat micro-timing offset as % of step (signed, e.g. -20 to +20), default [0]
+  timingLoopMode: VelocityLoopMode; // How timing offset loops interact with pattern loops
   flamChance: number[]; // Per-repeat flam probability (0-100%), default [0]
+  flamLoopMode: VelocityLoopMode; // How flam chance loops interact with pattern loops
 }
 
 // Note value: null = no note, NotePattern = note with settings
@@ -98,13 +101,59 @@ export const getFlamChanceAtRepeat = (value: NoteValue, repeatIndex: number): nu
   return value.flamChance[repeatIndex % value.flamChance.length];
 };
 
+// Fill-mode helpers (clamp to last entry instead of looping)
+export const getChanceAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 100;
+  const idx = Math.min(repeatIndex, value.chance.length - 1);
+  return value.chance[idx];
+};
+
+export const getTimingOffsetAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 0;
+  const idx = Math.min(repeatIndex, value.timingOffset.length - 1);
+  return value.timingOffset[idx];
+};
+
+export const getFlamChanceAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return 0;
+  const idx = Math.min(repeatIndex, value.flamChance.length - 1);
+  return value.flamChance[idx];
+};
+
+// Consolidated sub-mode helpers
+export const getSubModeLoopMode = (value: NoteValue, subMode: ChanceSubMode): VelocityLoopMode => {
+  if (!isNotePattern(value)) return "reset";
+  switch (subMode) {
+    case "velocity": return value.velocityLoopMode;
+    case "hit": return value.chanceLoopMode ?? "reset";
+    case "timing": return value.timingLoopMode ?? "reset";
+    case "flam": return value.flamLoopMode ?? "reset";
+  }
+};
+
+export const getSubModeArray = (value: NoteValue, subMode: ChanceSubMode): number[] => {
+  if (!isNotePattern(value)) {
+    return subMode === "velocity" ? [100] : subMode === "hit" ? [100] : [0];
+  }
+  switch (subMode) {
+    case "velocity": return value.velocity;
+    case "hit": return value.chance;
+    case "timing": return value.timingOffset;
+    case "flam": return value.flamChance;
+  }
+};
+
+export const getSubModeArrayLength = (value: NoteValue, subMode: ChanceSubMode): number => {
+  return getSubModeArray(value, subMode).length;
+};
+
 // Helper to create a NotePattern
 export const createNotePattern = (
   length: number = 1,
   repeatAmount: number = 1,
   repeatSpace: number = 1,
 ): NotePattern => {
-  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], timingOffset: [0], flamChance: [0] };
+  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], chanceLoopMode: "reset", timingOffset: [0], timingLoopMode: "reset", flamChance: [0], flamLoopMode: "reset" };
 };
 
 // A rendered note instance (for display purposes)

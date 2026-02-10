@@ -1,5 +1,5 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, getChanceAtRepeat, getTimingOffsetAtRepeat, getFlamChanceAtRepeat, type GridState } from '../types/grid';
+import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, getChanceAtRepeat, getChanceAtRepeatFill, getTimingOffsetAtRepeat, getTimingOffsetAtRepeatFill, getFlamChanceAtRepeat, getFlamChanceAtRepeatFill, type GridState } from '../types/grid';
 
 // Extra parameters passed alongside each triggered note
 export interface StepTriggerExtras {
@@ -13,9 +13,12 @@ let playbackInterval: number | null = null;
 // Callback reference for step trigger
 let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
 
-// Velocity continue mode: tracks cumulative trigger count per note across pattern loops
+// Continue mode counters: track cumulative trigger count per note across pattern loops
 // Key: "channel:row:col" → cumulative trigger count (shared across all repeats of the note)
 const velocityContinueCounters = new Map<string, number>();
+const chanceContinueCounters = new Map<string, number>();
+const timingContinueCounters = new Map<string, number>();
+const flamContinueCounters = new Map<string, number>();
 
 /**
  * Get the current cumulative velocity counter for a note.
@@ -23,6 +26,21 @@ const velocityContinueCounters = new Map<string, number>();
 export function getVelocityContinueCounter(channel: number, row: number, col: number): number {
   const key = `${channel}:${row}:${col}`;
   return velocityContinueCounters.get(key) ?? 0;
+}
+
+export function getChanceContinueCounter(channel: number, row: number, col: number): number {
+  const key = `${channel}:${row}:${col}`;
+  return chanceContinueCounters.get(key) ?? 0;
+}
+
+export function getTimingContinueCounter(channel: number, row: number, col: number): number {
+  const key = `${channel}:${row}:${col}`;
+  return timingContinueCounters.get(key) ?? 0;
+}
+
+export function getFlamContinueCounter(channel: number, row: number, col: number): number {
+  const key = `${channel}:${row}:${col}`;
+  return flamContinueCounters.get(key) ?? 0;
 }
 
 /**
@@ -72,8 +90,19 @@ function getNotesAtStep(
             velocity = getVelocityAtRepeat(noteValue, r);
           }
 
-          // Resolve chance (fixed per-repeat, no loop modes)
-          const chance = getChanceAtRepeat(noteValue, r);
+          // Resolve chance using loop mode
+          const chanceLoopMode = noteValue.chanceLoopMode ?? "reset";
+          let chance: number;
+          if (chanceLoopMode === "continue") {
+            const key = `${channel}:${row}:${col}`;
+            const count = chanceContinueCounters.get(key) ?? 0;
+            chance = getChanceAtRepeat(noteValue, count);
+            chanceContinueCounters.set(key, count + 1);
+          } else if (chanceLoopMode === "fill") {
+            chance = getChanceAtRepeatFill(noteValue, r);
+          } else {
+            chance = getChanceAtRepeat(noteValue, r);
+          }
 
           // Roll against chance — skip note if fails
           if (chance < 100 && Math.random() * 100 >= chance) {
@@ -83,16 +112,38 @@ function getNotesAtStep(
           // Build extras for timing offset and flam
           const extras: StepTriggerExtras = {};
 
-          // Timing offset: fixed micro-timing as % of step (signed value)
-          const timingOffsetPct = getTimingOffsetAtRepeat(noteValue, r);
+          // Timing offset: resolve using loop mode
+          const timingLoopMode = noteValue.timingLoopMode ?? "reset";
+          let timingOffsetPct: number;
+          if (timingLoopMode === "continue") {
+            const key = `${channel}:${row}:${col}`;
+            const count = timingContinueCounters.get(key) ?? 0;
+            timingOffsetPct = getTimingOffsetAtRepeat(noteValue, count);
+            timingContinueCounters.set(key, count + 1);
+          } else if (timingLoopMode === "fill") {
+            timingOffsetPct = getTimingOffsetAtRepeatFill(noteValue, r);
+          } else {
+            timingOffsetPct = getTimingOffsetAtRepeat(noteValue, r);
+          }
           if (timingOffsetPct !== 0) {
             extras.timingOffsetPercent = timingOffsetPct;
           }
 
-          // Flam: roll against flam probability
-          const flamProb = getFlamChanceAtRepeat(noteValue, r);
+          // Flam: resolve using loop mode, then roll
+          const flamLoopMode = noteValue.flamLoopMode ?? "reset";
+          let flamProb: number;
+          if (flamLoopMode === "continue") {
+            const key = `${channel}:${row}:${col}`;
+            const count = flamContinueCounters.get(key) ?? 0;
+            flamProb = getFlamChanceAtRepeat(noteValue, count);
+            flamContinueCounters.set(key, count + 1);
+          } else if (flamLoopMode === "fill") {
+            flamProb = getFlamChanceAtRepeatFill(noteValue, r);
+          } else {
+            flamProb = getFlamChanceAtRepeat(noteValue, r);
+          }
           if (flamProb > 0 && Math.random() * 100 < flamProb) {
-            extras.flamCount = 1; // Default 1 grace note, configurable later
+            extras.flamCount = 1;
           }
 
           const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
@@ -185,6 +236,9 @@ export function stop(): void {
     playbackInterval = null;
   }
   velocityContinueCounters.clear();
+  chanceContinueCounters.clear();
+  timingContinueCounters.clear();
+  flamContinueCounters.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
   store._setIsExternalPlayback(false);
@@ -268,6 +322,9 @@ export function stopExternal(): void {
     playbackInterval = null;
   }
   velocityContinueCounters.clear();
+  chanceContinueCounters.clear();
+  timingContinueCounters.clear();
+  flamContinueCounters.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
   store._setIsExternalPlayback(false);

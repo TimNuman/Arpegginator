@@ -14,7 +14,7 @@ export const DEFAULT_LOOP_START = 0;
 export const DEFAULT_LOOP_LENGTH = 16;
 
 // ============ Types ============
-export type UiMode = "pattern" | "channel" | "loop" | "volume" | "chance";
+export type UiMode = "pattern" | "channel" | "loop" | "chance";
 
 export interface PatternLoop {
   start: number;
