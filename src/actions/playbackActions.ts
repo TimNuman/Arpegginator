@@ -36,6 +36,117 @@ function incrementContinueCounter(subMode: ModifySubMode, channel: number, row: 
   return count;
 }
 
+// Active notes: notes that actually fired (survived chance roll)
+// Key: "channel:row" → { start, end } step range (inclusive)
+const activeNotes = new Map<string, { start: number; end: number }>();
+
+/**
+ * Check if a note is actively playing at a given step (survived hit chance roll).
+ */
+export function isNoteActive(ch: number, row: number, step: number): boolean {
+  const entry = activeNotes.get(`${ch}:${row}`);
+  return entry !== undefined && step >= entry.start && step <= entry.end;
+}
+
+// Pre-computed chance values for every note instance in the current loop cycle
+// Key: "channel:row:playStep" → chance value (0-100)
+const hitChancePreview = new Map<string, number>();
+
+/**
+ * Get the pre-computed hit chance for a note instance during playback.
+ */
+export function getHitChancePreview(ch: number, row: number, playStep: number): number | undefined {
+  return hitChancePreview.get(`${ch}:${row}:${playStep}`);
+}
+
+// Snapshot of continue counters at loop start for hit chance preview
+// Key: "channel:row:col" → counter value at loop boundary
+const continueCounterSnapshots = new Map<string, number>();
+
+/**
+ * Pre-compute hit chance preview for a single channel.
+ */
+function computeHitChancePreviewForChannel(ch: number): void {
+  // Clear existing entries for this channel
+  for (const key of hitChancePreview.keys()) {
+    if (key.startsWith(`${ch}:`)) hitChancePreview.delete(key);
+  }
+
+  const store = getSequencerStore();
+  const patternIdx = store.currentPatterns[ch];
+  const loop = store.patternLoops[ch][patternIdx];
+  const loopEnd = loop.start + loop.length;
+  const pattern = store.channels[ch][patternIdx];
+
+  for (let row = 0; row < pattern.length; row++) {
+    for (let col = loop.start; col < loopEnd; col++) {
+      const noteValue = pattern[row][col];
+      if (noteValue === null || !noteValue.enabled) continue;
+
+      const repeatAmount = getRepeatAmount(noteValue);
+      const repeatSpace = getRepeatSpace(noteValue);
+      const loopMode = getSubModeLoopMode(noteValue, "hit");
+
+      // Get counter snapshot for continue mode
+      const snapshotKey = `${ch}:${row}:${col}`;
+      const counterSnapshot = continueCounterSnapshots.get(snapshotKey) ?? getContinueCounter("hit", ch, row, col);
+
+      for (let r = 0; r < repeatAmount; r++) {
+        const playStep = col + r * repeatSpace;
+        if (playStep < loop.start || playStep >= loopEnd) continue;
+
+        let chance: number;
+        if (loopMode === "continue") {
+          chance = getSubModeValueAtRepeat(noteValue, "hit", counterSnapshot + r);
+        } else if (loopMode === "fill") {
+          chance = getSubModeValueAtRepeatFill(noteValue, "hit", r);
+        } else {
+          chance = getSubModeValueAtRepeat(noteValue, "hit", r);
+        }
+
+        hitChancePreview.set(`${ch}:${row}:${playStep}`, chance);
+      }
+    }
+  }
+}
+
+/**
+ * Snapshot continue counters and compute hit chance preview for a channel at loop boundary.
+ */
+function snapshotAndPreviewChannel(ch: number): void {
+  const store = getSequencerStore();
+  const patternIdx = store.currentPatterns[ch];
+  const loop = store.patternLoops[ch][patternIdx];
+  const loopEnd = loop.start + loop.length;
+  const pattern = store.channels[ch][patternIdx];
+
+  // Snapshot current continue counters for all notes in this channel
+  for (const key of continueCounterSnapshots.keys()) {
+    if (key.startsWith(`${ch}:`)) continueCounterSnapshots.delete(key);
+  }
+  for (let row = 0; row < pattern.length; row++) {
+    for (let col = loop.start; col < loopEnd; col++) {
+      const noteValue = pattern[row][col];
+      if (noteValue === null || !noteValue.enabled) continue;
+      const snapshotKey = `${ch}:${row}:${col}`;
+      continueCounterSnapshots.set(snapshotKey, getContinueCounter("hit", ch, row, col));
+    }
+  }
+
+  computeHitChancePreviewForChannel(ch);
+}
+
+/**
+ * Compute hit chance preview for all channels (called on play start).
+ */
+function computeHitChancePreviewAll(): void {
+  hitChancePreview.clear();
+  continueCounterSnapshots.clear();
+  for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+    computeHitChancePreviewForChannel(ch);
+  }
+}
+
 /**
  * Resolve a sub-mode value at a given repeat, respecting loop mode.
  */
@@ -146,30 +257,43 @@ export function tick(): void {
       loop.start +
       ((((nextStep - loop.start) % loop.length) + loop.length) % loop.length);
 
-    // Check for queued pattern switch at loop boundary
+    // 1. Loop reset: clear activeNotes, snapshot counters, recompute preview, check queued patterns
     if (channelStep === loop.start) {
+      for (const key of activeNotes.keys()) {
+        if (key.startsWith(`${ch}:`)) activeNotes.delete(key);
+      }
+      snapshotAndPreviewChannel(ch);
+
       const queuedPattern = store.queuedPatterns[ch];
       if (queuedPattern !== null) {
         patternsToSwitch.push({ channel: ch, pattern: queuedPattern });
       }
     }
 
-    // Check mute/solo
+    // 2. Prune expired activeNotes for this channel
+    for (const [key, entry] of activeNotes) {
+      if (key.startsWith(`${ch}:`) && channelStep > entry.end) {
+        activeNotes.delete(key);
+      }
+    }
+
+    // 3. Check mute/solo
     const anySoloed = soloedChannels.some((s) => s);
     const shouldPlay = anySoloed
       ? soloedChannels[ch] && !mutedChannels[ch]
       : !mutedChannels[ch];
 
-    // Trigger notes
+    // 4. Trigger notes and populate activeNotes
     if (shouldPlay && stepTriggerCallback && channelStep >= loop.start && channelStep < loopEnd) {
       const notesToPlay = getNotesAtStep(channels[ch][patternIdx], channelStep, loop.start, loopEnd, ch);
       for (const { row, length, velocity, extras } of notesToPlay) {
+        activeNotes.set(`${ch}:${row}`, { start: channelStep, end: channelStep + length - 1 });
         stepTriggerCallback(ch, row, channelStep, length, velocity, extras);
       }
     }
   }
 
-  // Apply pattern switches
+  // Apply pattern switches and recompute preview for switched channels
   if (patternsToSwitch.length > 0) {
     const newPatterns = [...currentPatterns];
     const newQueued = [...store.queuedPatterns];
@@ -179,6 +303,10 @@ export function tick(): void {
     }
     store._setCurrentPatterns(newPatterns);
     store._setQueuedPatterns(newQueued);
+
+    for (const { channel } of patternsToSwitch) {
+      computeHitChancePreviewForChannel(channel);
+    }
   }
 
   store._setCurrentStep(nextStep);
@@ -194,6 +322,8 @@ export function play(): void {
   store._setIsPlaying(true);
   store._setIsExternalPlayback(false);
 
+  computeHitChancePreviewAll();
+
   const intervalMs = ((60 / store.bpm) * 1000) / 4;
   tick();
   playbackInterval = window.setInterval(tick, intervalMs);
@@ -208,6 +338,9 @@ export function stop(): void {
     playbackInterval = null;
   }
   continueCounters.clear();
+  activeNotes.clear();
+  hitChancePreview.clear();
+  continueCounterSnapshots.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
   store._setIsExternalPlayback(false);
@@ -271,6 +404,8 @@ export function playExternal(): void {
   const store = getSequencerStore();
   store._setIsPlaying(true);
   store._setIsExternalPlayback(true);
+
+  computeHitChancePreviewAll();
 }
 
 /**
@@ -291,6 +426,9 @@ export function stopExternal(): void {
     playbackInterval = null;
   }
   continueCounters.clear();
+  activeNotes.clear();
+  hitChancePreview.clear();
+  continueCounterSnapshots.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
   store._setIsExternalPlayback(false);

@@ -25,6 +25,8 @@ export {
   externalTick,
   stopExternal,
   getContinueCounter,
+  isNoteActive,
+  getHitChancePreview,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 

@@ -601,9 +601,22 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const noteStartCol = noteAtCell.col;
           const noteEndCol = noteAtCell.col + noteAtCell.length - 1;
           const isNoteCurrentlyPlaying =
-            loopedStep >= noteStartCol && loopedStep <= noteEndCol;
+            loopedStep >= noteStartCol && loopedStep <= noteEndCol &&
+            actions.isNoteActive(currentChannel, actualRow, loopedStep);
 
-          value = BUTTON_COLOR_100;
+          // Determine brightness from hit chance
+          const preview = actions.getHitChancePreview(currentChannel, actualRow, noteStartCol);
+          if (preview !== undefined) {
+            // Playing: use pre-computed preview
+            value = preview >= 75 ? BUTTON_COLOR_100 : preview >= 50 ? BUTTON_COLOR_50 : BUTTON_COLOR_25;
+          } else {
+            // Not playing: static brightness from note data
+            const noteValue = gridState[actualRow]?.[noteAtCell.sourceCol];
+            const rSpace = noteValue ? getRepeatSpace(noteValue) : 1;
+            const repeatIdx = rSpace > 0 ? Math.round((noteAtCell.col - noteAtCell.sourceCol) / rSpace) : 0;
+            const hitChance = noteValue ? getSubModeValueAtRepeat(noteValue, "hit", repeatIdx) : 100;
+            value = hitChance >= 75 ? BUTTON_COLOR_100 : hitChance >= 50 ? BUTTON_COLOR_50 : BUTTON_COLOR_25;
+          }
 
           if (!isNoteStart) {
             value |= FLAG_CONTINUATION;
