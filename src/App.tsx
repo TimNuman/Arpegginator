@@ -85,11 +85,10 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, row: number, _step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => {
+    (channel: number, row: number, _step: number, _noteLength: number, velocity: number, extras?: StepTriggerExtras) => {
       const note = getRowNote(row) + (extras?.modulateHalfSteps ?? 0);
       const midiChannel = channel + 1;
       const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;
-      const noteDurationMs = stepDurationMs * (noteLength - 0.1);
 
       // Timing offset: convert % of step to ms.
       // To support negative offsets (early notes) we add a lookahead so all
@@ -119,16 +118,22 @@ function App() {
             playNote(note, flamVelocity, midiChannel);
           }, flamTime);
         }
-        // Stop after full note duration
-        setTimeout(() => stopNote(note, midiChannel), noteDelayMs + noteDurationMs);
+        // Note-off is handled by the tick-based noteOffCallback
       } else {
         setTimeout(() => {
           playNote(note, velocity, midiChannel);
-          setTimeout(() => stopNote(note, midiChannel), noteDurationMs);
         }, noteDelayMs);
+        // Note-off is handled by the tick-based noteOffCallback
       }
     },
-    [playNote, stopNote]
+    [playNote]
+  );
+
+  const handleNoteOff = useCallback(
+    (channel: number, midiNote: number) => {
+      stopNote(midiNote, channel + 1);
+    },
+    [stopNote]
   );
 
   const isPlaying = useSequencerStore((s) => s.isPlaying);
@@ -138,13 +143,15 @@ function App() {
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
 
-  // Wire up step trigger callback
+  // Wire up step trigger and note-off callbacks
   useEffect(() => {
     actions.setStepTriggerCallback(handleStepTrigger);
+    actions.setNoteOffCallback(handleNoteOff);
     return () => {
       actions.setStepTriggerCallback(null);
+      actions.setNoteOffCallback(null);
     };
-  }, [handleStepTrigger]);
+  }, [handleStepTrigger, handleNoteOff]);
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;

@@ -14,6 +14,9 @@ let playbackInterval: number | null = null;
 // Callback reference for step trigger
 let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
 
+// Callback reference for note-off (called when a note's duration expires)
+let noteOffCallback: ((channel: number, midiNote: number) => void) | null = null;
+
 // Continue mode counters: track cumulative trigger count per note per sub-mode across pattern loops
 // Key: "subMode:channel:row:col" → cumulative trigger count
 const continueCounters = new Map<string, number>();
@@ -37,8 +40,8 @@ function incrementContinueCounter(subMode: ModifySubMode, channel: number, row: 
 }
 
 // Active notes: notes that actually fired (survived chance roll)
-// Key: "channel:row" → { start, end } step range (inclusive)
-const activeNotes = new Map<string, { start: number; end: number }>();
+// Key: "channel:row" → { start, end, midiNote } step range (inclusive) + actual MIDI note for note-off
+const activeNotes = new Map<string, { start: number; end: number; midiNote: number }>();
 
 /**
  * Check if a note is actively playing at a given step (survived hit chance roll).
@@ -194,6 +197,15 @@ export function setStepTriggerCallback(
 }
 
 /**
+ * Set the note-off callback (called when a note's duration expires on tick)
+ */
+export function setNoteOffCallback(
+  callback: ((channel: number, midiNote: number) => void) | null
+): void {
+  noteOffCallback = callback;
+}
+
+/**
  * Get notes that should play at a given step (including repeats)
  */
 function getNotesAtStep(
@@ -272,10 +284,13 @@ export function tick(): void {
       loop.start +
       ((((nextStep - loop.start) % loop.length) + loop.length) % loop.length);
 
-    // 1. Loop reset: clear activeNotes, snapshot counters, recompute preview, check queued patterns
+    // 1. Loop reset: release + clear activeNotes, snapshot counters, recompute preview, check queued patterns
     if (channelStep === loop.start) {
-      for (const key of activeNotes.keys()) {
-        if (key.startsWith(`${ch}:`)) activeNotes.delete(key);
+      for (const [key, entry] of activeNotes) {
+        if (key.startsWith(`${ch}:`)) {
+          if (noteOffCallback) noteOffCallback(ch, entry.midiNote);
+          activeNotes.delete(key);
+        }
       }
       snapshotAndPreviewChannel(ch);
 
@@ -285,9 +300,10 @@ export function tick(): void {
       }
     }
 
-    // 2. Prune expired activeNotes for this channel
+    // 2. Prune expired activeNotes for this channel — fire note-off
     for (const [key, entry] of activeNotes) {
       if (key.startsWith(`${ch}:`) && channelStep > entry.end) {
+        if (noteOffCallback) noteOffCallback(ch, entry.midiNote);
         activeNotes.delete(key);
       }
     }
@@ -302,7 +318,12 @@ export function tick(): void {
     if (shouldPlay && stepTriggerCallback && channelStep >= loop.start && channelStep < loopEnd) {
       const notesToPlay = getNotesAtStep(channels[ch][patternIdx], channelStep, loop.start, loopEnd, ch);
       for (const { row, length, velocity, extras } of notesToPlay) {
-        activeNotes.set(`${ch}:${row}`, { start: channelStep, end: channelStep + length - 1 });
+        const midiNote = row + (extras?.modulateHalfSteps ?? 0);
+        // Release any existing note on the same row before retriggering
+        const activeKey = `${ch}:${row}`;
+        const existing = activeNotes.get(activeKey);
+        if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
+        activeNotes.set(activeKey, { start: channelStep, end: channelStep + length - 1, midiNote });
         stepTriggerCallback(ch, row, channelStep, length, velocity, extras);
       }
     }
@@ -352,9 +373,16 @@ export function stop(): void {
     clearInterval(playbackInterval);
     playbackInterval = null;
   }
+  // Release all active notes
+  if (noteOffCallback) {
+    for (const [key, entry] of activeNotes) {
+      const ch = parseInt(key.split(":")[0], 10);
+      noteOffCallback(ch, entry.midiNote);
+    }
+  }
   continueCounters.clear();
   activeNotes.clear();
-  hitChancePreview.clear();
+  subModePreview.clear();
   continueCounterSnapshots.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
@@ -440,9 +468,16 @@ export function stopExternal(): void {
     clearInterval(playbackInterval);
     playbackInterval = null;
   }
+  // Release all active notes
+  if (noteOffCallback) {
+    for (const [key, entry] of activeNotes) {
+      const ch = parseInt(key.split(":")[0], 10);
+      noteOffCallback(ch, entry.midiNote);
+    }
+  }
   continueCounters.clear();
   activeNotes.clear();
-  hitChancePreview.clear();
+  subModePreview.clear();
   continueCounterSnapshots.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);

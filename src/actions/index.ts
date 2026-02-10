@@ -28,6 +28,7 @@ export {
   isNoteActive,
   getHitChancePreview,
   getSubModePreview,
+  setNoteOffCallback,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 
