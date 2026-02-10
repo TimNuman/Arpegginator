@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
 import {
@@ -108,16 +108,38 @@ const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33", "#FF6633"] as const;
 
 // Configuration for each modify sub-mode
 const SUB_MODE_CONFIG: Record<ModifySubMode, {
-  levels: readonly number[];
   label: string;
   renderStyle: "bar" | "offset";
+  min: number;
+  max: number;
+  step: number;
 }> = {
-  velocity: { levels: [127, 110, 92, 75, 57, 40, 22, 5],     label: "VEL",  renderStyle: "bar" },
-  hit:      { levels: [100, 87, 75, 62, 50, 37, 25, 12],      label: "HIT",  renderStyle: "bar" },
-  timing:   { levels: [20, 15, 10, 5, -5, -10, -15, -20],     label: "TIME", renderStyle: "offset" },
-  flam:     { levels: [100, 87, 75, 62, 50, 37, 25, 12],      label: "FLAM", renderStyle: "bar" },
-  modulate: { levels: [4, 3, 2, 1, -1, -2, -3, -4],           label: "MOD",  renderStyle: "offset" },
+  velocity: { label: "VEL",  renderStyle: "bar",    min: 7,   max: 127, step: 15 },
+  hit:      { label: "HIT",  renderStyle: "bar",    min: 12,  max: 100, step: 12 },
+  timing:   { label: "TIME", renderStyle: "offset", min: -50, max: 50,  step: 5  },
+  flam:     { label: "FLAM", renderStyle: "bar",    min: 12,  max: 100, step: 12 },
+  modulate: { label: "MOD",  renderStyle: "offset", min: -12, max: 12,  step: 1  },
 };
+
+// Generate all levels for a sub-mode config (high to low)
+function generateLevels(config: { renderStyle: string; min: number; max: number; step: number }): number[] {
+  const levels: number[] = [];
+  for (let v = config.max; v >= config.min; v -= config.step) {
+    if (config.renderStyle === "offset" && v === 0) continue;
+    levels.push(v);
+  }
+  return levels;
+}
+
+// Compute default scroll position (centered on 0 for offset, top for bar)
+function getDefaultScroll(allLevels: number[], renderStyle: string): number {
+  if (renderStyle !== "offset" || allLevels.length <= VISIBLE_ROWS) return 0;
+  const maxScrollOffset = allLevels.length - VISIBLE_ROWS;
+  // Center on 0-crossing
+  const zeroIndex = allLevels.findIndex(v => v < 0);
+  const defaultIndex = Math.max(0, Math.min(maxScrollOffset, zeroIndex - Math.floor(VISIBLE_ROWS / 2)));
+  return maxScrollOffset > 0 ? defaultIndex / maxScrollOffset : 0;
+}
 
 // Convert MIDI note number to note name
 const midiNoteToName = (midiNote: number): string => {
@@ -412,6 +434,27 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           currentLoop.length)
       : -1;
 
+  // Compute all levels for current sub-mode
+  const modifyConfig = SUB_MODE_CONFIG[modifySubMode];
+  const allLevels = useMemo(() => generateLevels(modifyConfig), [modifyConfig]);
+
+  // Scroll state for modify mode value scrolling
+  const [modifyScroll, setModifyScroll] = useState(() => getDefaultScroll(allLevels, modifyConfig.renderStyle));
+
+  // Reset scroll when sub-mode changes
+  useEffect(() => {
+    setModifyScroll(getDefaultScroll(allLevels, modifyConfig.renderStyle));
+  }, [allLevels, modifyConfig.renderStyle]);
+
+  // Compute visible levels based on scroll position
+  const needsModifyScroll = allLevels.length > VISIBLE_ROWS;
+  const visibleLevels = useMemo(() => {
+    if (!needsModifyScroll) return allLevels;
+    const maxScrollOffset = allLevels.length - VISIBLE_ROWS;
+    const scrollIndex = Math.round(modifyScroll * maxScrollOffset);
+    return allLevels.slice(scrollIndex, scrollIndex + VISIBLE_ROWS);
+  }, [allLevels, needsModifyScroll, modifyScroll]);
+
   // Compute button values and color overrides for all modes
   const { buttonValues, colorOverrides } = useMemo(() => {
     // Modify mode (all sub-modes) with selected note
@@ -422,13 +465,24 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const arrayLength = noteValue ? getSubModeArray(noteValue, modifySubMode).length : 1;
       const loopMode = noteValue ? getSubModeLoopMode(noteValue, modifySubMode) : "reset";
       const config = SUB_MODE_CONFIG[modifySubMode];
-      const { levels, renderStyle } = config;
+      const { renderStyle } = config;
       const values: number[][] = [];
       const colors: (string | null)[][] = [];
 
+      // Detect center line rows (where sign transitions from + to -)
+      const centerRows = new Set<number>();
+      if (renderStyle === "offset") {
+        for (let i = 0; i < visibleLevels.length - 1; i++) {
+          if (visibleLevels[i] > 0 && visibleLevels[i + 1] < 0) {
+            centerRows.add(i);
+            centerRows.add(i + 1);
+          }
+        }
+      }
+
       // Value getter with fill-mode support
       const getValueAtIndex = (idx: number): number => {
-        if (!noteValue) return config.levels[config.levels.length - 1]; // fallback
+        if (!noteValue) return visibleLevels[visibleLevels.length - 1]; // fallback
         return loopMode === "fill"
           ? getSubModeValueAtRepeatFill(noteValue, modifySubMode, idx)
           : getSubModeValueAtRepeat(noteValue, modifySubMode, idx);
@@ -456,7 +510,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       for (let visibleRow = 0; visibleRow < VISIBLE_ROWS; visibleRow++) {
         const row: number[] = [];
         const colorRow: (string | null)[] = [];
-        const threshold = levels[visibleRow];
+        const threshold = visibleLevels[visibleRow];
 
         for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
           // Ctrl mode hints
@@ -480,8 +534,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
           if (renderStyle === "offset") {
             // Horizontal line mode — single lit cell at the matching row
-            const matchRow = val === 0 ? -1 : (levels as readonly number[]).indexOf(val as never);
-            const isCenterRow = visibleRow === 3 || visibleRow === 4;
+            const matchRow = val === 0 ? -1 : visibleLevels.indexOf(val);
+            const isCenterRow = centerRows.has(visibleRow);
             if (matchRow === visibleRow) {
               let intensity = isExplicit ? BUTTON_COLOR_100 : BUTTON_COLOR_50;
               if (isPlayingCol) intensity |= FLAG_PLAYING;
@@ -809,8 +863,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     mutedChannels,
     soloedChannels,
     currentChannel,
-    // Chance mode deps
+    // Modify mode deps
     gridState,
+    visibleLevels,
   ]);
 
   // Handle button press from ButtonGrid
@@ -873,7 +928,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       // Modify mode (all sub-modes)
       if (uiMode === "modify") {
         if (selectedNote) {
-          const value = keyboard.meta ? 0 : SUB_MODE_CONFIG[modifySubMode].levels[visibleRow];
+          const value = keyboard.meta ? 0 : visibleLevels[visibleRow];
           actions.setSubModeValue(selectedNote.row, selectedNote.col, visibleCol, value, modifySubMode);
         } else {
           // No note selected: click to select a note
@@ -928,6 +983,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       selectedNote,
       gridState,
       renderedNotes,
+      visibleLevels,
     ],
   );
 
@@ -1224,16 +1280,29 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   return (
     <Box css={gridOuterContainerStyles}>
       <Box css={verticalStripContainerStyles}>
-        <TouchStrip
-          orientation="vertical"
-          value={rowOffset}
-          onChange={onRowOffsetChange}
-          length={gridHeight}
-          thickness={24}
-          totalItems={ROWS}
-          visibleItems={VISIBLE_ROWS}
-          itemSize={buttonSize}
-        />
+        {uiMode === "modify" && selectedNote && needsModifyScroll ? (
+          <TouchStrip
+            orientation="vertical"
+            value={modifyScroll}
+            onChange={setModifyScroll}
+            length={gridHeight}
+            thickness={24}
+            totalItems={allLevels.length}
+            visibleItems={VISIBLE_ROWS}
+            itemSize={buttonSize}
+          />
+        ) : (
+          <TouchStrip
+            orientation="vertical"
+            value={rowOffset}
+            onChange={onRowOffsetChange}
+            length={gridHeight}
+            thickness={24}
+            totalItems={ROWS}
+            visibleItems={VISIBLE_ROWS}
+            itemSize={buttonSize}
+          />
+        )}
       </Box>
       <Box css={gridInnerContainerStyles}>
         <Box css={gridContainerStyles}>
