@@ -625,12 +625,12 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const isNoteCurrentlyPlaying =
             loopedStep >= noteStartCol &&
             loopedStep <= noteEndCol &&
-            actions.isNoteActive(currentChannel, actualRow, loopedStep);
+            actions.isNoteActive(currentChannel, noteAtCell.sourceRow, loopedStep);
 
           // Determine brightness from hit chance
           const preview = actions.getHitChancePreview(
             currentChannel,
-            actualRow,
+            noteAtCell.sourceRow,
             noteStartCol,
           );
           if (preview !== undefined) {
@@ -643,7 +643,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
                   : BUTTON_COLOR_25;
           } else {
             // Not playing: static brightness from note data
-            const noteValue = gridState[actualRow]?.[noteAtCell.sourceCol];
+            const noteValue = gridState[noteAtCell.sourceRow]?.[noteAtCell.sourceCol];
             const rSpace = noteValue ? getRepeatSpace(noteValue) : 1;
             const repeatIdx =
               rSpace > 0
@@ -670,22 +670,33 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
           if (
             selectedNote &&
-            selectedNote.row === actualRow &&
+            selectedNote.row === noteAtCell.sourceRow &&
             selectedNote.col === noteAtCell.sourceCol
           ) {
             value |= FLAG_SELECTED;
           }
 
-          // Compute velocity-based white mix
-          const noteValueForVel = gridState[actualRow]?.[noteAtCell.sourceCol];
-          const rSpaceVel = noteValueForVel ? getRepeatSpace(noteValueForVel) : 1;
-          const repeatIdxVel =
-            rSpaceVel > 0
-              ? Math.round((noteAtCell.col - noteAtCell.sourceCol) / rSpaceVel)
-              : 0;
-          const velocity = noteValueForVel
-            ? getSubModeValueAtRepeat(noteValueForVel, "velocity", repeatIdxVel)
-            : 100;
+          // Compute velocity-based white mix (use preview if playing, static otherwise)
+          const velPreview = actions.getSubModePreview(
+            "velocity",
+            currentChannel,
+            noteAtCell.sourceRow,
+            noteStartCol,
+          );
+          let velocity: number;
+          if (velPreview !== undefined) {
+            velocity = velPreview;
+          } else {
+            const noteValueForVel = gridState[noteAtCell.sourceRow]?.[noteAtCell.sourceCol];
+            const rSpaceVel = noteValueForVel ? getRepeatSpace(noteValueForVel) : 1;
+            const repeatIdxVel =
+              rSpaceVel > 0
+                ? Math.round((noteAtCell.col - noteAtCell.sourceCol) / rSpaceVel)
+                : 0;
+            velocity = noteValueForVel
+              ? getSubModeValueAtRepeat(noteValueForVel, "velocity", repeatIdxVel)
+              : 100;
+          }
           // Map velocity (7-127) to white mix: 7→0.3, 127→0
           const whiteMix = (1 - (velocity - 7) / 120) * 0.3;
           const baseHex = noteAtCell.isRepeat ? repeatColor : channelColor;
@@ -1025,7 +1036,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           );
           if (noteAtCell) {
             actions.setSelectedNote({
-              row: actualRow,
+              row: noteAtCell.sourceRow,
               col: noteAtCell.sourceCol,
             });
           }

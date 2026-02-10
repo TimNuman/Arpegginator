@@ -113,9 +113,10 @@ export const createNotePattern = (
 
 // A rendered note instance (for display purposes)
 export interface RenderedNote {
-  row: number;
+  row: number; // Display row (after modulation offset)
   col: number; // Where this note instance starts
   length: number; // Length of this note
+  sourceRow: number; // Row of the parent NotePattern in gridState
   sourceCol: number; // Column of the parent NotePattern
   isRepeat: boolean; // True if this is a repeat (not the original)
 }
@@ -140,10 +141,13 @@ export const renderNotesToArray = (
         const noteCol = col + r * repeatSpace;
         // Only include notes that start within the grid
         if (noteCol < gridWidth) {
+          const modOffset = getSubModeValueAtRepeat(noteValue, "modulate", r);
+          const displayRow = Math.max(0, Math.min(grid.length - 1, row + modOffset));
           notes.push({
-            row,
+            row: displayRow,
             col: noteCol,
             length,
+            sourceRow: row,
             sourceCol: col,
             isRepeat: r > 0,
           });

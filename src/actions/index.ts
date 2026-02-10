@@ -27,6 +27,7 @@ export {
   getContinueCounter,
   isNoteActive,
   getHitChancePreview,
+  getSubModePreview,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 

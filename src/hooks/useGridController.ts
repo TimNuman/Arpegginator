@@ -512,11 +512,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
           if (note) {
             // Visible (enabled) note — disable it
-            actions.toggleEnabled(actualRow, note.sourceCol);
+            actions.toggleEnabled(note.sourceRow, note.sourceCol);
             // Deselect if this was selected
             if (
               selectedNote &&
-              selectedNote.row === actualRow &&
+              selectedNote.row === note.sourceRow &&
               selectedNote.col === note.sourceCol
             ) {
               actions.setSelectedNote(null);
@@ -651,10 +651,10 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       if (keyboard.meta) {
         if (noteAtCell && !noteAtCell.isRepeat) {
           // Visible (enabled) main note — disable its source pattern
-          actions.toggleEnabled(row, noteAtCell.sourceCol);
+          actions.toggleEnabled(noteAtCell.sourceRow, noteAtCell.sourceCol);
           if (
             currentSelectedNote &&
-            currentSelectedNote.row === row &&
+            currentSelectedNote.row === noteAtCell.sourceRow &&
             currentSelectedNote.col === noteAtCell.sourceCol
           ) {
             actions.setSelectedNote(null);
@@ -698,10 +698,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
       // Click on note: select/deselect
       if (noteAtCell) {
+        const sourceRow = noteAtCell.sourceRow;
         const sourceCol = noteAtCell.sourceCol;
         if (
           currentSelectedNote &&
-          currentSelectedNote.row === row &&
+          currentSelectedNote.row === sourceRow &&
           currentSelectedNote.col === sourceCol
         ) {
           // Already selected - deselect and place
@@ -712,9 +713,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           if (currentSelectedNote) {
             actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
           }
-          actions.setSelectedNote({ row, col: sourceCol });
+          actions.setSelectedNote({ row: sourceRow, col: sourceCol });
         }
-        playPreviewNote(row);
+        playPreviewNote(sourceRow);
         return;
       }
 
