@@ -21,7 +21,7 @@ import {
   getSubModeArrayLength,
   isNotePattern,
   renderNotesToArray,
-  type ChanceSubMode,
+  type ModifySubMode,
 } from "../types/grid";
 
 // Keyboard to grid position mapping
@@ -75,7 +75,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const rowOffsets = useSequencerStore((s) => s.view.rowOffsets);
   const colOffset = useSequencerStore((s) => s.view.colOffset);
   const uiMode = useSequencerStore((s) => s.view.uiMode);
-  const chanceSubMode = useSequencerStore((s) => s.view.chanceSubMode);
+  const modifySubMode = useSequencerStore((s) => s.view.modifySubMode);
   const currentPattern = useCurrentPattern();
   const currentLoop = useCurrentLoop();
   const gridState = useGridState();
@@ -244,13 +244,13 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           return true;
         }
         if (key === "v") {
-          actions.setUiMode("chance");
-          actions.setChanceSubMode("velocity");
+          actions.setUiMode("modify");
+          actions.setModifySubMode("velocity");
           return true;
         }
         if (key === "b") {
-          actions.setUiMode("chance");
-          actions.setChanceSubMode("hit");
+          actions.setUiMode("modify");
+          actions.setModifySubMode("hit");
           return true;
         }
       }
@@ -305,27 +305,27 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // Chance mode: Cmd+Arrow up/down cycles sub-modes (velocity/hit/timing/flam)
+      // Modify mode: Cmd+Arrow up/down cycles sub-modes (velocity/hit/timing/flam/modulate)
       if (
-        uiMode === "chance" &&
+        uiMode === "modify" &&
         state.meta &&
         !state.alt &&
         !state.ctrl &&
         !state.shift &&
         (code === "ArrowUp" || code === "ArrowDown")
       ) {
-        const modes: ChanceSubMode[] = ["velocity", "hit", "timing", "flam"];
-        const currentIndex = modes.indexOf(chanceSubMode);
+        const modes: ModifySubMode[] = ["velocity", "hit", "timing", "flam", "modulate"];
+        const currentIndex = modes.indexOf(modifySubMode);
         const nextIndex = code === "ArrowDown"
           ? (currentIndex + 1) % modes.length
           : (currentIndex - 1 + modes.length) % modes.length;
-        actions.setChanceSubMode(modes[nextIndex]);
+        actions.setModifySubMode(modes[nextIndex]);
         return true;
       }
 
-      // Chance mode: Arrow up/down toggles loop mode for current sub-mode
+      // Modify mode: Arrow up/down toggles loop mode for current sub-mode
       if (
-        uiMode === "chance" &&
+        uiMode === "modify" &&
         selectedNote &&
         !state.meta &&
         !state.alt &&
@@ -333,13 +333,13 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         !state.shift &&
         (code === "ArrowUp" || code === "ArrowDown")
       ) {
-        actions.toggleSubModeLoopMode(selectedNote.row, selectedNote.col, chanceSubMode);
+        actions.toggleSubModeLoopMode(selectedNote.row, selectedNote.col, modifySubMode);
         return true;
       }
 
-      // Chance mode: Arrow left/right adjusts array length for current sub-mode
+      // Modify mode: Arrow left/right adjusts array length for current sub-mode
       if (
-        uiMode === "chance" &&
+        uiMode === "modify" &&
         selectedNote &&
         !state.meta &&
         !state.alt &&
@@ -349,18 +349,18 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       ) {
         const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
         if (noteValue) {
-          const currentLength = getSubModeArrayLength(noteValue, chanceSubMode);
+          const currentLength = getSubModeArrayLength(noteValue, modifySubMode);
           const newLength = code === "ArrowRight"
             ? currentLength + 1
             : currentLength - 1;
           if (newLength >= 1) {
-            actions.setSubModeLength(selectedNote.row, selectedNote.col, chanceSubMode, newLength);
+            actions.setSubModeLength(selectedNote.row, selectedNote.col, modifySubMode, newLength);
           }
         }
         return true;
       }
 
-      // In channel/loop/chance mode, skip note-editing keybindings
+      // In channel/loop/modify mode, skip note-editing keybindings
       if (uiMode !== "pattern") {
         return false;
       }
@@ -583,7 +583,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     },
     [
       uiMode,
-      chanceSubMode,
+      modifySubMode,
       selectedNote,
       gridState,
       currentLoop,
@@ -772,7 +772,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     // Keyboard state (for display)
     keyboard,
     uiMode,
-    chanceSubMode,
+    modifySubMode,
 
     // Computed view state
     startRow,

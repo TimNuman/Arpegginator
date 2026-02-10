@@ -1,5 +1,5 @@
 import { getSequencerStore } from '../store/sequencerStore';
-import { getNoteLength, createNotePattern, type NoteValue, type VelocityLoopMode, type ChanceSubMode } from '../types/grid';
+import { getNoteLength, createNotePattern, type NoteValue, type NotePattern, type VelocityLoopMode, type ModifySubMode } from '../types/grid';
 
 /**
  * Helper to truncate any note that would overlap with a new note at col
@@ -208,78 +208,24 @@ function materializeArray(arr: number[], targetLength: number, loopMode: Velocit
   return result;
 }
 
-/**
- * Set velocity for a specific repeat index of a note.
- * Materializes the looping velocity array to at least repeatIndex + 1 entries,
- * but preserves any existing length beyond that.
- */
-export function setNoteVelocity(row: number, col: number, repeatIndex: number, velocity: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
-
-  // Materialize to at least repeatIndex + 1, but keep existing length if longer
-  const targetLength = Math.max(noteValue.velocity.length, repeatIndex + 1);
-  const materialized = materializeArray(noteValue.velocity, targetLength, noteValue.velocityLoopMode);
-  materialized[repeatIndex] = velocity;
-
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
-    velocity: materialized,
-  });
-}
+/** Maps ModifySubMode to NotePattern field names for array and loop mode */
+const SUB_MODE_FIELD_MAP: Record<ModifySubMode, {
+  arrayField: keyof NotePattern & string;
+  loopModeField: keyof NotePattern & string;
+}> = {
+  velocity: { arrayField: "velocity", loopModeField: "velocityLoopMode" },
+  hit:      { arrayField: "chance",   loopModeField: "chanceLoopMode" },
+  timing:   { arrayField: "timingOffset", loopModeField: "timingLoopMode" },
+  flam:     { arrayField: "flamChance",   loopModeField: "flamLoopMode" },
+  modulate: { arrayField: "modulate",     loopModeField: "modulateLoopMode" },
+};
 
 /**
- * Set the velocity array length for a note.
- * Expanding: materializes values for new entries (respecting loop mode).
- * Shrinking: truncates from the end (minimum length 1).
- */
-export function setVelocityLength(row: number, col: number, newLength: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
-
-  const clamped = Math.max(1, newLength);
-  const result = materializeArray(noteValue.velocity, clamped, noteValue.velocityLoopMode);
-
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
-    velocity: result,
-  });
-}
-
-/**
- * Cycle velocity loop mode: reset → continue → fill → reset.
- */
-export function toggleVelocityLoopMode(row: number, col: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
-
-  const modes: VelocityLoopMode[] = ["reset", "continue", "fill"];
-  const currentIndex = modes.indexOf(noteValue.velocityLoopMode);
-  const newMode = modes[(currentIndex + 1) % modes.length];
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
-    velocityLoopMode: newMode,
-  });
-}
-
-/**
- * Set chance for a specific repeat index of a note.
+ * Set the value for any sub-mode at a specific repeat index.
  * Materializes the looping array to at least repeatIndex + 1 entries,
  * but preserves any existing length beyond that.
  */
-export function setNoteChance(row: number, col: number, repeatIndex: number, chance: number): void {
+export function setSubModeValue(row: number, col: number, repeatIndex: number, value: number, subMode: ModifySubMode): void {
   const store = getSequencerStore();
   const { currentChannel, currentPatterns, channels } = store;
   const pattern = currentPatterns[currentChannel];
@@ -287,65 +233,24 @@ export function setNoteChance(row: number, col: number, repeatIndex: number, cha
   const noteValue = channels[currentChannel][pattern][row][col];
   if (noteValue === null) return;
 
-  const targetLength = Math.max(noteValue.chance.length, repeatIndex + 1);
-  const materialized = materializeArray(noteValue.chance, targetLength, noteValue.chanceLoopMode ?? "reset");
-  materialized[repeatIndex] = chance;
+  const { arrayField, loopModeField } = SUB_MODE_FIELD_MAP[subMode];
+  const arr = noteValue[arrayField] as number[];
+  const loopMode = (noteValue[loopModeField] as VelocityLoopMode) ?? "reset";
 
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
-    chance: materialized,
-  });
-}
-
-/**
- * Set micro-timing offset (as % of step, signed) for a specific repeat index of a note.
- * Materializes the looping array to at least repeatIndex + 1 entries.
- */
-export function setNoteTimingOffset(row: number, col: number, repeatIndex: number, value: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
-
-  const targetLength = Math.max(noteValue.timingOffset.length, repeatIndex + 1);
-  const materialized = materializeArray(noteValue.timingOffset, targetLength, noteValue.timingLoopMode ?? "reset");
+  const targetLength = Math.max(arr.length, repeatIndex + 1);
+  const materialized = materializeArray(arr, targetLength, loopMode);
   materialized[repeatIndex] = value;
 
   store._updateCell(currentChannel, pattern, row, col, {
     ...noteValue,
-    timingOffset: materialized,
-  });
-}
-
-/**
- * Set flam chance for a specific repeat index of a note.
- * Materializes the looping array to at least repeatIndex + 1 entries.
- */
-export function setNoteFlamChance(row: number, col: number, repeatIndex: number, value: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
-
-  const targetLength = Math.max(noteValue.flamChance.length, repeatIndex + 1);
-  const materialized = materializeArray(noteValue.flamChance, targetLength, noteValue.flamLoopMode ?? "reset");
-  materialized[repeatIndex] = value;
-
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
-    flamChance: materialized,
+    [arrayField]: materialized,
   });
 }
 
 /**
  * Set array length for any sub-mode.
- * Dispatches to the correct array (velocity/chance/timingOffset/flamChance).
  */
-export function setSubModeLength(row: number, col: number, subMode: ChanceSubMode, newLength: number): void {
+export function setSubModeLength(row: number, col: number, subMode: ModifySubMode, newLength: number): void {
   const store = getSequencerStore();
   const { currentChannel, currentPatterns, channels } = store;
   const pattern = currentPatterns[currentChannel];
@@ -353,36 +258,22 @@ export function setSubModeLength(row: number, col: number, subMode: ChanceSubMod
   const noteValue = channels[currentChannel][pattern][row][col];
   if (noteValue === null) return;
 
+  const { arrayField, loopModeField } = SUB_MODE_FIELD_MAP[subMode];
+  const arr = noteValue[arrayField] as number[];
+  const loopMode = (noteValue[loopModeField] as VelocityLoopMode) ?? "reset";
   const clamped = Math.max(1, newLength);
+  const result = materializeArray(arr, clamped, loopMode);
 
-  switch (subMode) {
-    case "velocity": {
-      const result = materializeArray(noteValue.velocity, clamped, noteValue.velocityLoopMode);
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, velocity: result });
-      break;
-    }
-    case "hit": {
-      const result = materializeArray(noteValue.chance, clamped, noteValue.chanceLoopMode ?? "reset");
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, chance: result });
-      break;
-    }
-    case "timing": {
-      const result = materializeArray(noteValue.timingOffset, clamped, noteValue.timingLoopMode ?? "reset");
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, timingOffset: result });
-      break;
-    }
-    case "flam": {
-      const result = materializeArray(noteValue.flamChance, clamped, noteValue.flamLoopMode ?? "reset");
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, flamChance: result });
-      break;
-    }
-  }
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    [arrayField]: result,
+  });
 }
 
 /**
  * Toggle loop mode (reset → continue → fill → reset) for any sub-mode.
  */
-export function toggleSubModeLoopMode(row: number, col: number, subMode: ChanceSubMode): void {
+export function toggleSubModeLoopMode(row: number, col: number, subMode: ModifySubMode): void {
   const store = getSequencerStore();
   const { currentChannel, currentPatterns, channels } = store;
   const pattern = currentPatterns[currentChannel];
@@ -391,31 +282,13 @@ export function toggleSubModeLoopMode(row: number, col: number, subMode: ChanceS
   if (noteValue === null) return;
 
   const modes: VelocityLoopMode[] = ["reset", "continue", "fill"];
+  const { loopModeField } = SUB_MODE_FIELD_MAP[subMode];
+  const currentMode = (noteValue[loopModeField] as VelocityLoopMode) ?? "reset";
+  const currentIndex = modes.indexOf(currentMode);
+  const newMode = modes[(currentIndex + 1) % modes.length];
 
-  switch (subMode) {
-    case "velocity": {
-      const currentIndex = modes.indexOf(noteValue.velocityLoopMode);
-      const newMode = modes[(currentIndex + 1) % modes.length];
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, velocityLoopMode: newMode });
-      break;
-    }
-    case "hit": {
-      const currentIndex = modes.indexOf(noteValue.chanceLoopMode ?? "reset");
-      const newMode = modes[(currentIndex + 1) % modes.length];
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, chanceLoopMode: newMode });
-      break;
-    }
-    case "timing": {
-      const currentIndex = modes.indexOf(noteValue.timingLoopMode ?? "reset");
-      const newMode = modes[(currentIndex + 1) % modes.length];
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, timingLoopMode: newMode });
-      break;
-    }
-    case "flam": {
-      const currentIndex = modes.indexOf(noteValue.flamLoopMode ?? "reset");
-      const newMode = modes[(currentIndex + 1) % modes.length];
-      store._updateCell(currentChannel, pattern, row, col, { ...noteValue, flamLoopMode: newMode });
-      break;
-    }
-  }
+  store._updateCell(currentChannel, pattern, row, col, {
+    ...noteValue,
+    [loopModeField]: newMode,
+  });
 }

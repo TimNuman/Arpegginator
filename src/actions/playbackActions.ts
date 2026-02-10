@@ -1,10 +1,11 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, getVelocityAtRepeat, getVelocityAtRepeatFill, getVelocityLoopMode, getChanceAtRepeat, getChanceAtRepeatFill, getTimingOffsetAtRepeat, getTimingOffsetAtRepeatFill, getFlamChanceAtRepeat, getFlamChanceAtRepeatFill, type GridState } from '../types/grid';
+import { getNoteLength, getRepeatAmount, getRepeatSpace, getSubModeLoopMode, getSubModeValueAtRepeat, getSubModeValueAtRepeatFill, type GridState, type ModifySubMode } from '../types/grid';
 
 // Extra parameters passed alongside each triggered note
 export interface StepTriggerExtras {
   timingOffsetPercent?: number; // Fixed micro-timing offset as % of step (signed, from timingOffset array)
   flamCount?: number;            // Number of flam grace notes (0 = none)
+  modulateHalfSteps?: number;    // Pitch transposition in half steps (signed)
 }
 
 // Interval reference for internal playback
@@ -13,34 +14,48 @@ let playbackInterval: number | null = null;
 // Callback reference for step trigger
 let stepTriggerCallback: ((channel: number, row: number, step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
 
-// Continue mode counters: track cumulative trigger count per note across pattern loops
-// Key: "channel:row:col" → cumulative trigger count (shared across all repeats of the note)
-const velocityContinueCounters = new Map<string, number>();
-const chanceContinueCounters = new Map<string, number>();
-const timingContinueCounters = new Map<string, number>();
-const flamContinueCounters = new Map<string, number>();
+// Continue mode counters: track cumulative trigger count per note per sub-mode across pattern loops
+// Key: "subMode:channel:row:col" → cumulative trigger count
+const continueCounters = new Map<string, number>();
 
 /**
- * Get the current cumulative velocity counter for a note.
+ * Get the current cumulative counter for a note's sub-mode.
  */
-export function getVelocityContinueCounter(channel: number, row: number, col: number): number {
-  const key = `${channel}:${row}:${col}`;
-  return velocityContinueCounters.get(key) ?? 0;
+export function getContinueCounter(subMode: ModifySubMode, channel: number, row: number, col: number): number {
+  const key = `${subMode}:${channel}:${row}:${col}`;
+  return continueCounters.get(key) ?? 0;
 }
 
-export function getChanceContinueCounter(channel: number, row: number, col: number): number {
-  const key = `${channel}:${row}:${col}`;
-  return chanceContinueCounters.get(key) ?? 0;
+/**
+ * Increment and return the pre-increment counter value (the index to use).
+ */
+function incrementContinueCounter(subMode: ModifySubMode, channel: number, row: number, col: number): number {
+  const key = `${subMode}:${channel}:${row}:${col}`;
+  const count = continueCounters.get(key) ?? 0;
+  continueCounters.set(key, count + 1);
+  return count;
 }
 
-export function getTimingContinueCounter(channel: number, row: number, col: number): number {
-  const key = `${channel}:${row}:${col}`;
-  return timingContinueCounters.get(key) ?? 0;
-}
-
-export function getFlamContinueCounter(channel: number, row: number, col: number): number {
-  const key = `${channel}:${row}:${col}`;
-  return flamContinueCounters.get(key) ?? 0;
+/**
+ * Resolve a sub-mode value at a given repeat, respecting loop mode.
+ */
+function resolveSubModeValue(
+  noteValue: Parameters<typeof getSubModeLoopMode>[0] & object,
+  subMode: ModifySubMode,
+  repeatIndex: number,
+  channel: number,
+  row: number,
+  col: number,
+): number {
+  const loopMode = getSubModeLoopMode(noteValue, subMode);
+  if (loopMode === "continue") {
+    const count = incrementContinueCounter(subMode, channel, row, col);
+    return getSubModeValueAtRepeat(noteValue, subMode, count);
+  } else if (loopMode === "fill") {
+    return getSubModeValueAtRepeatFill(noteValue, subMode, repeatIndex);
+  } else {
+    return getSubModeValueAtRepeat(noteValue, subMode, repeatIndex);
+  }
 }
 
 /**
@@ -72,81 +87,38 @@ function getNotesAtStep(
       const length = getNoteLength(noteValue);
       const repeatAmount = getRepeatAmount(noteValue);
       const repeatSpace = getRepeatSpace(noteValue);
-      const velLoopMode = getVelocityLoopMode(noteValue);
 
       for (let r = 0; r < repeatAmount; r++) {
         const playStep = col + r * repeatSpace;
         if (playStep === step && playStep < loopEnd) {
-          // Resolve velocity
-          let velocity: number;
-          if (velLoopMode === "continue") {
-            const key = `${channel}:${row}:${col}`;
-            const count = velocityContinueCounters.get(key) ?? 0;
-            velocity = getVelocityAtRepeat(noteValue, count);
-            velocityContinueCounters.set(key, count + 1);
-          } else if (velLoopMode === "fill") {
-            velocity = getVelocityAtRepeatFill(noteValue, r);
-          } else {
-            velocity = getVelocityAtRepeat(noteValue, r);
-          }
-
-          // Resolve chance using loop mode
-          const chanceLoopMode = noteValue.chanceLoopMode ?? "reset";
-          let chance: number;
-          if (chanceLoopMode === "continue") {
-            const key = `${channel}:${row}:${col}`;
-            const count = chanceContinueCounters.get(key) ?? 0;
-            chance = getChanceAtRepeat(noteValue, count);
-            chanceContinueCounters.set(key, count + 1);
-          } else if (chanceLoopMode === "fill") {
-            chance = getChanceAtRepeatFill(noteValue, r);
-          } else {
-            chance = getChanceAtRepeat(noteValue, r);
-          }
+          // Resolve all sub-mode values via generic resolver
+          const velocity = resolveSubModeValue(noteValue, "velocity", r, channel, row, col);
+          const chance = resolveSubModeValue(noteValue, "hit", r, channel, row, col);
 
           // Roll against chance — skip note if fails
           if (chance < 100 && Math.random() * 100 >= chance) {
             break;
           }
 
-          // Build extras for timing offset and flam
+          // Build extras
           const extras: StepTriggerExtras = {};
 
-          // Timing offset: resolve using loop mode
-          const timingLoopMode = noteValue.timingLoopMode ?? "reset";
-          let timingOffsetPct: number;
-          if (timingLoopMode === "continue") {
-            const key = `${channel}:${row}:${col}`;
-            const count = timingContinueCounters.get(key) ?? 0;
-            timingOffsetPct = getTimingOffsetAtRepeat(noteValue, count);
-            timingContinueCounters.set(key, count + 1);
-          } else if (timingLoopMode === "fill") {
-            timingOffsetPct = getTimingOffsetAtRepeatFill(noteValue, r);
-          } else {
-            timingOffsetPct = getTimingOffsetAtRepeat(noteValue, r);
-          }
+          const timingOffsetPct = resolveSubModeValue(noteValue, "timing", r, channel, row, col);
           if (timingOffsetPct !== 0) {
             extras.timingOffsetPercent = timingOffsetPct;
           }
 
-          // Flam: resolve using loop mode, then roll
-          const flamLoopMode = noteValue.flamLoopMode ?? "reset";
-          let flamProb: number;
-          if (flamLoopMode === "continue") {
-            const key = `${channel}:${row}:${col}`;
-            const count = flamContinueCounters.get(key) ?? 0;
-            flamProb = getFlamChanceAtRepeat(noteValue, count);
-            flamContinueCounters.set(key, count + 1);
-          } else if (flamLoopMode === "fill") {
-            flamProb = getFlamChanceAtRepeatFill(noteValue, r);
-          } else {
-            flamProb = getFlamChanceAtRepeat(noteValue, r);
-          }
+          const flamProb = resolveSubModeValue(noteValue, "flam", r, channel, row, col);
           if (flamProb > 0 && Math.random() * 100 < flamProb) {
             extras.flamCount = 1;
           }
 
-          const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
+          const modulateVal = resolveSubModeValue(noteValue, "modulate", r, channel, row, col);
+          if (modulateVal !== 0) {
+            extras.modulateHalfSteps = modulateVal;
+          }
+
+          const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined || extras.modulateHalfSteps !== undefined;
           notes.push({ row, length, velocity, extras: hasExtras ? extras : undefined });
           break;
         }
@@ -235,10 +207,7 @@ export function stop(): void {
     clearInterval(playbackInterval);
     playbackInterval = null;
   }
-  velocityContinueCounters.clear();
-  chanceContinueCounters.clear();
-  timingContinueCounters.clear();
-  flamContinueCounters.clear();
+  continueCounters.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
   store._setIsExternalPlayback(false);
@@ -321,10 +290,7 @@ export function stopExternal(): void {
     clearInterval(playbackInterval);
     playbackInterval = null;
   }
-  velocityContinueCounters.clear();
-  chanceContinueCounters.clear();
-  timingContinueCounters.clear();
-  flamContinueCounters.clear();
+  continueCounters.clear();
   const store = getSequencerStore();
   store._setIsPlaying(false);
   store._setIsExternalPlayback(false);

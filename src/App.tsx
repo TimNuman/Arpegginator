@@ -86,7 +86,7 @@ function App() {
 
   const handleStepTrigger = useCallback(
     (channel: number, row: number, _step: number, noteLength: number, velocity: number, extras?: StepTriggerExtras) => {
-      const note = getRowNote(row);
+      const note = getRowNote(row) + (extras?.modulateHalfSteps ?? 0);
       const midiChannel = channel + 1;
       const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;
       const noteDurationMs = stepDurationMs * (noteLength - 0.1);

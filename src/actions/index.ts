@@ -7,12 +7,7 @@ export {
   placeNote,
   setNoteRepeatAmount,
   setNoteRepeatSpace,
-  setNoteVelocity,
-  setVelocityLength,
-  toggleVelocityLoopMode,
-  setNoteChance,
-  setNoteTimingOffset,
-  setNoteFlamChance,
+  setSubModeValue,
   setSubModeLength,
   toggleSubModeLoopMode,
 } from './noteActions';
@@ -29,10 +24,7 @@ export {
   playExternal,
   externalTick,
   stopExternal,
-  getVelocityContinueCounter,
-  getChanceContinueCounter,
-  getTimingContinueCounter,
-  getFlamContinueCounter,
+  getContinueCounter,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 
@@ -61,5 +53,5 @@ export {
   setRowOffset,
   setColOffset,
   setUiMode,
-  setChanceSubMode,
+  setModifySubMode,
 } from './viewActions';

@@ -1,8 +1,8 @@
 // Velocity loop mode: "reset" resets with pattern loop, "continue" keeps counting across loops, "fill" clamps to last value
 export type VelocityLoopMode = "reset" | "continue" | "fill";
 
-// Chance sub-modes: velocity and different aspects of randomization per repeat
-export type ChanceSubMode = "velocity" | "hit" | "timing" | "flam";
+// Modify sub-modes: velocity and different aspects of randomization per repeat
+export type ModifySubMode = "velocity" | "hit" | "timing" | "flam" | "modulate";
 
 // NotePattern: a note with repeat settings
 export interface NotePattern {
@@ -18,6 +18,8 @@ export interface NotePattern {
   timingLoopMode: VelocityLoopMode; // How timing offset loops interact with pattern loops
   flamChance: number[]; // Per-repeat flam probability (0-100%), default [0]
   flamLoopMode: VelocityLoopMode; // How flam chance loops interact with pattern loops
+  modulate: number[]; // Per-repeat pitch offset in half steps (signed), default [0]
+  modulateLoopMode: VelocityLoopMode; // How modulate loops interact with pattern loops
 }
 
 // Note value: null = no note, NotePattern = note with settings
@@ -52,99 +54,52 @@ export const isNoteEnabled = (value: NoteValue): boolean => {
   return value.enabled;
 };
 
-// Helper to get velocity array from NoteValue
-export const getVelocity = (value: NoteValue): number[] => {
-  if (!isNotePattern(value)) return [100];
-  return value.velocity;
-};
-
-// Helper to get velocity loop mode from NoteValue
-export const getVelocityLoopMode = (value: NoteValue): VelocityLoopMode => {
-  if (!isNotePattern(value)) return "reset";
-  return value.velocityLoopMode;
-};
-
-// Helper to get velocity for a specific repeat index (loops the array)
-export const getVelocityAtRepeat = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 100;
-  return value.velocity[repeatIndex % value.velocity.length];
-};
-
-// Helper to get velocity clamped to last entry (for "fill" mode)
-export const getVelocityAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 100;
-  const idx = Math.min(repeatIndex, value.velocity.length - 1);
-  return value.velocity[idx];
-};
-
-// Helper to get chance array from NoteValue
-export const getChance = (value: NoteValue): number[] => {
-  if (!isNotePattern(value)) return [100];
-  return value.chance;
-};
-
-// Helper to get chance for a specific repeat index (wraps around array)
-export const getChanceAtRepeat = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 100;
-  return value.chance[repeatIndex % value.chance.length];
-};
-
-// Helper to get timing offset for a specific repeat index
-export const getTimingOffsetAtRepeat = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 0;
-  return value.timingOffset[repeatIndex % value.timingOffset.length];
-};
-
-// Helper to get flam chance for a specific repeat index
-export const getFlamChanceAtRepeat = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 0;
-  return value.flamChance[repeatIndex % value.flamChance.length];
-};
-
-// Fill-mode helpers (clamp to last entry instead of looping)
-export const getChanceAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 100;
-  const idx = Math.min(repeatIndex, value.chance.length - 1);
-  return value.chance[idx];
-};
-
-export const getTimingOffsetAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 0;
-  const idx = Math.min(repeatIndex, value.timingOffset.length - 1);
-  return value.timingOffset[idx];
-};
-
-export const getFlamChanceAtRepeatFill = (value: NoteValue, repeatIndex: number): number => {
-  if (!isNotePattern(value)) return 0;
-  const idx = Math.min(repeatIndex, value.flamChance.length - 1);
-  return value.flamChance[idx];
+// Default values per sub-mode (returned when no NotePattern exists)
+export const SUB_MODE_DEFAULTS: Record<ModifySubMode, number> = {
+  velocity: 100, hit: 100, timing: 0, flam: 0, modulate: 0,
 };
 
 // Consolidated sub-mode helpers
-export const getSubModeLoopMode = (value: NoteValue, subMode: ChanceSubMode): VelocityLoopMode => {
+export const getSubModeLoopMode = (value: NoteValue, subMode: ModifySubMode): VelocityLoopMode => {
   if (!isNotePattern(value)) return "reset";
   switch (subMode) {
     case "velocity": return value.velocityLoopMode;
     case "hit": return value.chanceLoopMode ?? "reset";
     case "timing": return value.timingLoopMode ?? "reset";
     case "flam": return value.flamLoopMode ?? "reset";
+    case "modulate": return value.modulateLoopMode ?? "reset";
   }
 };
 
-export const getSubModeArray = (value: NoteValue, subMode: ChanceSubMode): number[] => {
+export const getSubModeArray = (value: NoteValue, subMode: ModifySubMode): number[] => {
   if (!isNotePattern(value)) {
-    return subMode === "velocity" ? [100] : subMode === "hit" ? [100] : [0];
+    return [SUB_MODE_DEFAULTS[subMode]];
   }
   switch (subMode) {
     case "velocity": return value.velocity;
     case "hit": return value.chance;
     case "timing": return value.timingOffset;
     case "flam": return value.flamChance;
+    case "modulate": return value.modulate;
   }
 };
 
-export const getSubModeArrayLength = (value: NoteValue, subMode: ChanceSubMode): number => {
+export const getSubModeArrayLength = (value: NoteValue, subMode: ModifySubMode): number => {
   return getSubModeArray(value, subMode).length;
+};
+
+// Get value at a specific repeat index (loops the array)
+export const getSubModeValueAtRepeat = (value: NoteValue, subMode: ModifySubMode, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return SUB_MODE_DEFAULTS[subMode];
+  const arr = getSubModeArray(value, subMode);
+  return arr[repeatIndex % arr.length];
+};
+
+// Get value at a specific repeat index, clamped to last entry (for "fill" mode)
+export const getSubModeValueAtRepeatFill = (value: NoteValue, subMode: ModifySubMode, repeatIndex: number): number => {
+  if (!isNotePattern(value)) return SUB_MODE_DEFAULTS[subMode];
+  const arr = getSubModeArray(value, subMode);
+  return arr[Math.min(repeatIndex, arr.length - 1)];
 };
 
 // Helper to create a NotePattern
@@ -153,7 +108,7 @@ export const createNotePattern = (
   repeatAmount: number = 1,
   repeatSpace: number = 1,
 ): NotePattern => {
-  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], chanceLoopMode: "reset", timingOffset: [0], timingLoopMode: "reset", flamChance: [0], flamLoopMode: "reset" };
+  return { length, repeatAmount, repeatSpace, enabled: true, velocity: [100], velocityLoopMode: "reset", chance: [100], chanceLoopMode: "reset", timingOffset: [0], timingLoopMode: "reset", flamChance: [0], flamLoopMode: "reset", modulate: [0], modulateLoopMode: "reset" };
 };
 
 // A rendered note instance (for display purposes)

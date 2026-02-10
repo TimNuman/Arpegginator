@@ -1,5 +1,5 @@
 import { getSequencerStore, type UiMode } from '../store/sequencerStore';
-import type { ChanceSubMode } from '../types/grid';
+import type { ModifySubMode } from '../types/grid';
 
 /**
  * Set the selected note
@@ -33,8 +33,8 @@ export function setUiMode(mode: UiMode): void {
 }
 
 /**
- * Set chance sub-mode (hit, velocity, timing, flam)
+ * Set modify sub-mode (velocity, hit, timing, flam, modulate)
  */
-export function setChanceSubMode(mode: ChanceSubMode): void {
-  getSequencerStore()._setView({ chanceSubMode: mode });
+export function setModifySubMode(mode: ModifySubMode): void {
+  getSequencerStore()._setView({ modifySubMode: mode });
 }
