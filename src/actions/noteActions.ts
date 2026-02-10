@@ -89,8 +89,24 @@ export function setNote(row: number, col: number, length: number): void {
   store._updateRow(currentChannel, pattern, row, truncatedRow);
 }
 
+// Stash for notes displaced by a move — restored when the moving note leaves
+// Key: "channel:pattern:row:col" → original NoteValue
+const displacedNotes = new Map<string, NoteValue>();
+
+function stashKey(ch: number, pat: number, row: number, col: number): string {
+  return `${ch}:${pat}:${row}:${col}`;
+}
+
 /**
- * Move a note from one position to another (no truncation while moving)
+ * Clear the displaced-note stash (called when a move is finalized via placeNote)
+ */
+export function clearDisplacedNotes(): void {
+  displacedNotes.clear();
+}
+
+/**
+ * Move a note from one position to another.
+ * Any existing note at the destination is stashed and restored when the moving note leaves.
  */
 export function moveNote(
   fromRow: number,
@@ -107,17 +123,30 @@ export function moveNote(
   const noteLength = getNoteLength(noteValue);
 
   if (noteLength > 0) {
+    // Check what's at the destination (before we overwrite it)
+    const destKey = stashKey(currentChannel, pattern, toRow, toCol);
+    const destValue = grid[toRow][toCol];
+    if (destValue !== null && getNoteLength(destValue) > 0) {
+      // There's an existing note at the destination — stash it
+      displacedNotes.set(destKey, destValue);
+    }
+
+    // Check if we should restore a displaced note at the source
+    const srcKey = stashKey(currentChannel, pattern, fromRow, fromCol);
+    const restored = displacedNotes.get(srcKey) ?? null;
+    if (restored !== null) displacedNotes.delete(srcKey);
+
     // Create new grid with note moved
     const newGrid = grid.map((row, rowIdx) => {
       if (rowIdx === fromRow && rowIdx === toRow) {
-        // Same row - clear from, set to
+        // Same row - restore source, set destination
         const newRow = [...row];
-        newRow[fromCol] = null;
+        newRow[fromCol] = restored;
         newRow[toCol] = noteValue;
         return newRow;
       } else if (rowIdx === fromRow) {
         const newRow = [...row];
-        newRow[fromCol] = null;
+        newRow[fromCol] = restored;
         return newRow;
       } else if (rowIdx === toRow) {
         const newRow = [...row];
@@ -131,7 +160,7 @@ export function moveNote(
 }
 
 /**
- * Place a note (finalize position, truncate overlapping notes)
+ * Place a note (finalize position, truncate overlapping notes, clear stash)
  */
 export function placeNote(row: number, col: number): void {
   const store = getSequencerStore();
@@ -148,6 +177,7 @@ export function placeNote(row: number, col: number): void {
     truncatedRow[col] = noteValue;
     store._updateRow(currentChannel, pattern, row, truncatedRow);
   }
+  displacedNotes.clear();
 }
 
 /**

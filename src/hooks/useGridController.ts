@@ -222,6 +222,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       // Backspace: deselect note, or reset playhead if nothing selected
       if (key === "backspace") {
         if (selectedNote) {
+          actions.clearDisplacedNotes();
           actions.setSelectedNote(null);
         } else {
           actions.resetPlayhead();
@@ -519,6 +520,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
               selectedNote.row === note.sourceRow &&
               selectedNote.col === note.sourceCol
             ) {
+              actions.clearDisplacedNotes();
               actions.setSelectedNote(null);
             }
           } else {
@@ -657,6 +659,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
             currentSelectedNote.row === noteAtCell.sourceRow &&
             currentSelectedNote.col === noteAtCell.sourceCol
           ) {
+            actions.clearDisplacedNotes();
             actions.setSelectedNote(null);
           }
         } else if (!noteAtCell) {

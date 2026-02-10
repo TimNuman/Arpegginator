@@ -10,6 +10,7 @@ export {
   setSubModeValue,
   setSubModeLength,
   toggleSubModeLoopMode,
+  clearDisplacedNotes,
 } from './noteActions';
 
 // Playback actions
