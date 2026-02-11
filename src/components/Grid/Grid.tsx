@@ -984,14 +984,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     (visibleRow: number, visibleCol: number, modifiers: { ctrl: boolean; shift: boolean; meta: boolean; alt: boolean }) => {
       // Ctrl+click on bottom row cols 0-3: switch UI mode (works in all modes)
       if (modifiers.ctrl && visibleRow === 7 && visibleCol <= 3) {
-        const modes: Array<{ mode: UiMode; subMode?: ModifySubMode }> = [
-          { mode: "channel" },
-          { mode: "pattern" },
-          { mode: "loop" },
-          { mode: "modify", subMode: "velocity" },
-        ];
-        const { mode, subMode } = modes[visibleCol];
-        commands.switchMode(mode, subMode);
+        const modes: UiMode[] = ["channel", "pattern", "loop", "modify"];
+        commands.switchMode(modes[visibleCol]);
         return;
       }
 

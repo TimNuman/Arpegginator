@@ -124,7 +124,7 @@ const createInitialView = (): ViewState => ({
   ),
   colOffset: 0,
   uiMode: "pattern",
-  modifySubMode: "hit",
+  modifySubMode: "velocity",
   selectedNote: null,
 });
 
