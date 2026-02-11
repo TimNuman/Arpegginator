@@ -389,22 +389,16 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
         return;
       }
 
-      // Shift+click: extend note from left
-      if (modifiers.shift && !noteAtCell) {
-        for (let c = col - 1; c >= 0; c--) {
-          if (getNoteLength(gridState[row]?.[c]) > 0) {
-            if (
-              currentSelectedNote &&
-              (currentSelectedNote.row !== row || currentSelectedNote.col !== c)
-            ) {
-              actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-            }
-            actions.setNote(row, c, col - c + 1);
-            actions.setSelectedNote({ row, col: c });
-            playPreviewNote(row);
-            return;
-          }
-        }
+      // Shift+click: resize selected note to this column
+      if (modifiers.shift && currentSelectedNote && currentSelectedNote.row === row) {
+        const startColNote = Math.min(currentSelectedNote.col, col);
+        const endColNote = Math.max(currentSelectedNote.col, col);
+        const newNoteLength = endColNote - startColNote + 1;
+
+        actions.setNote(row, startColNote, newNoteLength);
+        actions.setSelectedNote({ row, col: startColNote });
+        playPreviewNote(row);
+        return;
       }
 
       // Click on note: select/deselect

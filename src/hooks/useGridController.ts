@@ -84,11 +84,6 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     [gridState],
   );
 
-  // Held note for keyboard input (two-key note length)
-  const heldNote = useRef<{ row: number; col: number; key: string } | null>(
-    null,
-  );
-
   // Playhead follow mode refs
   const manualScrollOverride = useRef(false);
   const prevLoopedStep = useRef(-1);
@@ -318,6 +313,32 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         }
       }
 
+      // Shift+key: extend selected note to this column
+      if (
+        state.shift &&
+        !state.meta &&
+        !state.ctrl &&
+        !state.alt &&
+        selectedNote
+      ) {
+        const gridPos = KEY_MAP[key];
+        if (gridPos) {
+          const actualRow = startRow + (VISIBLE_ROWS - 1 - gridPos.row);
+          const actualCol = startCol + gridPos.col;
+
+          if (actualRow === selectedNote.row) {
+            const startColNote = Math.min(selectedNote.col, actualCol);
+            const endColNote = Math.max(selectedNote.col, actualCol);
+            const newNoteLength = endColNote - startColNote + 1;
+
+            actions.setNote(actualRow, startColNote, newNoteLength);
+            actions.setSelectedNote({ row: actualRow, col: startColNote });
+            playPreviewNote(actualRow);
+          }
+          return true;
+        }
+      }
+
       // Cmd+key: toggle enabled at position (enable/disable, preserving pattern)
       if (
         state.meta &&
@@ -345,31 +366,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       ) {
         const gridPos = KEY_MAP[key];
         if (gridPos) {
-          const visibleRow = gridPos.row;
-          const visibleCol = gridPos.col;
-          const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-          const actualCol = startCol + visibleCol;
-
-          // Check if we already have a held note on the same row
-          if (
-            heldNote.current &&
-            KEY_MAP[heldNote.current.key]?.row === gridPos.row
-          ) {
-            // Second key on same row - create note with length
-            const heldPos = KEY_MAP[heldNote.current.key]!;
-            const heldCol = startCol + heldPos.col;
-            const startColNote = Math.min(heldCol, actualCol);
-            const endColNote = Math.max(heldCol, actualCol);
-            const newNoteLength = endColNote - startColNote + 1;
-
-            actions.setNote(actualRow, startColNote, newNoteLength);
-            actions.setSelectedNote({ row: actualRow, col: startColNote });
-            playPreviewNote(actualRow);
-            heldNote.current = null;
-          } else {
-            // First key press - hold this note
-            heldNote.current = { row: actualRow, col: actualCol, key };
-          }
+          const actualRow = startRow + (VISIBLE_ROWS - 1 - gridPos.row);
+          const actualCol = startCol + gridPos.col;
+          commands.handlePatternCellPress(actualRow, actualCol, renderedNotes, { meta: false, shift: false });
           return true;
         }
       }
@@ -393,27 +392,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     ],
   );
 
-  const handleKeyUp = useCallback(
-    (
-      key: string,
-      code: string,
-      _event: KeyboardEvent,
-      _state: KeyboardState,
-    ) => {
-      // Handle held note release — single key press behaves like a click
-      const gridPos = KEY_MAP[key];
-      if (gridPos && heldNote.current?.key === key) {
-        const { row, col } = heldNote.current;
-        commands.handlePatternCellPress(row, col, renderedNotes, { meta: false, shift: false });
-        heldNote.current = null;
-      }
-    },
-    [renderedNotes, commands],
-  );
-
   const keyboard = useKeyboard({
     onKeyDown: handleKeyDown,
-    onKeyUp: handleKeyUp,
   });
 
   // Cell event handlers — delegate to commands
