@@ -196,7 +196,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
   // Cycle through modify sub-modes
   const cycleModifySubMode = useCallback(
     (direction: "up" | "down") => {
-      const modes: ModifySubMode[] = ["velocity", "hit", "timing", "flam", "modulate"];
+      const modes: ModifySubMode[] = ["velocity", "modulate", "hit", "flam", "timing"];
       const currentIndex = modes.indexOf(modifySubMode);
       const nextIndex = direction === "down"
         ? (currentIndex + 1) % modes.length

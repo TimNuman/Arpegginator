@@ -84,6 +84,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     [gridState],
   );
 
+  // Ref for unified grid press handler (set by Grid.tsx)
+  const gridPressRef = useRef<((visibleRow: number, visibleCol: number, modifiers: { ctrl: boolean; shift: boolean; meta: boolean; alt: boolean }) => void) | null>(null);
+
   // Playhead follow mode refs
   const manualScrollOverride = useRef(false);
   const prevLoopedStep = useRef(-1);
@@ -158,9 +161,6 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     prevLoopedStep.current = -1;
   }
 
-  // Use shared helpers from commands
-  const { playPreviewNote, followNoteWithCamera } = commands;
-
   // Keyboard handler
   const handleKeyDown = useCallback(
     (
@@ -183,15 +183,6 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           actions.resetPlayhead();
         }
         return true;
-      }
-
-      // Ctrl+Z/X/C/V/B: switch UI mode
-      if (state.ctrl && !state.meta && !state.alt && !state.shift) {
-        if (key === "z") { commands.switchMode("channel"); return true; }
-        if (key === "x") { commands.switchMode("pattern"); return true; }
-        if (key === "c") { commands.switchMode("loop"); return true; }
-        if (key === "v") { commands.switchMode("modify", "velocity"); return true; }
-        if (key === "b") { commands.switchMode("modify", "hit"); return true; }
       }
 
       // Loop mode: Arrow keys adjust loop boundaries
@@ -252,13 +243,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // In channel/loop/modify mode, skip note-editing keybindings
-      if (uiMode !== "pattern") {
-        return false;
-      }
-
-      // Note-related keyboard shortcuts (require selected note, pattern mode only)
-      if (selectedNote) {
+      // Note-related arrow shortcuts (pattern mode only, require selected note)
+      if (uiMode === "pattern" && selectedNote) {
         const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
         const noteLength = getNoteLength(noteValue);
 
@@ -313,62 +299,16 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         }
       }
 
-      // Shift+key: extend selected note to this column
-      if (
-        state.shift &&
-        !state.meta &&
-        !state.ctrl &&
-        !state.alt &&
-        selectedNote
-      ) {
+      // Grid key: delegate to unified handler (same path as button clicks)
+      if (!event.repeat) {
         const gridPos = KEY_MAP[key];
-        if (gridPos) {
-          const actualRow = startRow + (VISIBLE_ROWS - 1 - gridPos.row);
-          const actualCol = startCol + gridPos.col;
-
-          if (actualRow === selectedNote.row) {
-            const startColNote = Math.min(selectedNote.col, actualCol);
-            const endColNote = Math.max(selectedNote.col, actualCol);
-            const newNoteLength = endColNote - startColNote + 1;
-
-            actions.setNote(actualRow, startColNote, newNoteLength);
-            actions.setSelectedNote({ row: actualRow, col: startColNote });
-            playPreviewNote(actualRow);
-          }
-          return true;
-        }
-      }
-
-      // Cmd+key: toggle enabled at position (enable/disable, preserving pattern)
-      if (
-        state.meta &&
-        !state.shift &&
-        !state.ctrl &&
-        !state.alt &&
-        !event.repeat
-      ) {
-        const gridPos = KEY_MAP[key];
-        if (gridPos) {
-          const actualRow = startRow + (VISIBLE_ROWS - 1 - gridPos.row);
-          const actualCol = startCol + gridPos.col;
-          commands.handlePatternCellPress(actualRow, actualCol, renderedNotes, { meta: true, shift: false });
-          return true;
-        }
-      }
-
-      // Grid key input (no modifiers)
-      if (
-        !state.shift &&
-        !state.ctrl &&
-        !state.alt &&
-        !state.meta &&
-        !event.repeat
-      ) {
-        const gridPos = KEY_MAP[key];
-        if (gridPos) {
-          const actualRow = startRow + (VISIBLE_ROWS - 1 - gridPos.row);
-          const actualCol = startCol + gridPos.col;
-          commands.handlePatternCellPress(actualRow, actualCol, renderedNotes, { meta: false, shift: false });
+        if (gridPos && gridPressRef.current) {
+          gridPressRef.current(gridPos.row, gridPos.col, {
+            ctrl: state.ctrl,
+            shift: state.shift,
+            meta: state.meta,
+            alt: state.alt,
+          });
           return true;
         }
       }
@@ -377,17 +317,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     },
     [
       uiMode,
-      modifySubMode,
       selectedNote,
       gridState,
-      currentLoop,
-      currentChannel,
-      currentPattern,
-      renderedNotes,
-      startRow,
-      startCol,
-      playPreviewNote,
-      followNoteWithCamera,
       commands,
     ],
   );
@@ -395,25 +326,6 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const keyboard = useKeyboard({
     onKeyDown: handleKeyDown,
   });
-
-  // Cell event handlers — delegate to commands
-  const handleCellPress = useCallback(
-    (row: number, col: number) => {
-      commands.handlePatternCellPress(row, col, renderedNotes, {
-        meta: keyboard.meta,
-        shift: keyboard.shift,
-      });
-    },
-    [keyboard.meta, keyboard.shift, renderedNotes, commands],
-  );
-
-  const handleCellDragEnter = useCallback((_row: number, _col: number) => {
-    // Drag logic removed — to be reimplemented
-  }, []);
-
-  const handleCellRelease = useCallback(() => {
-    // Drag logic removed — to be reimplemented
-  }, []);
 
   // Memoize scroll handlers to prevent re-renders
   const handleRowOffsetChange = useCallback(
@@ -455,10 +367,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     currentPattern,
     gridState,
 
-    // Event handlers for Grid
-    onCellPress: handleCellPress,
-    onCellRelease: handleCellRelease,
-    onCellDragEnter: handleCellDragEnter,
+    // Unified grid press ref (set by Grid.tsx)
+    gridPressRef,
 
     // Scroll handlers (memoized)
     onRowOffsetChange: handleRowOffsetChange,

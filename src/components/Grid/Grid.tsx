@@ -27,6 +27,7 @@ import {
   VISIBLE_COLS,
   ROWS,
   COLS,
+  type UiMode,
 } from "../../store/sequencerStore";
 import {
   useAllPatternsHaveNotes,
@@ -102,6 +103,8 @@ const shiftHue = (hex: string, degrees: number): string => {
       .padStart(2, "0");
   return `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`;
 };
+
+const noop = () => {};
 
 // Mode hint colors (channel, pattern, loop, modify)
 const MODE_HINT_COLORS = ["#33CCFF", "#33FF66", "#FFCC33", "#FF6633"] as const;
@@ -421,8 +424,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     currentChannel,
     currentPattern,
     gridState,
-    onCellPress,
-    onCellRelease,
+    gridPressRef,
     onRowOffsetChange,
     onColOffsetChange,
   } = controller;
@@ -956,18 +958,19 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     visibleLevels,
   ]);
 
-  // Handle button press from ButtonGrid
+  // Handle button press — unified handler for both keyboard and click/touch
   const handleButtonPress = useCallback(
-    (visibleRow: number, visibleCol: number) => {
+    (visibleRow: number, visibleCol: number, modifiers: { ctrl: boolean; shift: boolean; meta: boolean; alt: boolean }) => {
       // Ctrl+click on bottom row cols 0-3: switch UI mode (works in all modes)
-      if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
-        const modes: Array<"channel" | "pattern" | "loop" | "modify"> = [
-          "channel",
-          "pattern",
-          "loop",
-          "modify",
+      if (modifiers.ctrl && visibleRow === 7 && visibleCol <= 3) {
+        const modes: Array<{ mode: UiMode; subMode?: ModifySubMode }> = [
+          { mode: "channel" },
+          { mode: "pattern" },
+          { mode: "loop" },
+          { mode: "modify", subMode: "velocity" },
         ];
-        commands.switchMode(modes[visibleCol]);
+        const { mode, subMode } = modes[visibleCol];
+        commands.switchMode(mode, subMode);
         return;
       }
 
@@ -991,7 +994,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         commands.handleChannelCellPress(
           channelIndex,
           visibleCol,
-          { shift: keyboard.shift, alt: keyboard.alt },
+          { shift: modifiers.shift, alt: modifiers.alt },
           isEmptyPattern,
         );
         return;
@@ -1000,7 +1003,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       // Modify mode (all sub-modes)
       if (uiMode === "modify") {
         if (selectedNote) {
-          commands.setSubModeValueAtCell(visibleRow, visibleCol, visibleLevels, keyboard.meta);
+          commands.setSubModeValueAtCell(visibleRow, visibleCol, visibleLevels, modifiers.meta);
         } else {
           // No note selected: click to select a note
           const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
@@ -1013,7 +1016,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       // Loop mode: click sets loop boundaries, no note editing
       if (uiMode === "loop") {
         const actualCol = startCol + visibleCol;
-        if (keyboard.shift) {
+        if (modifiers.shift) {
           commands.setLoopStartAt(actualCol);
         } else {
           commands.setLoopEndAt(actualCol);
@@ -1021,21 +1024,19 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         return;
       }
 
-      // Pattern mode: delegate to grid controller
+      // Pattern mode
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
       const actualCol = startCol + visibleCol;
-      onCellPress(actualRow, actualCol);
+      commands.handlePatternCellPress(actualRow, actualCol, renderedNotes, {
+        meta: modifiers.meta,
+        shift: modifiers.shift,
+      });
     },
     [
-      keyboard.ctrl,
-      keyboard.alt,
-      keyboard.shift,
-      keyboard.meta,
       uiMode,
       modifySubMode,
       startRow,
       startCol,
-      onCellPress,
       allPatternsHaveNotes,
       currentPatterns,
       queuedPatterns,
@@ -1050,12 +1051,32 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     ],
   );
 
-  // Handle button drag enter from ButtonGrid — same as press (simulate finger drag)
+  // Keep gridPressRef in sync so keyboard can call handleButtonPress
+  gridPressRef.current = handleButtonPress;
+
+  // Click/touch wrappers — read keyboard modifiers at call time
+  const handleButtonPressFromInput = useCallback(
+    (visibleRow: number, visibleCol: number) => {
+      handleButtonPress(visibleRow, visibleCol, {
+        ctrl: keyboard.ctrl,
+        shift: keyboard.shift,
+        meta: keyboard.meta,
+        alt: keyboard.alt,
+      });
+    },
+    [handleButtonPress, keyboard.ctrl, keyboard.shift, keyboard.meta, keyboard.alt],
+  );
+
   const handleButtonDragEnter = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      handleButtonPress(visibleRow, visibleCol);
+      handleButtonPress(visibleRow, visibleCol, {
+        ctrl: keyboard.ctrl,
+        shift: keyboard.shift,
+        meta: keyboard.meta,
+        alt: keyboard.alt,
+      });
     },
-    [handleButtonPress],
+    [handleButtonPress, keyboard.ctrl, keyboard.shift, keyboard.meta, keyboard.alt],
   );
 
   // OLED display content
@@ -1279,9 +1300,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             values={buttonValues}
             channelColor={channelColor}
             colorOverrides={colorOverrides}
-            onPress={handleButtonPress}
+            onPress={handleButtonPressFromInput}
             onDragEnter={handleButtonDragEnter}
-            onRelease={onCellRelease}
+            onRelease={noop}
           />
         </Box>
         <Box css={horizontalStripContainerStyles}>
