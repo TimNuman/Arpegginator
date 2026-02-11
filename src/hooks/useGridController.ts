@@ -7,6 +7,7 @@ import {
   VISIBLE_COLS,
 } from "../store/sequencerStore";
 import { useKeyboard, type KeyboardState } from "./useKeyboard";
+import { useGridCommands } from "./useGridCommands";
 import {
   useGridState,
   useCurrentLoop,
@@ -14,14 +15,8 @@ import {
 } from "../store/selectors";
 import * as actions from "../actions";
 import {
-  findNoteAtCell,
   getNoteLength,
-  getRepeatAmount,
-  getRepeatSpace,
-  getSubModeArrayLength,
-  isNotePattern,
   renderNotesToArray,
-  type ModifySubMode,
 } from "../types/grid";
 
 // Keyboard to grid position mapping
@@ -66,6 +61,9 @@ interface UseGridControllerOptions {
 
 export function useGridController(options: UseGridControllerOptions = {}) {
   const { onPlayNote } = options;
+
+  // Shared command layer
+  const commands = useGridCommands({ onPlayNote });
 
   // Store state - use individual selectors for stability
   const currentChannel = useSequencerStore((s) => s.currentChannel);
@@ -165,45 +163,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     prevLoopedStep.current = -1;
   }
 
-  // Helper to play a preview note
-  const playPreviewNote = useCallback(
-    (row: number, steps?: number) => {
-      if (!isPlaying && onPlayNote) {
-        onPlayNote(row, currentChannel, steps);
-      }
-    },
-    [isPlaying, onPlayNote, currentChannel],
-  );
-
-  // Helper to follow note with camera
-  const followNoteWithCamera = useCallback(
-    (row: number, col: number) => {
-      // Row: check if row is outside visible area
-      if (row < startRow) {
-        const newRowOffset = 1 - row / maxRowOffset;
-        actions.setRowOffset(
-          currentChannel,
-          Math.max(0, Math.min(1, newRowOffset)),
-        );
-      } else if (row > startRow + VISIBLE_ROWS - 1) {
-        const newRowOffset = 1 - (row - VISIBLE_ROWS + 1) / maxRowOffset;
-        actions.setRowOffset(
-          currentChannel,
-          Math.max(0, Math.min(1, newRowOffset)),
-        );
-      }
-
-      // Column: check if col is outside visible area
-      if (col < startCol) {
-        const newColOffset = col / maxColOffset;
-        actions.setColOffset(Math.max(0, Math.min(1, newColOffset)));
-      } else if (col > startCol + VISIBLE_COLS - 1) {
-        const newColOffset = (col - VISIBLE_COLS + 1) / maxColOffset;
-        actions.setColOffset(Math.max(0, Math.min(1, newColOffset)));
-      }
-    },
-    [currentChannel, startRow, startCol, maxRowOffset, maxColOffset],
-  );
+  // Use shared helpers from commands
+  const { playPreviewNote, followNoteWithCamera } = commands;
 
   // Keyboard handler
   const handleKeyDown = useCallback(
@@ -222,8 +183,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       // Backspace: deselect note, or reset playhead if nothing selected
       if (key === "backspace") {
         if (selectedNote) {
-          actions.clearDisplacedNotes();
-          actions.setSelectedNote(null);
+          commands.deselectNote();
         } else {
           actions.resetPlayhead();
         }
@@ -232,28 +192,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
       // Ctrl+Z/X/C/V/B: switch UI mode
       if (state.ctrl && !state.meta && !state.alt && !state.shift) {
-        if (key === "z") {
-          actions.setUiMode("channel");
-          return true;
-        }
-        if (key === "x") {
-          actions.setUiMode("pattern");
-          return true;
-        }
-        if (key === "c") {
-          actions.setUiMode("loop");
-          return true;
-        }
-        if (key === "v") {
-          actions.setUiMode("modify");
-          actions.setModifySubMode("velocity");
-          return true;
-        }
-        if (key === "b") {
-          actions.setUiMode("modify");
-          actions.setModifySubMode("hit");
-          return true;
-        }
+        if (key === "z") { commands.switchMode("channel"); return true; }
+        if (key === "x") { commands.switchMode("pattern"); return true; }
+        if (key === "c") { commands.switchMode("loop"); return true; }
+        if (key === "v") { commands.switchMode("modify", "velocity"); return true; }
+        if (key === "b") { commands.switchMode("modify", "hit"); return true; }
       }
 
       // Loop mode: Arrow keys adjust loop boundaries
@@ -264,44 +207,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         !state.ctrl &&
         (code === "ArrowLeft" || code === "ArrowRight")
       ) {
+        const direction = code === "ArrowLeft" ? "left" : "right";
         if (state.shift) {
-          // Shift+Arrow: adjust loop start
-          const loopEnd = currentLoop.start + currentLoop.length;
-          let newStart = currentLoop.start;
-          if (code === "ArrowLeft") {
-            newStart = Math.max(0, currentLoop.start - 1);
-          } else {
-            newStart = Math.min(loopEnd - 1, currentLoop.start + 1);
-          }
-          if (newStart !== currentLoop.start) {
-            const newLength = loopEnd - newStart;
-            actions.setPatternLoop(
-              currentChannel,
-              currentPattern,
-              newStart,
-              newLength,
-            );
-            followNoteWithCamera(startRow, newStart);
-          }
+          commands.adjustLoopStart(direction);
         } else {
-          // Arrow: adjust loop end
-          const loopEnd = currentLoop.start + currentLoop.length;
-          let newEnd = loopEnd;
-          if (code === "ArrowLeft") {
-            newEnd = Math.max(currentLoop.start + 1, loopEnd - 1);
-          } else {
-            newEnd = Math.min(COLS, loopEnd + 1);
-          }
-          if (newEnd !== loopEnd) {
-            const newLength = newEnd - currentLoop.start;
-            actions.setPatternLoop(
-              currentChannel,
-              currentPattern,
-              currentLoop.start,
-              newLength,
-            );
-            followNoteWithCamera(startRow, newEnd - 1);
-          }
+          commands.adjustLoopEnd(direction);
         }
         return true;
       }
@@ -315,12 +225,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         !state.shift &&
         (code === "ArrowUp" || code === "ArrowDown")
       ) {
-        const modes: ModifySubMode[] = ["velocity", "hit", "timing", "flam", "modulate"];
-        const currentIndex = modes.indexOf(modifySubMode);
-        const nextIndex = code === "ArrowDown"
-          ? (currentIndex + 1) % modes.length
-          : (currentIndex - 1 + modes.length) % modes.length;
-        actions.setModifySubMode(modes[nextIndex]);
+        commands.cycleModifySubMode(code === "ArrowDown" ? "down" : "up");
         return true;
       }
 
@@ -334,7 +239,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         !state.shift &&
         (code === "ArrowUp" || code === "ArrowDown")
       ) {
-        actions.toggleSubModeLoopMode(selectedNote.row, selectedNote.col, modifySubMode);
+        commands.toggleSubModeLoopMode();
         return true;
       }
 
@@ -348,16 +253,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         !state.shift &&
         (code === "ArrowLeft" || code === "ArrowRight")
       ) {
-        const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
-        if (noteValue) {
-          const currentLength = getSubModeArrayLength(noteValue, modifySubMode);
-          const newLength = code === "ArrowRight"
-            ? currentLength + 1
-            : currentLength - 1;
-          if (newLength >= 1) {
-            actions.setSubModeLength(selectedNote.row, selectedNote.col, modifySubMode, newLength);
-          }
-        }
+        commands.adjustSubModeArrayLength(code === "ArrowRight" ? "right" : "left");
         return true;
       }
 
@@ -378,30 +274,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
             state.shift &&
             (key === "arrowleft" || key === "arrowright")
           ) {
-            const currentRepeatAmount = getRepeatAmount(noteValue);
-            if (currentRepeatAmount <= 1 && key === "arrowright") {
-              // No repeats yet — enable repeat first by setting amount to 2
-              actions.setNoteRepeatAmount(
-                selectedNote.row,
-                selectedNote.col,
-                2,
-              );
-            } else {
-              const currentRepeatSpace = getRepeatSpace(noteValue);
-              let newRepeatSpace = currentRepeatSpace;
-              if (key === "arrowleft") {
-                newRepeatSpace = Math.max(1, currentRepeatSpace - 1);
-              } else {
-                newRepeatSpace = Math.min(64, currentRepeatSpace + 1);
-              }
-              if (newRepeatSpace !== currentRepeatSpace) {
-                actions.setNoteRepeatSpace(
-                  selectedNote.row,
-                  selectedNote.col,
-                  newRepeatSpace,
-                );
-              }
-            }
+            commands.adjustRepeatSpace(key === "arrowleft" ? "left" : "right");
             return true;
           }
 
@@ -411,20 +284,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
             !state.shift &&
             (key === "arrowleft" || key === "arrowright")
           ) {
-            const currentRepeatAmount = getRepeatAmount(noteValue);
-            let newRepeatAmount = currentRepeatAmount;
-            if (key === "arrowleft") {
-              newRepeatAmount = Math.max(1, currentRepeatAmount - 1);
-            } else {
-              newRepeatAmount = Math.min(64, currentRepeatAmount + 1);
-            }
-            if (newRepeatAmount !== currentRepeatAmount) {
-              actions.setNoteRepeatAmount(
-                selectedNote.row,
-                selectedNote.col,
-                newRepeatAmount,
-              );
-            }
+            commands.adjustRepeatAmount(key === "arrowleft" ? "left" : "right");
             return true;
           }
 
@@ -435,21 +295,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
             !state.alt &&
             (key === "arrowleft" || key === "arrowright")
           ) {
-            let newLength = noteLength;
-            if (key === "arrowleft") {
-              newLength = Math.max(1, noteLength - 1);
-            } else {
-              const repeatAmount = getRepeatAmount(noteValue);
-              let maxLength = COLS - selectedNote.col;
-              if (repeatAmount > 1) {
-                maxLength = Math.min(maxLength, getRepeatSpace(noteValue));
-              }
-              newLength = Math.min(maxLength, noteLength + 1);
-            }
-            if (newLength !== noteLength) {
-              actions.setNote(selectedNote.row, selectedNote.col, newLength);
-              playPreviewNote(selectedNote.row, newLength);
-            }
+            commands.resizeSelectedNote(key === "arrowleft" ? "left" : "right");
             return true;
           }
 
@@ -460,35 +306,13 @@ export function useGridController(options: UseGridControllerOptions = {}) {
             !state.alt &&
             ["arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)
           ) {
-            let newRow = selectedNote.row;
-            let newCol = selectedNote.col;
-
-            switch (key) {
-              case "arrowup":
-                newRow = Math.min(ROWS - 1, selectedNote.row + 1);
-                break;
-              case "arrowdown":
-                newRow = Math.max(0, selectedNote.row - 1);
-                break;
-              case "arrowleft":
-                newCol = Math.max(0, selectedNote.col - 1);
-                break;
-              case "arrowright":
-                newCol = Math.min(COLS - 1, selectedNote.col + 1);
-                break;
-            }
-
-            if (newRow !== selectedNote.row || newCol !== selectedNote.col) {
-              actions.moveNote(
-                selectedNote.row,
-                selectedNote.col,
-                newRow,
-                newCol,
-              );
-              actions.setSelectedNote({ row: newRow, col: newCol });
-              followNoteWithCamera(newRow, newCol);
-              playPreviewNote(newRow);
-            }
+            const dirMap: Record<string, "up" | "down" | "left" | "right"> = {
+              arrowup: "up",
+              arrowdown: "down",
+              arrowleft: "left",
+              arrowright: "right",
+            };
+            commands.moveSelectedNote(dirMap[key]);
             return true;
           }
         }
@@ -504,40 +328,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       ) {
         const gridPos = KEY_MAP[key];
         if (gridPos) {
-          const visibleRow = gridPos.row;
-          const visibleCol = gridPos.col;
-          const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-          const actualCol = startCol + visibleCol;
-
-          // Check if there's a visible note at this cell
-          const note = findNoteAtCell(renderedNotes, actualRow, actualCol);
-          if (note) {
-            // Visible (enabled) note — disable it
-            actions.toggleEnabled(note.sourceRow, note.sourceCol);
-            // Deselect if this was selected
-            if (
-              selectedNote &&
-              selectedNote.row === note.sourceRow &&
-              selectedNote.col === note.sourceCol
-            ) {
-              actions.clearDisplacedNotes();
-              actions.setSelectedNote(null);
-            }
-          } else {
-            // No visible note — check if there's a disabled note in the grid data
-            const noteValue = gridState[actualRow]?.[actualCol];
-            if (isNotePattern(noteValue) && !noteValue.enabled) {
-              // Disabled note — re-enable and select it
-              if (selectedNote) {
-                actions.placeNote(selectedNote.row, selectedNote.col);
-              }
-              actions.setSelectedNote({ row: actualRow, col: actualCol });
-              actions.toggleEnabled(actualRow, actualCol);
-            } else if (noteValue === null || getNoteLength(noteValue) === 0) {
-              // Empty — create a new note
-              actions.toggleEnabled(actualRow, actualCol);
-            }
-          }
+          const actualRow = startRow + (VISIBLE_ROWS - 1 - gridPos.row);
+          const actualCol = startCol + gridPos.col;
+          commands.handlePatternCellPress(actualRow, actualCol, renderedNotes, { meta: true, shift: false });
           return true;
         }
       }
@@ -596,6 +389,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       startCol,
       playPreviewNote,
       followNoteWithCamera,
+      commands,
     ],
   );
 
@@ -606,34 +400,15 @@ export function useGridController(options: UseGridControllerOptions = {}) {
       _event: KeyboardEvent,
       _state: KeyboardState,
     ) => {
-      // Handle held note release
+      // Handle held note release — single key press behaves like a click
       const gridPos = KEY_MAP[key];
       if (gridPos && heldNote.current?.key === key) {
         const { row, col } = heldNote.current;
-        const wasActive = getNoteLength(gridState[row]?.[col]) > 0;
-
-        // Place the previously selected note before toggling new one
-        // Get current selectedNote from store
-        const currentSelectedNote =
-          useSequencerStore.getState().view.selectedNote;
-        if (
-          currentSelectedNote &&
-          (currentSelectedNote.row !== row || currentSelectedNote.col !== col)
-        ) {
-          actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-        }
-
-        actions.toggleCell(row, col);
-
-        if (!wasActive) {
-          actions.setSelectedNote({ row, col });
-        }
-
-        playPreviewNote(row);
+        commands.handlePatternCellPress(row, col, renderedNotes, { meta: false, shift: false });
         heldNote.current = null;
       }
     },
-    [gridState, playPreviewNote],
+    [renderedNotes, commands],
   );
 
   const keyboard = useKeyboard({
@@ -641,109 +416,15 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     onKeyUp: handleKeyUp,
   });
 
-  // Cell event handlers
+  // Cell event handlers — delegate to commands
   const handleCellPress = useCallback(
     (row: number, col: number) => {
-      const noteAtCell = findNoteAtCell(renderedNotes, row, col);
-      // Get current selectedNote from store for fresh value
-      const currentSelectedNote =
-        useSequencerStore.getState().view.selectedNote;
-
-      // Cmd+click: toggle enabled (enable/disable, preserving pattern) — skip repeats
-      if (keyboard.meta) {
-        if (noteAtCell && !noteAtCell.isRepeat) {
-          // Visible (enabled) main note — disable its source pattern
-          actions.toggleEnabled(noteAtCell.sourceRow, noteAtCell.sourceCol);
-          if (
-            currentSelectedNote &&
-            currentSelectedNote.row === noteAtCell.sourceRow &&
-            currentSelectedNote.col === noteAtCell.sourceCol
-          ) {
-            actions.clearDisplacedNotes();
-            actions.setSelectedNote(null);
-          }
-        } else if (!noteAtCell) {
-          // No visible note — check for disabled note or create new
-          const cellValue = gridState[row]?.[col];
-          if (isNotePattern(cellValue) && !cellValue.enabled) {
-            // Disabled note — re-enable and select it
-            if (currentSelectedNote) {
-              actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-            }
-            actions.setSelectedNote({ row, col });
-          }
-          actions.toggleEnabled(row, col);
-        }
-        return;
-      }
-
-      // Shift+click: extend note from left
-      if (keyboard.shift && !noteAtCell) {
-        for (let c = col - 1; c >= 0; c--) {
-          if (getNoteLength(gridState[row]?.[c]) > 0) {
-            // Place previously selected note first
-            if (
-              currentSelectedNote &&
-              (currentSelectedNote.row !== row || currentSelectedNote.col !== c)
-            ) {
-              actions.placeNote(
-                currentSelectedNote.row,
-                currentSelectedNote.col,
-              );
-            }
-            actions.setNote(row, c, col - c + 1);
-            actions.setSelectedNote({ row, col: c });
-            playPreviewNote(row);
-            return;
-          }
-        }
-      }
-
-      // Click on note: select/deselect
-      if (noteAtCell) {
-        const sourceRow = noteAtCell.sourceRow;
-        const sourceCol = noteAtCell.sourceCol;
-        if (
-          currentSelectedNote &&
-          currentSelectedNote.row === sourceRow &&
-          currentSelectedNote.col === sourceCol
-        ) {
-          // Already selected - deselect and place
-          actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-          actions.setSelectedNote(null);
-        } else {
-          // Place previously selected note first
-          if (currentSelectedNote) {
-            actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-          }
-          actions.setSelectedNote({ row: sourceRow, col: sourceCol });
-        }
-        playPreviewNote(sourceRow);
-        return;
-      }
-
-      // Check for disabled note at this cell — enable and select it
-      const cellValue = gridState[row]?.[col];
-      if (isNotePattern(cellValue) && !cellValue.enabled) {
-        if (currentSelectedNote) {
-          actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-        }
-        actions.setSelectedNote({ row, col });
-        actions.toggleEnabled(row, col);
-        playPreviewNote(row);
-        return;
-      }
-
-      // Click on empty: create note
-      // Place previously selected note first
-      if (currentSelectedNote) {
-        actions.placeNote(currentSelectedNote.row, currentSelectedNote.col);
-      }
-      actions.toggleCell(row, col);
-      actions.setSelectedNote({ row, col });
-      playPreviewNote(row);
+      commands.handlePatternCellPress(row, col, renderedNotes, {
+        meta: keyboard.meta,
+        shift: keyboard.shift,
+      });
     },
-    [keyboard, gridState, renderedNotes, playPreviewNote],
+    [keyboard.meta, keyboard.shift, renderedNotes, commands],
   );
 
   const handleCellDragEnter = useCallback((_row: number, _col: number) => {
@@ -773,6 +454,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   );
 
   return {
+    // Shared command layer
+    commands,
+
     // Keyboard state (for display)
     keyboard,
     uiMode,
@@ -799,8 +483,5 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     // Scroll handlers (memoized)
     onRowOffsetChange: handleRowOffsetChange,
     onColOffsetChange: handleColOffsetChange,
-
-    // Camera follow helper (for loop editing in Grid.tsx)
-    followWithCamera: followNoteWithCamera,
   };
 }

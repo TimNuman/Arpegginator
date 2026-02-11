@@ -406,6 +406,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const view = useSequencerStore((s) => s.view);
 
   const {
+    commands,
     keyboard,
     uiMode,
     modifySubMode,
@@ -425,7 +426,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     onCellDragEnter,
     onRowOffsetChange,
     onColOffsetChange,
-    followWithCamera,
   } = controller;
 
   const channelColor = CHANNEL_COLORS[currentChannel];
@@ -968,24 +968,14 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           "loop",
           "modify",
         ];
-        actions.setUiMode(modes[visibleCol]);
+        commands.switchMode(modes[visibleCol]);
         return;
       }
 
       if (uiMode === "channel") {
         const channelIndex = visibleRow;
 
-        if (visibleCol === 0) {
-          // Click = toggle mute, Alt+click = toggle solo
-          if (keyboard.alt) {
-            actions.toggleSolo(channelIndex);
-          } else {
-            actions.toggleMute(channelIndex);
-          }
-          return;
-        }
-
-        // Pattern selection (cols 1-7)
+        // Compute whether this pattern slot is empty (for shift-copy logic)
         const patternIndex = visibleCol - 1;
         const patternsForChannel = allPatternsHaveNotes[channelIndex];
         const currentPatternForChannel = currentPatterns[channelIndex];
@@ -999,47 +989,24 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         const isEmptyPattern =
           !patternHasNotes && !isSelectedPattern && !isQueued;
 
-        if (
-          keyboard.shift &&
-          isEmptyPattern &&
-          channelIndex === currentChannel
-        ) {
-          actions.copyPatternTo(patternIndex);
-          actions.setChannelPattern(channelIndex, patternIndex);
-        } else {
-          actions.setCurrentChannel(channelIndex);
-          actions.setChannelPattern(channelIndex, patternIndex);
-        }
-        actions.setUiMode("pattern");
+        commands.handleChannelCellPress(
+          channelIndex,
+          visibleCol,
+          { shift: keyboard.shift, alt: keyboard.alt },
+          isEmptyPattern,
+        );
         return;
       }
 
       // Modify mode (all sub-modes)
       if (uiMode === "modify") {
         if (selectedNote) {
-          const value = keyboard.meta ? 0 : visibleLevels[visibleRow];
-          actions.setSubModeValue(
-            selectedNote.row,
-            selectedNote.col,
-            visibleCol,
-            value,
-            modifySubMode,
-          );
+          commands.setSubModeValueAtCell(visibleRow, visibleCol, visibleLevels, keyboard.meta);
         } else {
           // No note selected: click to select a note
           const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
           const actualCol = startCol + visibleCol;
-          const noteAtCell = findNoteAtCell(
-            renderedNotes,
-            actualRow,
-            actualCol,
-          );
-          if (noteAtCell) {
-            actions.setSelectedNote({
-              row: noteAtCell.sourceRow,
-              col: noteAtCell.sourceCol,
-            });
-          }
+          commands.selectNoteAtCell(actualRow, actualCol, renderedNotes);
         }
         return;
       }
@@ -1047,26 +1014,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       // Loop mode: click sets loop boundaries, no note editing
       if (uiMode === "loop") {
         const actualCol = startCol + visibleCol;
-        const loopEndCol = currentLoop.start + currentLoop.length;
-        // Shift+click sets loop start, plain click sets loop end
         if (keyboard.shift) {
-          const newStart = Math.min(actualCol, loopEndCol - 1);
-          const newLength = loopEndCol - newStart;
-          actions.setPatternLoop(
-            currentChannel,
-            currentPattern,
-            newStart,
-            newLength,
-          );
+          commands.setLoopStartAt(actualCol);
         } else {
-          const newEnd = Math.max(actualCol + 1, currentLoop.start + 1);
-          const newLength = newEnd - currentLoop.start;
-          actions.setPatternLoop(
-            currentChannel,
-            currentPattern,
-            currentLoop.start,
-            newLength,
-          );
+          commands.setLoopEndAt(actualCol);
         }
         return;
       }
@@ -1096,6 +1047,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       gridState,
       renderedNotes,
       visibleLevels,
+      commands,
     ],
   );
 
@@ -1273,142 +1225,30 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
   const oledContent = getOledContent();
 
-  // Arrow button handlers
+  // Arrow button handlers — delegate to shared commands
   const handleArrowUp = useCallback(() => {
-    if (selectedNote) {
-      const noteLength = getNoteLength(
-        gridState[selectedNote.row]?.[selectedNote.col],
-      );
-      if (noteLength > 0) {
-        const newRow = Math.min(ROWS - 1, selectedNote.row + 1);
-        if (newRow !== selectedNote.row) {
-          actions.moveNote(
-            selectedNote.row,
-            selectedNote.col,
-            newRow,
-            selectedNote.col,
-          );
-          actions.setSelectedNote({ row: newRow, col: selectedNote.col });
-          if (!isPlaying && onPlayNote) onPlayNote(newRow, currentChannel);
-        }
-      }
-    }
-  }, [selectedNote, gridState, isPlaying, onPlayNote, currentChannel]);
+    commands.moveSelectedNote("up");
+  }, [commands]);
 
   const handleArrowDown = useCallback(() => {
-    if (selectedNote) {
-      const noteLength = getNoteLength(
-        gridState[selectedNote.row]?.[selectedNote.col],
-      );
-      if (noteLength > 0) {
-        const newRow = Math.max(0, selectedNote.row - 1);
-        if (newRow !== selectedNote.row) {
-          actions.moveNote(
-            selectedNote.row,
-            selectedNote.col,
-            newRow,
-            selectedNote.col,
-          );
-          actions.setSelectedNote({ row: newRow, col: selectedNote.col });
-          if (!isPlaying && onPlayNote) onPlayNote(newRow, currentChannel);
-        }
-      }
-    }
-  }, [selectedNote, gridState, isPlaying, onPlayNote, currentChannel]);
+    commands.moveSelectedNote("down");
+  }, [commands]);
 
   const handleArrowLeft = useCallback(() => {
     if (uiMode === "loop") {
-      const loopEndVal = currentLoop.start + currentLoop.length;
-      const newEnd = Math.max(currentLoop.start + 1, loopEndVal - 1);
-      if (newEnd !== loopEndVal) {
-        actions.setPatternLoop(
-          currentChannel,
-          currentPattern,
-          currentLoop.start,
-          newEnd - currentLoop.start,
-        );
-        followWithCamera(startRow, newEnd - 1);
-      }
+      commands.adjustLoopEnd("left");
       return;
     }
-    if (selectedNote) {
-      const noteLength = getNoteLength(
-        gridState[selectedNote.row]?.[selectedNote.col],
-      );
-      if (noteLength > 0) {
-        const newCol = Math.max(0, selectedNote.col - 1);
-        if (newCol !== selectedNote.col) {
-          actions.moveNote(
-            selectedNote.row,
-            selectedNote.col,
-            selectedNote.row,
-            newCol,
-          );
-          actions.setSelectedNote({ row: selectedNote.row, col: newCol });
-          if (!isPlaying && onPlayNote)
-            onPlayNote(selectedNote.row, currentChannel);
-        }
-      }
-    }
-  }, [
-    uiMode,
-    selectedNote,
-    gridState,
-    isPlaying,
-    onPlayNote,
-    currentChannel,
-    currentLoop,
-    currentPattern,
-    startRow,
-    followWithCamera,
-  ]);
+    commands.moveSelectedNote("left");
+  }, [uiMode, commands]);
 
   const handleArrowRight = useCallback(() => {
     if (uiMode === "loop") {
-      const loopEndVal = currentLoop.start + currentLoop.length;
-      const newEnd = Math.min(COLS, loopEndVal + 1);
-      if (newEnd !== loopEndVal) {
-        actions.setPatternLoop(
-          currentChannel,
-          currentPattern,
-          currentLoop.start,
-          newEnd - currentLoop.start,
-        );
-        followWithCamera(startRow, newEnd - 1);
-      }
+      commands.adjustLoopEnd("right");
       return;
     }
-    if (selectedNote) {
-      const noteLength = getNoteLength(
-        gridState[selectedNote.row]?.[selectedNote.col],
-      );
-      if (noteLength > 0) {
-        const newCol = Math.min(COLS - 1, selectedNote.col + 1);
-        if (newCol !== selectedNote.col) {
-          actions.moveNote(
-            selectedNote.row,
-            selectedNote.col,
-            selectedNote.row,
-            newCol,
-          );
-          actions.setSelectedNote({ row: selectedNote.row, col: newCol });
-          if (!isPlaying && onPlayNote)
-            onPlayNote(selectedNote.row, currentChannel);
-        }
-      }
-    }
-  }, [
-    uiMode,
-    selectedNote,
-    gridState,
-    isPlaying,
-    onPlayNote,
-    currentChannel,
-    currentLoop,
-    currentPattern,
-    startRow,
-    followWithCamera,
-  ]);
+    commands.moveSelectedNote("right");
+  }, [uiMode, commands]);
 
   return (
     <Box css={gridOuterContainerStyles}>
