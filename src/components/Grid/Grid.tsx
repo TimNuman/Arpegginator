@@ -423,7 +423,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     gridState,
     onCellPress,
     onCellRelease,
-    onCellDragEnter,
     onRowOffsetChange,
     onColOffsetChange,
   } = controller;
@@ -1051,15 +1050,12 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     ],
   );
 
-  // Handle button drag enter from ButtonGrid
+  // Handle button drag enter from ButtonGrid — same as press (simulate finger drag)
   const handleButtonDragEnter = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      if (uiMode === "channel" || uiMode === "modify") return; // No drag in channel/modify mode
-      const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-      const actualCol = startCol + visibleCol;
-      onCellDragEnter(actualRow, actualCol);
+      handleButtonPress(visibleRow, visibleCol);
     },
-    [uiMode, startRow, startCol, onCellDragEnter],
+    [handleButtonPress],
   );
 
   // OLED display content

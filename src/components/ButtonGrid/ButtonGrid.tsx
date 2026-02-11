@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
 
@@ -168,13 +168,15 @@ const rowStyles = css`
 `;
 
 interface GridButtonCellProps {
+  row: number;
+  col: number;
   value: number;
   channelColor: string;
   onPress: () => void;
   onDragEnter: () => void;
 }
 
-const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: GridButtonCellProps) => {
+const GridButtonCell = memo(({ row, col, value, channelColor, onPress, onDragEnter }: GridButtonCellProps) => {
   const bgColor = getBackgroundColor(value, channelColor);
   const boxShadow = getBoxShadow(value, channelColor);
   const pulsing = isLoopBoundaryPulsing(value);
@@ -182,6 +184,8 @@ const GridButtonCell = memo(({ value, channelColor, onPress, onDragEnter }: Grid
 
   return (
     <div
+      data-grid-row={row}
+      data-grid-col={col}
       onMouseDown={(e) => {
         e.preventDefault();
         onPress();
@@ -244,13 +248,45 @@ export const ButtonGrid = memo(({ values, channelColor, colorOverrides, onPress,
     onDragEnter(row, col);
   }, [onDragEnter]);
 
+  // Track which cell the touch is currently over to avoid re-firing
+  const lastTouchCell = useRef<string | null>(null);
+
+  // Touch drag: touchmove always fires on the *original* element, so we use
+  // document.elementFromPoint to find which grid cell the finger is over.
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    const el = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
+    if (!el) return;
+    const rowAttr = el.getAttribute("data-grid-row");
+    const colAttr = el.getAttribute("data-grid-col");
+    if (rowAttr == null || colAttr == null) return;
+    const key = `${rowAttr},${colAttr}`;
+    if (key === lastTouchCell.current) return; // still on the same cell
+    lastTouchCell.current = key;
+    onDragEnter(Number(rowAttr), Number(colAttr));
+  }, [onDragEnter]);
+
+  const handleTouchEnd = useCallback(() => {
+    lastTouchCell.current = null;
+    onRelease();
+  }, [onRelease]);
+
   return (
-    <Box onMouseUp={onRelease} onMouseLeave={onRelease}>
+    <Box
+      onMouseUp={onRelease}
+      onMouseLeave={onRelease}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+    >
       {values.map((row, rowIndex) => (
         <Box key={rowIndex} css={rowStyles}>
           {row.map((value, colIndex) => (
             <GridButtonCell
               key={colIndex}
+              row={rowIndex}
+              col={colIndex}
               value={value}
               channelColor={colorOverrides?.[rowIndex]?.[colIndex] ?? channelColor}
               onPress={() => handlePress(rowIndex, colIndex)}
