@@ -52,7 +52,7 @@ export function isNoteActive(ch: number, row: number, step: number): boolean {
 }
 
 // Sub-modes to pre-compute previews for at loop boundaries
-const PREVIEW_SUB_MODES: ModifySubMode[] = ["hit", "velocity"];
+const PREVIEW_SUB_MODES: ModifySubMode[] = ["hit", "velocity", "modulate", "timing", "flam"];
 
 // Pre-computed sub-mode values for every note instance in the current loop cycle
 // Key: "subMode:channel:row:playStep" → value
@@ -229,9 +229,12 @@ function getNotesAtStep(
       for (let r = 0; r < repeatAmount; r++) {
         const playStep = col + r * repeatSpace;
         if (playStep === step && playStep < loopEnd) {
-          // Resolve all sub-mode values via generic resolver
+          // Resolve ALL sub-mode values upfront so continue counters stay in sync
           const velocity = resolveSubModeValue(noteValue, "velocity", r, channel, row, col);
           const chance = resolveSubModeValue(noteValue, "hit", r, channel, row, col);
+          const timingOffsetPct = resolveSubModeValue(noteValue, "timing", r, channel, row, col);
+          const flamProb = resolveSubModeValue(noteValue, "flam", r, channel, row, col);
+          const modulateVal = resolveSubModeValue(noteValue, "modulate", r, channel, row, col);
 
           // Roll against chance — skip note if fails
           if (chance < 100 && Math.random() * 100 >= chance) {
@@ -241,17 +244,14 @@ function getNotesAtStep(
           // Build extras
           const extras: StepTriggerExtras = {};
 
-          const timingOffsetPct = resolveSubModeValue(noteValue, "timing", r, channel, row, col);
           if (timingOffsetPct !== 0) {
             extras.timingOffsetPercent = timingOffsetPct;
           }
 
-          const flamProb = resolveSubModeValue(noteValue, "flam", r, channel, row, col);
           if (flamProb > 0 && Math.random() * 100 < flamProb) {
             extras.flamCount = 1;
           }
 
-          const modulateVal = resolveSubModeValue(noteValue, "modulate", r, channel, row, col);
           if (modulateVal !== 0) {
             extras.modulateHalfSteps = modulateVal;
           }

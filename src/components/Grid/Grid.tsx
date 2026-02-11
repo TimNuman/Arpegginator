@@ -469,6 +469,27 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     return allLevels.slice(scrollIndex, scrollIndex + VISIBLE_ROWS);
   }, [allLevels, needsModifyScroll, modifyScroll]);
 
+  // Apply modulate preview offsets to rendered notes when playing
+  // In continue mode, the modulate offset shifts each loop — use preview values
+  const displayNotes = useMemo(() => {
+    if (loopedStep < 0) return renderedNotes; // not playing, use static
+    let changed = false;
+    const adjusted = renderedNotes.map((note) => {
+      const modPreview = actions.getSubModePreview(
+        "modulate",
+        currentChannel,
+        note.sourceRow,
+        note.col,
+      );
+      if (modPreview === undefined) return note;
+      const displayRow = Math.max(0, Math.min(ROWS - 1, note.sourceRow + modPreview));
+      if (displayRow === note.row) return note;
+      changed = true;
+      return { ...note, row: displayRow };
+    });
+    return changed ? adjusted : renderedNotes;
+  }, [renderedNotes, loopedStep, currentChannel]);
+
   // Compute button values and color overrides for all modes
   const { buttonValues, colorOverrides } = useMemo(() => {
     // Modify mode (all sub-modes) with selected note
@@ -617,7 +638,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         let value = BUTTON_OFF;
 
         // Check for note at this cell
-        const noteAtCell = findNoteAtCell(renderedNotes, actualRow, actualCol);
+        const noteAtCell = findNoteAtCell(displayNotes, actualRow, actualCol);
 
         if (noteAtCell) {
           const isNoteStart = noteAtCell.col === actualCol;
@@ -728,7 +749,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const isRightEdge = visibleCol === VISIBLE_COLS - 1;
 
           if (isTopEdge || isBottomEdge || isLeftEdge || isRightEdge) {
-            for (const note of renderedNotes) {
+            for (const note of displayNotes) {
               // Top edge: notes above visible area at this column
               if (
                 isTopEdge &&
@@ -933,7 +954,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   }, [
     uiMode,
     modifySubMode,
-    renderedNotes,
+    displayNotes,
     startRow,
     startCol,
     endRow,
