@@ -6,13 +6,12 @@ interface MidiTransportCallbacks {
   onStart?: () => void;
   onStop?: () => void;
   onContinue?: () => void;
-  onClock?: () => void; // Called every 16th note (6 MIDI clock pulses)
+  onClock?: () => void; // Called on every MIDI clock pulse (24 PPQ)
   onTempoChange?: (bpm: number) => void; // Called when tempo is detected from clock
 }
 
 // MIDI clock constants
 const MIDI_CLOCK_PPQ = 24; // 24 pulses per quarter note
-const CLOCKS_PER_16TH = 6; // 24 PPQ / 4 (16th notes per quarter) = 6
 const TEMPO_SAMPLE_SIZE = 96; // Average over 4 quarter notes for stability
 const TEMPO_HYSTERESIS = 2; // BPM must change by more than this to update
 
@@ -30,8 +29,6 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   const activeNotes = useRef<Map<number, Output>>(new Map());
   const transportCallbacksRef = useRef(transportCallbacks);
 
-  // MIDI clock tracking for sync
-  const clockPulseCount = useRef<number>(0);
   // Tempo detection from clock
   const clockTimestamps = useRef<number[]>([]);
   const lastReportedBpm = useRef<number>(0);
@@ -100,14 +97,12 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
 
     const handleStart = () => {
       // Reset clock tracking on start
-      clockPulseCount.current = 0;
       clockTimestamps.current = [];
       transportCallbacksRef.current?.onStart?.();
     };
 
     const handleStop = () => {
       // Reset clock tracking on stop
-      clockPulseCount.current = 0;
       clockTimestamps.current = [];
       transportCallbacksRef.current?.onStop?.();
     };
@@ -144,12 +139,9 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
         }
       }
 
-      // Advance sequencer every 6 clock pulses (= 1 sixteenth note)
-      clockPulseCount.current++;
-      if (clockPulseCount.current >= CLOCKS_PER_16TH) {
-        clockPulseCount.current = 0;
-        transportCallbacksRef.current?.onClock?.();
-      }
+      // Fire clock on every MIDI pulse — externalTick() in playbackActions
+      // advances by TICKS_PER_MIDI_CLOCK (20 ticks) per call
+      transportCallbacksRef.current?.onClock?.();
     };
 
     // Listen for MIDI transport messages

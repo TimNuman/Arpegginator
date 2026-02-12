@@ -1,16 +1,17 @@
 // Note actions
 export {
-  toggleCell,
-  toggleEnabled,
-  setNote,
-  moveNote,
-  placeNote,
-  setNoteRepeatAmount,
-  setNoteRepeatSpace,
+  toggleEvent,
+  toggleEventEnabled,
+  toggleEnabledAtPosition,
+  moveEvent,
+  placeEvent,
+  setEventLength,
+  setEventRepeatAmount,
+  setEventRepeatSpace,
   setSubModeValue,
   setSubModeLength,
   toggleSubModeLoopMode,
-  clearDisplacedNotes,
+  clearDisplacedEvents,
 } from './noteActions';
 
 // Playback actions
@@ -44,7 +45,7 @@ export {
 // Pattern actions
 export {
   copyPatternTo,
-  clearGrid,
+  clearPattern,
 } from './patternActions';
 
 // Loop actions
@@ -54,9 +55,11 @@ export {
 
 // View actions
 export {
-  setSelectedNote,
+  setSelectedNoteId,
   setRowOffset,
   setColOffset,
   setUiMode,
   setModifySubMode,
+  setZoom,
+  cycleZoom,
 } from './viewActions';

@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { useSequencerStore, type SequencerState } from './sequencerStore';
-import { getNoteLength, getRepeatAmount, getRepeatSpace, isNoteEnabled } from '../types/grid';
+import type { PatternData, Subdivision } from '../types/event';
+import { TICKS_PER_QUARTER } from '../types/event';
 
 // ============ Selector Functions ============
 
-// Current channel's current pattern grid
-const selectGridState = (state: SequencerState) =>
-  state.channels[state.currentChannel][state.currentPatterns[state.currentChannel]];
+// Current channel's current pattern data
+const selectPatternData = (state: SequencerState): PatternData =>
+  state.patterns[state.currentChannel][state.currentPatterns[state.currentChannel]];
 
 // Current pattern index for current channel
 const selectCurrentPattern = (state: SequencerState) =>
@@ -18,17 +19,22 @@ const selectCurrentLoop = (state: SequencerState) => {
   return state.patternLoops[state.currentChannel][pattern];
 };
 
-// Pulse beat indicator (every 4 steps)
+// Pulse beat indicator (every quarter note in ticks)
 const selectIsPulseBeat = (state: SequencerState) =>
-  state.currentStep >= 0 && state.currentStep % 4 === 0;
+  state.currentTick >= 0 && state.currentTick % TICKS_PER_QUARTER === 0;
+
+// Current zoom level
+const selectZoom = (state: SequencerState): Subdivision =>
+  state.view.zoom;
 
 // ============ Hook Wrappers for Common Selectors ============
 
 // These use stable references - no shallow comparison needed
-export const useGridState = () => useSequencerStore(selectGridState);
+export const usePatternData = () => useSequencerStore(selectPatternData);
 export const useCurrentPattern = () => useSequencerStore(selectCurrentPattern);
 export const useCurrentLoop = () => useSequencerStore(selectCurrentLoop);
 export const useIsPulseBeat = () => useSequencerStore(selectIsPulseBeat);
+export const useZoom = () => useSequencerStore(selectZoom);
 
 // Playback state selectors (primitives)
 export const useIsPlaying = () => useSequencerStore((s) => s.isPlaying);
@@ -43,56 +49,47 @@ export const useSoloedChannels = () => useSequencerStore((s) => s.soloedChannels
 
 // Which patterns have notes for each channel
 export function useAllPatternsHaveNotes(): boolean[][] {
-  const channels = useSequencerStore((s) => s.channels);
+  const patterns = useSequencerStore((s) => s.patterns);
 
   return useMemo(() => {
-    return channels.map((ch) =>
-      ch.map((pattern) =>
-        pattern.some((row) => row.some((cell) => getNoteLength(cell) > 0))
-      )
+    return patterns.map((ch) =>
+      ch.map((pattern) => pattern.events.length > 0)
     );
-  }, [channels]);
+  }, [patterns]);
 }
 
-// Which channels are playing at current step
+// Which channels are playing at current tick
 export function useChannelsPlayingNow(): boolean[] {
-  const channels = useSequencerStore((s) => s.channels);
-  const currentStep = useSequencerStore((s) => s.currentStep);
+  const patterns = useSequencerStore((s) => s.patterns);
+  const currentTick = useSequencerStore((s) => s.currentTick);
   const currentPatterns = useSequencerStore((s) => s.currentPatterns);
   const patternLoops = useSequencerStore((s) => s.patternLoops);
 
   return useMemo(() => {
-    if (currentStep < 0) return [false, false, false, false, false, false, false, false];
+    if (currentTick < 0) return [false, false, false, false, false, false, false, false];
 
-    return channels.map((ch, chIdx) => {
+    return patterns.map((_ch, chIdx) => {
       const patternIdx = currentPatterns[chIdx];
       const loop = patternLoops[chIdx][patternIdx];
-      const channelStep =
+      const channelTick =
         loop.start +
-        ((((currentStep - loop.start) % loop.length) + loop.length) % loop.length);
+        ((((currentTick - loop.start) % loop.length) + loop.length) % loop.length);
 
-      return ch[patternIdx].some((row) => {
-        if (isNoteEnabled(row[channelStep])) return true;
-        for (let col = loop.start; col < channelStep; col++) {
-          const noteValue = row[col];
-          if (!isNoteEnabled(noteValue)) continue;
-          const noteLength = getNoteLength(noteValue);
-          if (noteLength > 0) {
-            if (col + noteLength > channelStep) return true;
-            const repeatAmount = getRepeatAmount(noteValue);
-            const repeatSpace = getRepeatSpace(noteValue);
-            if (repeatAmount > 1) {
-              for (let r = 1; r < repeatAmount; r++) {
-                const repeatStart = col + r * repeatSpace;
-                if (channelStep >= repeatStart && channelStep < repeatStart + noteLength) {
-                  return true;
-                }
-              }
-            }
+      const patternData = patterns[chIdx][patternIdx];
+
+      // Check if any event is playing at channelTick (covers start or continuation)
+      for (const event of patternData.events) {
+        if (!event.enabled) continue;
+        for (let r = 0; r < event.repeatAmount; r++) {
+          const noteStart = event.position + r * event.repeatSpace;
+          const noteEnd = noteStart + event.length;
+          if (noteStart >= loop.start + loop.length) break;
+          if (channelTick >= noteStart && channelTick < noteEnd) {
+            return true;
           }
         }
-        return false;
-      });
+      }
+      return false;
     });
-  }, [channels, currentStep, currentPatterns, patternLoops]);
+  }, [patterns, currentTick, currentPatterns, patternLoops]);
 }

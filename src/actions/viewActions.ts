@@ -1,11 +1,11 @@
 import { getSequencerStore, type UiMode } from '../store/sequencerStore';
-import type { ModifySubMode } from '../types/grid';
+import { SUBDIVISION_ORDER, type ModifySubMode, type Subdivision } from '../types/event';
 
 /**
- * Set the selected note
+ * Set the selected note by event ID
  */
-export function setSelectedNote(note: { row: number; col: number } | null): void {
-  getSequencerStore()._setView({ selectedNote: note });
+export function setSelectedNoteId(noteId: string | null): void {
+  getSequencerStore()._setView({ selectedNoteId: noteId });
 }
 
 /**
@@ -37,4 +37,30 @@ export function setUiMode(mode: UiMode): void {
  */
 export function setModifySubMode(mode: ModifySubMode): void {
   getSequencerStore()._setView({ modifySubMode: mode });
+}
+
+/**
+ * Set zoom level (subdivision)
+ */
+export function setZoom(zoom: Subdivision): void {
+  getSequencerStore()._setView({ zoom });
+}
+
+/**
+ * Cycle zoom level in/out through SUBDIVISION_ORDER
+ * "in" = finer resolution (towards 1/32), "out" = coarser (towards 1/4)
+ */
+export function cycleZoom(direction: "in" | "out"): void {
+  const store = getSequencerStore();
+  const currentZoom = store.view.zoom;
+  const currentIndex = SUBDIVISION_ORDER.indexOf(currentZoom);
+  if (currentIndex === -1) return;
+
+  const nextIndex = direction === "in"
+    ? Math.min(SUBDIVISION_ORDER.length - 1, currentIndex + 1)
+    : Math.max(0, currentIndex - 1);
+
+  if (nextIndex !== currentIndex) {
+    store._setView({ zoom: SUBDIVISION_ORDER[nextIndex] });
+  }
 }

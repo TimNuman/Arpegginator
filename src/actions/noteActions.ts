@@ -1,230 +1,206 @@
 import { getSequencerStore } from '../store/sequencerStore';
-import { getNoteLength, createNotePattern, type NoteValue, type NotePattern, type VelocityLoopMode, type ModifySubMode } from '../types/grid';
+import { invalidateLookup } from '../store/tickLookupCache';
+import {
+  createNoteEvent,
+  findEventById,
+  type NoteEvent,
+  type VelocityLoopMode,
+  type ModifySubMode,
+  SUB_MODE_FIELD_MAP,
+  SIXTEENTH_NOTE,
+} from '../types/event';
+
+// ============ Helpers ============
+
+/** Get current channel/pattern/events from store */
+function getCurrentPatternContext() {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns, patterns } = store;
+  const patternIdx = currentPatterns[currentChannel];
+  const patternData = patterns[currentChannel][patternIdx];
+  return { store, currentChannel, patternIdx, patternData };
+}
 
 /**
- * Helper to truncate any note that would overlap with a new note at col
+ * Truncate any events on the same row that overlap with a new event at the given position.
  */
-const truncateOverlappingNote = (gridRow: NoteValue[], col: number): NoteValue[] => {
-  const newRow = [...gridRow];
-  for (let c = 0; c < col; c++) {
-    const noteValue = newRow[c];
-    const noteLength = getNoteLength(noteValue);
-    if (noteLength > 0 && c + noteLength > col) {
-      const newLength = col - c;
-      if (noteValue !== null) {
-        newRow[c] = { ...noteValue, length: newLength };
-      }
+function truncateOverlapping(events: NoteEvent[], row: number, position: number, excludeId?: string): void {
+  const store = getSequencerStore();
+  const { currentChannel, currentPatterns } = store;
+  const patternIdx = currentPatterns[currentChannel];
+
+  for (const event of events) {
+    if (event.row !== row) continue;
+    if (event.id === excludeId) continue;
+    if (event.position < position && event.position + event.length > position) {
+      // This event overlaps — truncate it
+      store._updateEvent(currentChannel, patternIdx, event.id, {
+        length: position - event.position,
+      });
     }
   }
-  return newRow;
-};
+}
+
+// ============ Note Actions ============
 
 /**
- * Toggle a cell on/off at the given position.
- * If the cell has a note (enabled or disabled), delete it.
- * If the cell is empty, create a new note.
+ * Toggle an event on/off at the given (row, tick) position.
+ * If an event exists at this position, delete it.
+ * If no event exists, create a new one.
  */
-export function toggleCell(row: number, col: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-  const currentValue = channels[currentChannel][pattern][row][col];
+export function toggleEvent(row: number, tick: number, lengthTicks: number = SIXTEENTH_NOTE): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
 
-  if (currentValue !== null && getNoteLength(currentValue) > 0) {
-    // Turn off - delete note
-    store._updateCell(currentChannel, pattern, row, col, null);
+  // Find existing event at this exact position
+  const existing = patternData.events.find(
+    (e) => e.row === row && e.position === tick && e.enabled,
+  );
+
+  if (existing) {
+    // Remove the event
+    store._removeEvent(currentChannel, patternIdx, existing.id);
   } else {
-    // Turn on - need to handle truncation via full row update
-    const currentRow = [...channels[currentChannel][pattern][row]];
-    const truncatedRow = truncateOverlappingNote(currentRow, col);
-    truncatedRow[col] = createNotePattern(1);
-    store._updateRow(currentChannel, pattern, row, truncatedRow);
-  }
-}
-
-/**
- * Toggle the enabled state of a note at the given position.
- * If the cell has a note, toggle its enabled flag (preserving the pattern).
- * If the cell is empty, create a new enabled note.
- */
-export function toggleEnabled(row: number, col: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-  const currentValue = channels[currentChannel][pattern][row][col];
-
-  if (currentValue !== null && getNoteLength(currentValue) > 0) {
-    // Note exists - toggle enabled
-    store._updateCell(currentChannel, pattern, row, col, {
-      ...currentValue,
-      enabled: !currentValue.enabled,
-    });
-  } else {
-    // Empty - create a new enabled note
-    const currentRow = [...channels[currentChannel][pattern][row]];
-    const truncatedRow = truncateOverlappingNote(currentRow, col);
-    truncatedRow[col] = createNotePattern(1);
-    store._updateRow(currentChannel, pattern, row, truncatedRow);
-  }
-}
-
-/**
- * Set a note with a specific length
- */
-export function setNote(row: number, col: number, length: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const currentRow = [...channels[currentChannel][pattern][row]];
-  const truncatedRow = truncateOverlappingNote(currentRow, col);
-
-  const existingNote = truncatedRow[col];
-  if (existingNote !== null) {
-    truncatedRow[col] = { ...existingNote, length };
-  } else {
-    truncatedRow[col] = createNotePattern(length);
-  }
-
-  store._updateRow(currentChannel, pattern, row, truncatedRow);
-}
-
-// Stash for notes displaced by a move — restored when the moving note leaves
-// Key: "channel:pattern:row:col" → original NoteValue
-const displacedNotes = new Map<string, NoteValue>();
-
-function stashKey(ch: number, pat: number, row: number, col: number): string {
-  return `${ch}:${pat}:${row}:${col}`;
-}
-
-/**
- * Clear the displaced-note stash (called when a move is finalized via placeNote)
- */
-export function clearDisplacedNotes(): void {
-  displacedNotes.clear();
-}
-
-/**
- * Move a note from one position to another.
- * Any existing note at the destination is stashed and restored when the moving note leaves.
- */
-export function moveNote(
-  fromRow: number,
-  fromCol: number,
-  toRow: number,
-  toCol: number
-): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const grid = channels[currentChannel][pattern];
-  const noteValue = grid[fromRow][fromCol];
-  const noteLength = getNoteLength(noteValue);
-
-  if (noteLength > 0) {
-    // Check what's at the destination (before we overwrite it)
-    const destKey = stashKey(currentChannel, pattern, toRow, toCol);
-    const destValue = grid[toRow][toCol];
-    if (destValue !== null && getNoteLength(destValue) > 0) {
-      // There's an existing note at the destination — stash it
-      displacedNotes.set(destKey, destValue);
+    // Check for disabled event at this position
+    const disabled = patternData.events.find(
+      (e) => e.row === row && e.position === tick && !e.enabled,
+    );
+    if (disabled) {
+      store._removeEvent(currentChannel, patternIdx, disabled.id);
     }
 
-    // Check if we should restore a displaced note at the source
-    const srcKey = stashKey(currentChannel, pattern, fromRow, fromCol);
-    const restored = displacedNotes.get(srcKey) ?? null;
-    if (restored !== null) displacedNotes.delete(srcKey);
-
-    // Create new grid with note moved
-    const newGrid = grid.map((row, rowIdx) => {
-      if (rowIdx === fromRow && rowIdx === toRow) {
-        // Same row - restore source, set destination
-        const newRow = [...row];
-        newRow[fromCol] = restored;
-        newRow[toCol] = noteValue;
-        return newRow;
-      } else if (rowIdx === fromRow) {
-        const newRow = [...row];
-        newRow[fromCol] = restored;
-        return newRow;
-      } else if (rowIdx === toRow) {
-        const newRow = [...row];
-        newRow[toCol] = noteValue;
-        return newRow;
-      }
-      return row;
-    });
-    store._updatePattern(currentChannel, pattern, newGrid);
+    // Create new event, truncating any overlapping notes
+    truncateOverlapping(patternData.events, row, tick);
+    const event = createNoteEvent(row, tick, lengthTicks);
+    store._addEvent(currentChannel, patternIdx, event);
   }
+  invalidateLookup(currentChannel, patternIdx);
 }
 
 /**
- * Place a note (finalize position, truncate overlapping notes, clear stash)
+ * Toggle the enabled state of an event.
+ * If no event exists at (row, tick), create a new enabled one.
  */
-export function placeNote(row: number, col: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
+export function toggleEventEnabled(eventId: string): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
 
-  const grid = channels[currentChannel][pattern];
-  const noteValue = grid[row][col];
-  const noteLength = getNoteLength(noteValue);
-
-  if (noteLength > 0) {
-    const currentRow = [...grid[row]];
-    const truncatedRow = truncateOverlappingNote(currentRow, col);
-    truncatedRow[col] = noteValue;
-    store._updateRow(currentChannel, pattern, row, truncatedRow);
+  if (event) {
+    store._updateEvent(currentChannel, patternIdx, eventId, {
+      enabled: !event.enabled,
+    });
   }
-  displacedNotes.clear();
+  invalidateLookup(currentChannel, patternIdx);
 }
 
 /**
- * Update repeat amount for a note
+ * Toggle event enabled by position (for pattern mode click on disabled notes)
  */
-export function setNoteRepeatAmount(row: number, col: number, repeatAmount: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
+export function toggleEnabledAtPosition(row: number, tick: number, lengthTicks: number = SIXTEENTH_NOTE): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const existing = patternData.events.find(
+    (e) => e.row === row && e.position === tick,
+  );
 
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue !== null) {
-    const clampedLength = repeatAmount > 1
-      ? Math.min(noteValue.length, noteValue.repeatSpace)
-      : noteValue.length;
-    store._updateCell(currentChannel, pattern, row, col, {
-      ...noteValue,
-      repeatAmount,
-      length: clampedLength,
+  if (existing) {
+    store._updateEvent(currentChannel, patternIdx, existing.id, {
+      enabled: !existing.enabled,
     });
+  } else {
+    // Create new enabled event
+    truncateOverlapping(patternData.events, row, tick);
+    const event = createNoteEvent(row, tick, lengthTicks);
+    store._addEvent(currentChannel, patternIdx, event);
   }
+  invalidateLookup(currentChannel, patternIdx);
 }
 
 /**
- * Update repeat space for a note
+ * Move an event to a new position and/or row.
  */
-export function setNoteRepeatSpace(row: number, col: number, repeatSpace: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue !== null) {
-    const clampedLength = noteValue.repeatAmount > 1
-      ? Math.min(noteValue.length, repeatSpace)
-      : noteValue.length;
-    store._updateCell(currentChannel, pattern, row, col, {
-      ...noteValue,
-      repeatSpace,
-      length: clampedLength,
-    });
-  }
+export function moveEvent(eventId: string, newRow: number, newPosition: number): void {
+  const { store, currentChannel, patternIdx } = getCurrentPatternContext();
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    row: newRow,
+    position: newPosition,
+  });
+  invalidateLookup(currentChannel, patternIdx);
 }
+
+/**
+ * Set the length of an event.
+ */
+export function setEventLength(eventId: string, lengthTicks: number): void {
+  const { store, currentChannel, patternIdx } = getCurrentPatternContext();
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    length: lengthTicks,
+  });
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+/**
+ * Finalize event position (truncate overlapping notes).
+ */
+export function placeEvent(eventId: string): void {
+  const { currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (event) {
+    truncateOverlapping(patternData.events, event.row, event.position, event.id);
+  }
+  displacedEvents.clear();
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+/**
+ * Update repeat amount for an event
+ */
+export function setEventRepeatAmount(eventId: string, repeatAmount: number): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
+
+  const clampedLength = repeatAmount > 1
+    ? Math.min(event.length, event.repeatSpace)
+    : event.length;
+
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    repeatAmount,
+    length: clampedLength,
+  });
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+/**
+ * Update repeat space for an event
+ */
+export function setEventRepeatSpace(eventId: string, repeatSpace: number): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
+
+  const clampedLength = event.repeatAmount > 1
+    ? Math.min(event.length, repeatSpace)
+    : event.length;
+
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    repeatSpace,
+    length: clampedLength,
+  });
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+// ============ Displaced Events Stash ============
+
+// Stash for events displaced by a move — restored when the moving event leaves
+const displacedEvents = new Map<string, NoteEvent>();
+
+export function clearDisplacedEvents(): void {
+  displacedEvents.clear();
+}
+
+// ============ Sub-Mode Operations ============
 
 /**
  * Materialize a looping array to a target length, respecting the loop mode.
- * "reset"/"continue": loop (modulo). "fill": clamp to last value.
  */
 function materializeArray(arr: number[], targetLength: number, loopMode: VelocityLoopMode): number[] {
   const result: number[] = [];
@@ -238,87 +214,64 @@ function materializeArray(arr: number[], targetLength: number, loopMode: Velocit
   return result;
 }
 
-/** Maps ModifySubMode to NotePattern field names for array and loop mode */
-const SUB_MODE_FIELD_MAP: Record<ModifySubMode, {
-  arrayField: keyof NotePattern & string;
-  loopModeField: keyof NotePattern & string;
-}> = {
-  velocity: { arrayField: "velocity", loopModeField: "velocityLoopMode" },
-  hit:      { arrayField: "chance",   loopModeField: "chanceLoopMode" },
-  timing:   { arrayField: "timingOffset", loopModeField: "timingLoopMode" },
-  flam:     { arrayField: "flamChance",   loopModeField: "flamLoopMode" },
-  modulate: { arrayField: "modulate",     loopModeField: "modulateLoopMode" },
-};
-
 /**
  * Set the value for any sub-mode at a specific repeat index.
- * Materializes the looping array to at least repeatIndex + 1 entries,
- * but preserves any existing length beyond that.
  */
-export function setSubModeValue(row: number, col: number, repeatIndex: number, value: number, subMode: ModifySubMode): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
+export function setSubModeValue(eventId: string, repeatIndex: number, value: number, subMode: ModifySubMode): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
 
   const { arrayField, loopModeField } = SUB_MODE_FIELD_MAP[subMode];
-  const arr = noteValue[arrayField] as number[];
-  const loopMode = (noteValue[loopModeField] as VelocityLoopMode) ?? "reset";
+  const arr = event[arrayField] as number[];
+  const loopMode = (event[loopModeField] as VelocityLoopMode) ?? "reset";
 
   const targetLength = Math.max(arr.length, repeatIndex + 1);
   const materialized = materializeArray(arr, targetLength, loopMode);
   materialized[repeatIndex] = value;
 
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
+  store._updateEvent(currentChannel, patternIdx, eventId, {
     [arrayField]: materialized,
-  });
+  } as Partial<NoteEvent>);
+  invalidateLookup(currentChannel, patternIdx);
 }
 
 /**
  * Set array length for any sub-mode.
  */
-export function setSubModeLength(row: number, col: number, subMode: ModifySubMode, newLength: number): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
+export function setSubModeLength(eventId: string, subMode: ModifySubMode, newLength: number): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
 
   const { arrayField, loopModeField } = SUB_MODE_FIELD_MAP[subMode];
-  const arr = noteValue[arrayField] as number[];
-  const loopMode = (noteValue[loopModeField] as VelocityLoopMode) ?? "reset";
+  const arr = event[arrayField] as number[];
+  const loopMode = (event[loopModeField] as VelocityLoopMode) ?? "reset";
   const clamped = Math.max(1, newLength);
   const result = materializeArray(arr, clamped, loopMode);
 
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
+  store._updateEvent(currentChannel, patternIdx, eventId, {
     [arrayField]: result,
-  });
+  } as Partial<NoteEvent>);
+  invalidateLookup(currentChannel, patternIdx);
 }
 
 /**
  * Toggle loop mode (reset → continue → fill → reset) for any sub-mode.
  */
-export function toggleSubModeLoopMode(row: number, col: number, subMode: ModifySubMode): void {
-  const store = getSequencerStore();
-  const { currentChannel, currentPatterns, channels } = store;
-  const pattern = currentPatterns[currentChannel];
-
-  const noteValue = channels[currentChannel][pattern][row][col];
-  if (noteValue === null) return;
+export function toggleSubModeLoopMode(eventId: string, subMode: ModifySubMode): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
 
   const modes: VelocityLoopMode[] = ["reset", "continue", "fill"];
   const { loopModeField } = SUB_MODE_FIELD_MAP[subMode];
-  const currentMode = (noteValue[loopModeField] as VelocityLoopMode) ?? "reset";
+  const currentMode = (event[loopModeField] as VelocityLoopMode) ?? "reset";
   const currentIndex = modes.indexOf(currentMode);
   const newMode = modes[(currentIndex + 1) % modes.length];
 
-  store._updateCell(currentChannel, pattern, row, col, {
-    ...noteValue,
+  store._updateEvent(currentChannel, patternIdx, eventId, {
     [loopModeField]: newMode,
-  });
+  } as Partial<NoteEvent>);
+  invalidateLookup(currentChannel, patternIdx);
 }

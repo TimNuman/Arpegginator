@@ -26,7 +26,6 @@ import {
   VISIBLE_ROWS,
   VISIBLE_COLS,
   ROWS,
-  COLS,
   type UiMode,
 } from "../../store/sequencerStore";
 import {
@@ -37,72 +36,19 @@ import {
   useSoloedChannels,
   useCurrentPatterns,
   useQueuedPatterns,
-  useIsPlaying,
 } from "../../store/selectors";
 import * as actions from "../../actions";
 import {
-  getNoteLength,
-  getRepeatAmount,
-  getRepeatSpace,
-  getSubModeValueAtRepeat,
-  getSubModeValueAtRepeatFill,
-  getSubModeLoopMode,
-  getSubModeArray,
-  findNoteAtCell,
+  findEventAtTick,
+  findEventsInRange,
+  findEventById,
+  getEventSubModeLoopMode,
+  getEventSubModeValueAtRepeat,
+  getEventSubModeValueAtRepeatFill,
+  getEventSubModeArrayLength,
+  TICKS_PER_QUARTER,
   type ModifySubMode,
-} from "../../types/grid";
-
-// Shift a hex color's hue by a given amount (in degrees)
-const shiftHue = (hex: string, degrees: number): string => {
-  // Parse hex
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-
-  const max = Math.max(r, g, b),
-    min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  let h = 0,
-    s = 0;
-
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-    else if (max === g) h = ((b - r) / d + 2) / 6;
-    else h = ((r - g) / d + 4) / 6;
-  }
-
-  // Shift hue
-  h = (((h * 360 + degrees) % 360) + 360) % 360;
-
-  // HSL to RGB
-  const hue2rgb = (p: number, q: number, t: number) => {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
-
-  let rr: number, gg: number, bb: number;
-  if (s === 0) {
-    rr = gg = bb = l;
-  } else {
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    rr = hue2rgb(p, q, h / 360 + 1 / 3);
-    gg = hue2rgb(p, q, h / 360);
-    bb = hue2rgb(p, q, h / 360 - 1 / 3);
-  }
-
-  const toHex = (v: number) =>
-    Math.round(v * 255)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${toHex(rr)}${toHex(gg)}${toHex(bb)}`;
-};
+} from "../../types/event";
 
 const noop = () => {};
 
@@ -174,6 +120,22 @@ const midiNoteToName = (midiNote: number): string => {
   const octave = Math.floor(midiNote / 12) - 1;
   const noteName = noteNames[midiNote % 12];
   return `${noteName}${octave}`;
+};
+
+// Convert tick value to subdivision-relative display string
+const ticksToDisplay = (ticks: number, ticksPerCol: number): string => {
+  const cols = ticks / ticksPerCol;
+  if (cols === Math.floor(cols)) return `${cols}`;
+  return cols.toFixed(1);
+};
+
+// Convert tick position to beat.subdivision display
+const tickToBeatDisplay = (tick: number): string => {
+  const beat = Math.floor(tick / TICKS_PER_QUARTER) + 1;
+  const subTick = tick % TICKS_PER_QUARTER;
+  if (subTick === 0) return `${beat}`;
+  const sixteenth = Math.floor(subTick / (TICKS_PER_QUARTER / 4)) + 1;
+  return `${beat}.${sixteenth}`;
 };
 
 // Styles
@@ -391,7 +353,7 @@ const arrowButtonStyles = css`
 `;
 
 interface GridProps {
-  onPlayNote?: (note: number, channel: number, steps?: number) => void;
+  onPlayNote?: (note: number, channel: number, lengthTicks?: number) => void;
 }
 
 export const Grid = memo(({ onPlayNote }: GridProps) => {
@@ -405,7 +367,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const isPulseBeat = useIsPulseBeat();
   const mutedChannels = useMutedChannels();
   const soloedChannels = useSoloedChannels();
-  const isPlaying = useIsPlaying();
   const view = useSequencerStore((s) => s.view);
 
   const {
@@ -414,16 +375,18 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     uiMode,
     modifySubMode,
     startRow,
-    startCol,
     endRow,
-    endCol,
-    selectedNote,
+    selectedNoteId,
     renderedNotes,
     currentLoop,
-    currentStep,
+    currentTick,
     currentChannel,
     currentPattern,
-    gridState,
+    patternData,
+    zoom,
+    ticksPerCol,
+    startTick,
+    totalCols,
     gridPressRef,
     onRowOffsetChange,
     onColOffsetChange,
@@ -436,15 +399,21 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const buttonSize = 44;
   const gridHeight = VISIBLE_ROWS * buttonSize;
 
-  // Calculate looped step for playhead display
-  const loopEnd = currentLoop.start + currentLoop.length;
-  const loopedStep =
-    currentStep >= 0
+  // Calculate looped tick for playhead display
+  const loopEndTick = currentLoop.start + currentLoop.length;
+  const loopedTick =
+    currentTick >= 0
       ? currentLoop.start +
-        ((((currentStep - currentLoop.start) % currentLoop.length) +
+        ((((currentTick - currentLoop.start) % currentLoop.length) +
           currentLoop.length) %
           currentLoop.length)
       : -1;
+
+  // Resolve selected event from patternData
+  const selectedEvent = useMemo(
+    () => selectedNoteId ? findEventById(patternData.events, selectedNoteId) ?? null : null,
+    [selectedNoteId, patternData.events],
+  );
 
   // Compute all levels for current sub-mode
   const modifyConfig = SUB_MODE_CONFIG[modifySubMode];
@@ -470,16 +439,15 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   }, [allLevels, needsModifyScroll, modifyScroll]);
 
   // Apply modulate preview offsets to rendered notes when playing
-  // In continue mode, the modulate offset shifts each loop — use preview values
   const displayNotes = useMemo(() => {
-    if (loopedStep < 0) return renderedNotes; // not playing, use static
+    if (loopedTick < 0) return renderedNotes; // not playing, use static
     let changed = false;
     const adjusted = renderedNotes.map((note) => {
       const modPreview = actions.getSubModePreview(
         "modulate",
         currentChannel,
-        note.sourceRow,
-        note.col,
+        note.sourceId,
+        note.position,
       );
       if (modPreview === undefined) return note;
       const displayRow = Math.max(0, Math.min(ROWS - 1, note.sourceRow + modPreview));
@@ -488,21 +456,16 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       return { ...note, row: displayRow };
     });
     return changed ? adjusted : renderedNotes;
-  }, [renderedNotes, loopedStep, currentChannel]);
+  }, [renderedNotes, loopedTick, currentChannel]);
 
   // Compute button values and color overrides for all modes
   const { buttonValues, colorOverrides } = useMemo(() => {
     // Modify mode (all sub-modes) with selected note
-    if (uiMode === "modify" && selectedNote) {
-      const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
-      const repeatAmount = noteValue ? getRepeatAmount(noteValue) : 0;
-      const repeatSpace = noteValue ? getRepeatSpace(noteValue) : 1;
-      const arrayLength = noteValue
-        ? getSubModeArray(noteValue, modifySubMode).length
-        : 1;
-      const loopMode = noteValue
-        ? getSubModeLoopMode(noteValue, modifySubMode)
-        : "reset";
+    if (uiMode === "modify" && selectedEvent) {
+      const repeatAmount = selectedEvent.repeatAmount;
+      const repeatSpace = selectedEvent.repeatSpace;
+      const arrayLength = getEventSubModeArrayLength(selectedEvent, modifySubMode);
+      const loopMode = getEventSubModeLoopMode(selectedEvent, modifySubMode);
       const config = SUB_MODE_CONFIG[modifySubMode];
       const { renderStyle } = config;
       const values: number[][] = [];
@@ -521,25 +484,23 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
       // Value getter with fill-mode support
       const getValueAtIndex = (idx: number): number => {
-        if (!noteValue) return visibleLevels[visibleLevels.length - 1]; // fallback
         return loopMode === "fill"
-          ? getSubModeValueAtRepeatFill(noteValue, modifySubMode, idx)
-          : getSubModeValueAtRepeat(noteValue, modifySubMode, idx);
+          ? getEventSubModeValueAtRepeatFill(selectedEvent, modifySubMode, idx)
+          : getEventSubModeValueAtRepeat(selectedEvent, modifySubMode, idx);
       };
 
       // Determine which column to highlight as playing
       let playingCol = -1;
-      if (loopedStep >= 0 && noteValue) {
+      if (loopedTick >= 0) {
         for (let r = 0; r < repeatAmount; r++) {
-          const stepStart = selectedNote.col + r * repeatSpace;
-          const stepEnd = stepStart + getNoteLength(noteValue);
-          if (loopedStep >= stepStart && loopedStep < stepEnd) {
+          const tickStart = selectedEvent.position + r * repeatSpace;
+          const tickEnd = tickStart + selectedEvent.length;
+          if (loopedTick >= tickStart && loopedTick < tickEnd) {
             if (loopMode === "continue") {
               const counter = actions.getContinueCounter(
                 modifySubMode,
                 currentChannel,
-                selectedNote.row,
-                selectedNote.col,
+                selectedEvent.id,
               );
               const lastUsed = Math.max(0, counter - 1);
               playingCol = lastUsed % arrayLength;
@@ -633,27 +594,38 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
 
       for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
-        const actualCol = startCol + visibleCol;
+        const actualTick = startTick + visibleCol * ticksPerCol;
 
         let value = BUTTON_OFF;
 
-        // Check for note at this cell
-        const noteAtCell = findNoteAtCell(displayNotes, actualRow, actualCol);
+        // Find all notes overlapping this column's tick range
+        const colEndTick = actualTick + ticksPerCol;
+        const notesInCol = findEventsInRange(displayNotes, actualRow, actualTick, colEndTick);
 
-        if (noteAtCell) {
-          const isNoteStart = noteAtCell.col === actualCol;
-          const noteStartCol = noteAtCell.col;
-          const noteEndCol = noteAtCell.col + noteAtCell.length - 1;
-          const isNoteCurrentlyPlaying =
-            loopedStep >= noteStartCol &&
-            loopedStep <= noteEndCol &&
-            actions.isNoteActive(currentChannel, noteAtCell.sourceRow, loopedStep);
+        if (notesInCol.length > 0) {
+          // Pick the primary note for display: prefer the one starting earliest in the column
+          const noteAtTick = notesInCol.reduce((best, n) =>
+            n.position < best.position ? n : best
+          );
+          const isNoteStart = noteAtTick.position >= actualTick && noteAtTick.position < colEndTick;
+          const noteStartTick = noteAtTick.position;
+
+          // Check if ANY note in this column is currently playing
+          let isNoteCurrentlyPlaying = false;
+          for (const n of notesInCol) {
+            const nEnd = n.position + n.length;
+            if (loopedTick >= n.position && loopedTick < nEnd &&
+                actions.isNoteActive(currentChannel, n.sourceId, loopedTick)) {
+              isNoteCurrentlyPlaying = true;
+              break;
+            }
+          }
 
           // Determine brightness from hit chance
           const preview = actions.getHitChancePreview(
             currentChannel,
-            noteAtCell.sourceRow,
-            noteStartCol,
+            noteAtTick.sourceId,
+            noteStartTick,
           );
           if (preview !== undefined) {
             // Playing: use pre-computed preview
@@ -664,15 +636,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
                   ? BUTTON_COLOR_50
                   : BUTTON_COLOR_25;
           } else {
-            // Not playing: static brightness from note data
-            const noteValue = gridState[noteAtCell.sourceRow]?.[noteAtCell.sourceCol];
-            const rSpace = noteValue ? getRepeatSpace(noteValue) : 1;
-            const repeatIdx =
-              rSpace > 0
-                ? Math.round((noteAtCell.col - noteAtCell.sourceCol) / rSpace)
-                : 0;
-            const hitChance = noteValue
-              ? getSubModeValueAtRepeat(noteValue, "hit", repeatIdx)
+            // Not playing: static brightness from event data
+            const sourceEvent = findEventById(patternData.events, noteAtTick.sourceId);
+            const hitChance = sourceEvent
+              ? getEventSubModeValueAtRepeat(sourceEvent, "hit", noteAtTick.repeatIndex)
               : 100;
             value =
               hitChance >= 75
@@ -690,11 +657,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             value |= FLAG_PLAYING;
           }
 
-          if (
-            selectedNote &&
-            selectedNote.row === noteAtCell.sourceRow &&
-            selectedNote.col === noteAtCell.sourceCol
-          ) {
+          if (selectedNoteId && selectedNoteId === noteAtTick.sourceId) {
             value |= FLAG_SELECTED;
           }
 
@@ -702,26 +665,21 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const velPreview = actions.getSubModePreview(
             "velocity",
             currentChannel,
-            noteAtCell.sourceRow,
-            noteStartCol,
+            noteAtTick.sourceId,
+            noteStartTick,
           );
           let velocity: number;
           if (velPreview !== undefined) {
             velocity = velPreview;
           } else {
-            const noteValueForVel = gridState[noteAtCell.sourceRow]?.[noteAtCell.sourceCol];
-            const rSpaceVel = noteValueForVel ? getRepeatSpace(noteValueForVel) : 1;
-            const repeatIdxVel =
-              rSpaceVel > 0
-                ? Math.round((noteAtCell.col - noteAtCell.sourceCol) / rSpaceVel)
-                : 0;
-            velocity = noteValueForVel
-              ? getSubModeValueAtRepeat(noteValueForVel, "velocity", repeatIdxVel)
+            const sourceEvent = findEventById(patternData.events, noteAtTick.sourceId);
+            velocity = sourceEvent
+              ? getEventSubModeValueAtRepeat(sourceEvent, "velocity", noteAtTick.repeatIndex)
               : 100;
           }
           // Map velocity (7-127) to white mix: 7→0.3, 127→0
           const whiteMix = (1 - (velocity - 7) / 120) * 0.3;
-          const baseHex = noteAtCell.isRepeat ? repeatColor : channelColor;
+          const baseHex = noteAtTick.isRepeat ? repeatColor : channelColor;
           const rr = parseInt(baseHex.slice(1, 3), 16);
           const gg = parseInt(baseHex.slice(3, 5), 16);
           const bb = parseInt(baseHex.slice(5, 7), 16);
@@ -729,7 +687,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const velColor = `#${toHex(rr + (255 - rr) * whiteMix)}${toHex(gg + (255 - gg) * whiteMix)}${toHex(bb + (255 - bb) * whiteMix)}`;
 
           // Repeat notes get a hue-shifted tint (dimmed in channel mode like other note cells)
-          if (noteAtCell.isRepeat) {
+          if (noteAtTick.isRepeat) {
             colorRow.push(velColor);
             if (uiMode === "channel") value |= FLAG_DIMMED;
             row.push(value);
@@ -747,60 +705,51 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const isBottomEdge = visibleRow === VISIBLE_ROWS - 1;
           const isLeftEdge = visibleCol === 0;
           const isRightEdge = visibleCol === VISIBLE_COLS - 1;
+          const visibleEndRow = startRow + VISIBLE_ROWS - 1;
+          const endTick = startTick + VISIBLE_COLS * ticksPerCol;
 
           if (isTopEdge || isBottomEdge || isLeftEdge || isRightEdge) {
             for (const note of displayNotes) {
-              // Top edge: notes above visible area at this column
+              const noteEndTick = note.position + note.length;
+              // Top edge: notes above visible area at this tick
               if (
                 isTopEdge &&
-                note.row > endRow &&
-                note.col <= actualCol &&
-                note.col + note.length > actualCol
+                note.row > visibleEndRow &&
+                note.position <= actualTick &&
+                noteEndTick > actualTick
               ) {
                 offScreen = true;
-                if (
-                  loopedStep >= note.col &&
-                  loopedStep < note.col + note.length
-                )
+                if (loopedTick >= note.position && loopedTick < noteEndTick)
                   offScreenPlaying = true;
               }
-              // Bottom edge: notes below visible area at this column
+              // Bottom edge: notes below visible area at this tick
               if (
                 isBottomEdge &&
                 note.row < startRow &&
-                note.col <= actualCol &&
-                note.col + note.length > actualCol
+                note.position <= actualTick &&
+                noteEndTick > actualTick
               ) {
                 offScreen = true;
-                if (
-                  loopedStep >= note.col &&
-                  loopedStep < note.col + note.length
-                )
+                if (loopedTick >= note.position && loopedTick < noteEndTick)
                   offScreenPlaying = true;
               }
               // Right edge: notes to the right on this row
-              if (isRightEdge && note.row === actualRow && note.col > endCol) {
+              if (isRightEdge && note.row === actualRow && note.position >= endTick) {
                 offScreen = true;
-                if (
-                  loopedStep >= note.col &&
-                  loopedStep < note.col + note.length
-                )
+                if (loopedTick >= note.position && loopedTick < noteEndTick)
                   offScreenPlaying = true;
               }
               // Left edge: notes to the left on this row (note ends before visible area)
               if (
                 isLeftEdge &&
                 note.row === actualRow &&
-                note.col + note.length <= startCol
+                noteEndTick <= startTick
               ) {
                 offScreen = true;
-                if (
-                  loopedStep >= note.col &&
-                  loopedStep < note.col + note.length
-                )
+                if (loopedTick >= note.position && loopedTick < noteEndTick)
                   offScreenPlaying = true;
               }
-              if (offScreen && offScreenPlaying) break; // No need to keep searching
+              if (offScreen && offScreenPlaying) break;
             }
           }
 
@@ -808,21 +757,22 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             value = offScreenPlaying ? BUTTON_COLOR_50 : BUTTON_COLOR_25;
           }
 
-          // Empty cell - add grid markers
+          // Empty cell - add grid markers (tick-based)
           const isInLoop =
-            actualCol >= currentLoop.start && actualCol < loopEnd;
+            actualTick >= currentLoop.start && actualTick < loopEndTick;
 
           if (isInLoop) {
-            if (actualCol === loopedStep) {
+            // Playhead: check if loopedTick falls in this column's tick range
+            if (loopedTick >= 0 && actualTick <= loopedTick && actualTick + ticksPerCol > loopedTick) {
               value |= FLAG_PLAYHEAD;
             }
 
-            if (actualCol === currentLoop.start || actualCol === loopEnd - 1) {
+            if (actualTick === currentLoop.start || actualTick + ticksPerCol >= loopEndTick && actualTick < loopEndTick) {
               value |= FLAG_LOOP_BOUNDARY;
               if (uiMode === "loop") {
                 value |= FLAG_LOOP_BOUNDARY_PULSING;
               }
-            } else if (Math.floor(actualCol / 4) % 2 === 0) {
+            } else if (Math.floor(actualTick / TICKS_PER_QUARTER) % 2 === 0) {
               value |= FLAG_BEAT_MARKER;
             }
           }
@@ -850,7 +800,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
           if (visibleCol === 0) {
             // Column 0: mute/solo indicator
-            // Soloed = lighter, muted (or non-soloed when solo exists) = darker, normal = standard
             const isMuted = mutedChannels[channelIndex];
             const isSoloed = soloedChannels[channelIndex];
             const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
@@ -886,7 +835,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             !patternHasNotes && !isSelectedPattern && !isQueued;
 
           if (!isEmptyPattern) {
-            // Non-empty pattern: overlay channel button on top
             const isMuted = mutedChannels[channelIndex];
             const isSoloed = soloedChannels[channelIndex];
             const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
@@ -898,7 +846,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
               value = isPulsing ? BUTTON_COLOR_100 : BUTTON_COLOR_50;
             }
 
-            // Muted/effectively-muted channels get darker, soloed get lighter
             if (isEffectivelyMuted) {
               value = BUTTON_COLOR_25;
             } else if (isSoloed && !isSelectedPattern) {
@@ -925,14 +872,14 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     if (uiMode === "channel") {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
-          if (colors[r][c] !== null) continue; // Has channel overlay, skip
+          if (colors[r][c] !== null) continue;
           values[r][c] |= FLAG_DIMMED;
         }
       }
     }
 
     // Modify mode without selected note: dim the grid (waiting for note selection)
-    if (uiMode === "modify" && !selectedNote) {
+    if (uiMode === "modify" && !selectedNoteId) {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
           values[r][c] |= FLAG_DIMMED;
@@ -944,7 +891,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     if (keyboard.ctrl) {
       for (let r = 0; r < VISIBLE_ROWS; r++) {
         for (let c = 0; c < VISIBLE_COLS; c++) {
-          if (r === 7 && c <= 3) continue; // Skip mode hint buttons
+          if (r === 7 && c <= 3) continue;
           values[r][c] |= FLAG_DIMMED;
         }
       }
@@ -956,15 +903,16 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     modifySubMode,
     displayNotes,
     startRow,
-    startCol,
-    endRow,
-    endCol,
-    currentLoop.start,
-    loopEnd,
-    loopedStep,
-    selectedNote,
+    startTick,
+    ticksPerCol,
+    loopEndTick,
+    loopedTick,
+    selectedNoteId,
+    selectedEvent,
     keyboard.ctrl,
     channelColor,
+    currentChannel,
+    patternData.events,
     // Channel mode deps
     allPatternsHaveNotes,
     currentPatterns,
@@ -973,10 +921,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     isPulseBeat,
     mutedChannels,
     soloedChannels,
-    currentChannel,
     // Modify mode deps
-    gridState,
     visibleLevels,
+    currentLoop.start,
+    currentLoop.length,
   ]);
 
   // Handle button press — unified handler for both keyboard and click/touch
@@ -1017,32 +965,32 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
       // Modify mode (all sub-modes)
       if (uiMode === "modify") {
-        if (selectedNote) {
+        if (selectedNoteId) {
           commands.setSubModeValueAtCell(visibleRow, visibleCol, visibleLevels, modifiers.meta);
         } else {
-          // No note selected: click to select a note
+          // No note selected: click to select a note (convert to tick coordinates)
           const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-          const actualCol = startCol + visibleCol;
-          commands.selectNoteAtCell(actualRow, actualCol, renderedNotes);
+          const actualTick = startTick + visibleCol * ticksPerCol;
+          commands.selectNoteAtCell(actualRow, actualTick, renderedNotes);
         }
         return;
       }
 
-      // Loop mode: click sets loop boundaries, no note editing
+      // Loop mode: click sets loop boundaries (tick-based)
       if (uiMode === "loop") {
-        const actualCol = startCol + visibleCol;
+        const actualTick = startTick + visibleCol * ticksPerCol;
         if (modifiers.shift) {
-          commands.setLoopStartAt(actualCol);
+          commands.setLoopStartAt(actualTick);
         } else {
-          commands.setLoopEndAt(actualCol);
+          commands.setLoopEndAt(actualTick);
         }
         return;
       }
 
-      // Pattern mode
-      const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
-      const actualCol = startCol + visibleCol;
-      commands.handlePatternCellPress(actualRow, actualCol, renderedNotes, {
+      // Pattern mode: pass visible coords (with row flipped for MIDI note ordering)
+      // handlePatternCellPress expects visibleRow where 0 = lowest visible MIDI note
+      const flippedVisibleRow = VISIBLE_ROWS - 1 - visibleRow;
+      commands.handlePatternCellPress(flippedVisibleRow, visibleCol, renderedNotes, {
         meta: modifiers.meta,
         shift: modifiers.shift,
       });
@@ -1051,15 +999,15 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       uiMode,
       modifySubMode,
       startRow,
-      startCol,
+      startTick,
+      ticksPerCol,
       allPatternsHaveNotes,
       currentPatterns,
       queuedPatterns,
       currentChannel,
       currentPattern,
       currentLoop,
-      selectedNote,
-      gridState,
+      selectedNoteId,
       renderedNotes,
       visibleLevels,
       commands,
@@ -1100,65 +1048,54 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
 
   const getOledContent = useCallback((): { rows: OledRow[] } => {
     // Pattern mode: show note info if a note is selected
-    if (uiMode === "pattern" && selectedNote) {
-      const selectedNoteValue = gridState[selectedNote.row]?.[selectedNote.col];
-      const selectedNoteLength = selectedNoteValue
-        ? getNoteLength(selectedNoteValue)
-        : 0;
+    if (uiMode === "pattern" && selectedEvent) {
+      const noteName = midiNoteToName(selectedEvent.row);
+      const lengthDisplay = ticksToDisplay(selectedEvent.length, ticksPerCol);
+      const repeatAmount = selectedEvent.repeatAmount;
+      const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
+      const highlightLength = keyboard.shift && !keyboard.meta;
+      const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
+      const highlightRepeatSpace = keyboard.meta && keyboard.shift;
 
-      if (selectedNoteLength > 0) {
-        const noteName = midiNoteToName(selectedNote.row);
-        const selectedRepeatAmount = getRepeatAmount(selectedNoteValue);
-        const selectedRepeatSpace = getRepeatSpace(selectedNoteValue);
-        const highlightLength = keyboard.shift && !keyboard.meta;
-        const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
-        const highlightRepeatSpace = keyboard.meta && keyboard.shift;
-
-        return {
-          rows: [
-            { label: "NOTE", valueParts: [{ text: noteName }] },
-            {
-              label: "LENGTH",
-              valueParts: [
-                { text: `${selectedNoteLength}`, highlight: highlightLength },
-              ],
-            },
-            {
-              label: "REPEAT",
-              valueParts: [
-                {
-                  text: `${selectedRepeatAmount}`,
-                  highlight: highlightRepeatAmount,
-                },
-                { text: "x" },
-                {
-                  text: `${selectedRepeatSpace}`,
-                  highlight: highlightRepeatSpace,
-                },
-              ],
-            },
-          ],
-        };
-      }
+      return {
+        rows: [
+          { label: "NOTE", valueParts: [{ text: noteName }] },
+          {
+            label: "LENGTH",
+            valueParts: [
+              { text: lengthDisplay, highlight: highlightLength },
+            ],
+          },
+          {
+            label: "REPEAT",
+            valueParts: [
+              {
+                text: `${repeatAmount}`,
+                highlight: highlightRepeatAmount,
+              },
+              { text: "x" },
+              {
+                text: repeatSpaceDisplay,
+                highlight: highlightRepeatSpace,
+              },
+            ],
+          },
+        ],
+      };
     }
 
     if (uiMode === "modify") {
       const subModeLabel = SUB_MODE_CONFIG[modifySubMode].label;
-      if (selectedNote) {
-        const noteValue = gridState[selectedNote.row]?.[selectedNote.col];
-        const noteName = midiNoteToName(selectedNote.row);
-        const loopMode = noteValue
-          ? getSubModeLoopMode(noteValue, modifySubMode)
-          : "reset";
+      if (selectedEvent) {
+        const noteName = midiNoteToName(selectedEvent.row);
+        const loopMode = getEventSubModeLoopMode(selectedEvent, modifySubMode);
         const loopModeLabel =
           loopMode === "reset"
             ? "RST"
             : loopMode === "continue"
               ? "CNT"
               : "FIL";
-        const arrLen = noteValue
-          ? getSubModeArray(noteValue, modifySubMode).length
-          : 1;
+        const arrLen = getEventSubModeArrayLength(selectedEvent, modifySubMode);
         return {
           rows: [
             { label: "NOTE", valueParts: [{ text: noteName }] },
@@ -1210,12 +1147,12 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           {
             label: "START",
             valueParts: [
-              { text: `${currentLoop.start + 1}`, highlight: highlightStart },
+              { text: tickToBeatDisplay(currentLoop.start), highlight: highlightStart },
             ],
           },
           {
             label: "END",
-            valueParts: [{ text: `${loopEnd}`, highlight: highlightEnd }],
+            valueParts: [{ text: tickToBeatDisplay(loopEndTick), highlight: highlightEnd }],
           },
         ],
       };
@@ -1235,24 +1172,34 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     // Default: pattern mode summary
     return {
       rows: [
-        { label: "CH", valueParts: [{ text: `${currentChannel + 1}` }] },
-        { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
+        {
+          label: "CH",
+          valueParts: [
+            { text: `${currentChannel + 1}` },
+            { text: `  PAT ${currentPattern + 1}` },
+          ],
+        },
         {
           label: "LOOP",
-          valueParts: [{ text: `${currentLoop.start + 1}-${loopEnd}` }],
+          valueParts: [{ text: `${tickToBeatDisplay(currentLoop.start)}-${tickToBeatDisplay(loopEndTick)}` }],
+        },
+        {
+          label: "ZOOM",
+          valueParts: [{ text: zoom, highlight: true }],
         },
       ],
     };
   }, [
     uiMode,
     modifySubMode,
-    selectedNote,
-    gridState,
+    selectedEvent,
     keyboard,
     currentChannel,
     currentPattern,
     currentLoop,
-    loopEnd,
+    loopEndTick,
+    ticksPerCol,
+    zoom,
   ]);
 
   const oledContent = getOledContent();
@@ -1285,7 +1232,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   return (
     <Box css={gridOuterContainerStyles}>
       <Box css={verticalStripContainerStyles}>
-        {uiMode === "modify" && selectedNote && needsModifyScroll ? (
+        {uiMode === "modify" && selectedNoteId && needsModifyScroll ? (
           <TouchStrip
             orientation="vertical"
             value={modifyScroll}
@@ -1353,7 +1300,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             onChange={onColOffsetChange}
             length={buttonSize * 8}
             thickness={24}
-            totalItems={COLS}
+            totalItems={totalCols}
             visibleItems={VISIBLE_COLS}
             itemSize={buttonSize}
           />
@@ -1362,8 +1309,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           <span>
             Notes: {startRow} - {endRow}
           </span>
+          <span>Zoom: {zoom}</span>
           <span>
-            Beats: {startCol} - {endCol}
+            Beats: {tickToBeatDisplay(startTick)} - {tickToBeatDisplay(startTick + VISIBLE_COLS * ticksPerCol)}
           </span>
         </Box>
       </Box>

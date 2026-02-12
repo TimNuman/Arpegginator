@@ -7,6 +7,7 @@ import { useMidi } from './hooks/useMidi';
 import { useSequencerStore } from './store/sequencerStore';
 import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
+import { TICKS_PER_QUARTER } from './types/event';
 
 const darkTheme = createTheme({
   palette: {
@@ -85,10 +86,13 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, row: number, _step: number, _noteLength: number, velocity: number, extras?: StepTriggerExtras) => {
+    (channel: number, row: number, _tick: number, _noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
       const note = getRowNote(row) + (extras?.modulateHalfSteps ?? 0);
       const midiChannel = channel + 1;
-      const stepDurationMs = (60 / bpmRef.current) * 1000 / 4;
+      // Tick-based timing: ms per tick = 60000 / (bpm * PPQ)
+      const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
+      // Step duration for timing offset calculations (one 16th note = PPQ/4 ticks)
+      const stepDurationMs = tickDurationMs * (TICKS_PER_QUARTER / 4);
 
       // Timing offset: convert % of step to ms.
       // To support negative offsets (early notes) we add a lookahead so all
@@ -163,13 +167,13 @@ function App() {
   setBpmRef.current = actions.setBpm;
 
   const handlePlayNote = useCallback(
-    (note: number, channel: number, steps: number = 1) => {
+    (note: number, channel: number, lengthTicks?: number) => {
       // Use channel + 1 for MIDI channel (1-8)
       playNote(note, 100, channel + 1);
-      // Calculate duration based on BPM and number of steps
-      // At 120 BPM, one beat = 500ms, one step (16th note) = 125ms
-      const msPerStep = (60000 / bpm) / 4;
-      const duration = Math.max(50, msPerStep * steps - 10); // Subtract 10ms for note separation
+      // Calculate duration from tick length (default to 1 sixteenth note = PPQ/4 ticks)
+      const ticks = lengthTicks ?? (TICKS_PER_QUARTER / 4);
+      const tickDurationMs = 60000 / (bpm * TICKS_PER_QUARTER);
+      const duration = Math.max(50, ticks * tickDurationMs - 10); // Subtract 10ms for note separation
       setTimeout(() => stopNote(note, channel + 1), duration);
     },
     [playNote, stopNote, bpm]
@@ -185,7 +189,7 @@ function App() {
   }, [stopAllNotes]);
 
   const handleClear = useCallback(() => {
-    actions.clearGrid();
+    actions.clearPattern();
   }, []);
 
   const handleSetBpm = useCallback((newBpm: number) => {
