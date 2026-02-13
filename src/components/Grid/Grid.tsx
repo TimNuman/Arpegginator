@@ -39,7 +39,6 @@ import {
 } from "../../store/selectors";
 import * as actions from "../../actions";
 import {
-  findEventAtTick,
   findEventsInRange,
   findEventById,
   getEventSubModeLoopMode,
@@ -1053,13 +1052,22 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const lengthDisplay = ticksToDisplay(selectedEvent.length, ticksPerCol);
       const repeatAmount = selectedEvent.repeatAmount;
       const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
+      const speed = selectedEvent.speed ?? "1/16";
+      const highlightSpeed = keyboard.meta && !keyboard.shift;
       const highlightLength = keyboard.shift && !keyboard.meta;
       const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
 
       return {
         rows: [
-          { label: "NOTE", valueParts: [{ text: noteName }] },
+          {
+            label: "NOTE",
+            valueParts: [
+              { text: noteName },
+              { text: `  ` },
+              { text: speed, highlight: highlightSpeed },
+            ],
+          },
           {
             label: "LENGTH",
             valueParts: [

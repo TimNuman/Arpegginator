@@ -8,6 +8,8 @@ import {
   type ModifySubMode,
   SUB_MODE_FIELD_MAP,
   SIXTEENTH_NOTE,
+  PATTERN_SPEED_TICKS,
+  PATTERN_SPEED_ORDER,
 } from '../types/event';
 
 // ============ Helpers ============
@@ -184,6 +186,49 @@ export function setEventRepeatSpace(eventId: string, repeatSpace: number): void 
   store._updateEvent(currentChannel, patternIdx, eventId, {
     repeatSpace,
     length: clampedLength,
+  });
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+// ============ Speed Cycling ============
+
+/**
+ * Cycle the speed of a NoteEvent. Adjusts repeatSpace and length proportionally.
+ * Position stays the same. Length is clamped so notes don't overlap repeats.
+ * "faster" = toward 1/32 (smaller ticks), "slower" = toward 1/4 (larger ticks).
+ */
+export function cycleNoteSpeed(eventId: string, direction: "faster" | "slower"): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
+
+  const currentSpeed = event.speed ?? "1/16";
+  const currentIndex = PATTERN_SPEED_ORDER.indexOf(currentSpeed);
+  if (currentIndex === -1) return;
+
+  const nextIndex = direction === "faster"
+    ? Math.min(PATTERN_SPEED_ORDER.length - 1, currentIndex + 1)
+    : Math.max(0, currentIndex - 1);
+
+  if (nextIndex === currentIndex) return;
+
+  const newSpeed = PATTERN_SPEED_ORDER[nextIndex];
+  const oldTicks = PATTERN_SPEED_TICKS[currentSpeed];
+  const newTicks = PATTERN_SPEED_TICKS[newSpeed];
+
+  // Scale repeatSpace proportionally
+  const newRepeatSpace = Math.round(event.repeatSpace * newTicks / oldTicks);
+
+  // Keep length the same, only clamp if it would overlap the next repeat
+  let newLength = event.length;
+  if (event.repeatAmount > 1 && newLength > newRepeatSpace) {
+    newLength = newRepeatSpace;
+  }
+
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    speed: newSpeed,
+    repeatSpace: newRepeatSpace,
+    length: newLength,
   });
   invalidateLookup(currentChannel, patternIdx);
 }

@@ -24,6 +24,25 @@ export const TRIPLET_SIXTEENTH  = TICKS_PER_QUARTER / 6;     // 80
 export const DOTTED_QUARTER     = (TICKS_PER_QUARTER * 3) / 2; // 720
 export const DOTTED_EIGHTH      = (TICKS_PER_QUARTER * 3) / 4; // 360
 
+// ============ Pattern Speed ============
+
+export type PatternSpeed = "1/4" | "1/4T" | "1/8" | "1/8T" | "1/16" | "1/16T" | "1/32";
+
+export const PATTERN_SPEED_TICKS: Record<PatternSpeed, number> = {
+  "1/4":  QUARTER_NOTE,       // 480
+  "1/4T": TRIPLET_QUARTER,    // 320
+  "1/8":  EIGHTH_NOTE,        // 240
+  "1/8T": TRIPLET_EIGHTH,     // 160
+  "1/16": SIXTEENTH_NOTE,     // 120
+  "1/16T": TRIPLET_SIXTEENTH, // 80
+  "1/32": THIRTY_SECOND_NOTE, // 60
+};
+
+/** Ordered from slowest to fastest (for cycling: up = faster = toward 1/32) */
+export const PATTERN_SPEED_ORDER: PatternSpeed[] = [
+  "1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32",
+];
+
 // ============ Subdivision ============
 
 export type Subdivision = "1/4" | "1/8" | "1/16" | "1/32" | "1/64";
@@ -49,6 +68,9 @@ export interface NoteEvent {
   position: number;              // Start position in ticks (0-based within pattern)
   length: number;                // Duration in ticks
   enabled: boolean;
+
+  // Speed (determines repeat grid step)
+  speed: PatternSpeed;           // Note speed (default matches zoom)
 
   // Repeat system (in ticks)
   repeatAmount: number;          // 1 = no repeats
@@ -104,12 +126,14 @@ export const createNoteEvent = (
   length: number = SIXTEENTH_NOTE,
   repeatAmount: number = 1,
   repeatSpace: number = SIXTEENTH_NOTE,
+  speed: PatternSpeed = "1/16",
 ): NoteEvent => ({
   id: crypto.randomUUID(),
   row,
   position,
   length,
   enabled: true,
+  speed,
   repeatAmount,
   repeatSpace,
   velocity: [100],

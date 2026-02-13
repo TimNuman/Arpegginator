@@ -12,6 +12,7 @@ export {
   setSubModeLength,
   toggleSubModeLoopMode,
   clearDisplacedEvents,
+  cycleNoteSpeed,
 } from './noteActions';
 
 // Playback actions

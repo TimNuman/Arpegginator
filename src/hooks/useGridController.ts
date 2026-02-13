@@ -265,6 +265,17 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
       // Note-related arrow shortcuts (pattern mode only, require selected note with valid event)
       if (uiMode === "pattern" && selectedEvent && selectedEvent.length > 0) {
+        // Cmd+Up/Down: cycle note speed (faster/slower)
+        if (
+          state.meta &&
+          !state.shift &&
+          !state.alt &&
+          (key === "arrowup" || key === "arrowdown")
+        ) {
+          actions.cycleNoteSpeed(selectedEvent.id, key === "arrowup" ? "faster" : "slower");
+          return true;
+        }
+
         // Cmd+Shift+Arrow: change repeat space (auto-enable repeat if needed)
         if (
           state.meta &&

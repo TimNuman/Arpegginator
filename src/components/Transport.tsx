@@ -156,7 +156,6 @@ export const Transport = ({
   midiEnabled,
 }: TransportProps) => {
   // In slave mode (external playback from MIDI), show disabled play button
-  const isSlaveMode = selectedInput !== null;
   const showDisabledPlayButton = isPlaying && isExternalPlayback;
 
   return (
