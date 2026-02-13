@@ -22,6 +22,8 @@ export {
   tick,
   togglePlay,
   resetPlayhead,
+  scrubToTick,
+  scrubEnd,
   setBpm,
   setStepTriggerCallback,
   playExternal,

@@ -389,6 +389,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     gridPressRef,
     onRowOffsetChange,
     onColOffsetChange,
+    onScrub,
+    onScrubEnd,
   } = controller;
 
   const channelColor = CHANNEL_COLORS[currentChannel];
@@ -1310,6 +1312,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             orientation="horizontal"
             value={view.colOffset}
             onChange={onColOffsetChange}
+            onShiftChange={onScrub}
+            onShiftEnd={onScrubEnd}
             length={buttonSize * 8}
             thickness={24}
             totalItems={totalCols}

@@ -138,14 +138,6 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
   // Playhead follow — only while playing
   if (isPlaying) {
-    // Detect loop wraparound -> clear manual override so camera jumps back
-    if (
-      loopedTick >= 0 &&
-      prevLoopedTick.current >= 0 &&
-      loopedTick < prevLoopedTick.current
-    ) {
-      manualScrollOverride.current = false;
-    }
     prevLoopedTick.current = loopedTick;
 
     // Auto-scroll to follow playhead
@@ -381,6 +373,20 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     [isPlaying],
   );
 
+  // Shift-drag on horizontal strip: scrub playhead within the loop
+  const handleScrub = useCallback(
+    (value: number) => {
+      // Map 0-1 to a tick within the current loop
+      const scrubTick = Math.round(currentLoop.start + value * (currentLoop.length - 1));
+      actions.scrubToTick(scrubTick);
+    },
+    [currentLoop.start, currentLoop.length],
+  );
+
+  const handleScrubEnd = useCallback(() => {
+    actions.scrubEnd();
+  }, []);
+
   return {
     // Shared command layer
     commands,
@@ -415,5 +421,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     // Scroll handlers (memoized)
     onRowOffsetChange: handleRowOffsetChange,
     onColOffsetChange: handleColOffsetChange,
+    onScrub: handleScrub,
+    onScrubEnd: handleScrubEnd,
   };
 }

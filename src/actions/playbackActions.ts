@@ -378,6 +378,109 @@ export function resetPlayhead(): void {
   getSequencerStore()._setCurrentTick(-1);
 }
 
+// Track previous scrub tick to trigger all notes in the scrubbed range
+let lastScrubTick = -1;
+
+/**
+ * Scrub the playhead to a specific tick position and trigger all notes
+ * between the previous scrub position and the new one.
+ * Used for shift-drag scrubbing on the horizontal strip.
+ */
+export function scrubToTick(targetTick: number): void {
+  const store = getSequencerStore();
+  const { currentPatterns, patternLoops, mutedChannels, soloedChannels } = store;
+
+  // Set the tick directly
+  store._setCurrentTick(targetTick);
+
+  // Trigger notes for audio feedback
+  if (!stepTriggerCallback) return;
+
+  const anySoloed = soloedChannels.some((s) => s);
+
+  for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+    const patternIdx = currentPatterns[ch];
+    const loop = patternLoops[ch][patternIdx];
+    const loopEnd = loop.start + loop.length;
+
+    // Check mute/solo
+    const shouldPlay = anySoloed
+      ? soloedChannels[ch] && !mutedChannels[ch]
+      : !mutedChannels[ch];
+    if (!shouldPlay) continue;
+
+    const lookup = getLookup(ch, patternIdx);
+
+    // Determine the tick range to scan for notes
+    const prevTick = lastScrubTick;
+    const currLooped =
+      loop.start +
+      ((((targetTick - loop.start) % loop.length) + loop.length) % loop.length);
+
+    let scanStart: number;
+    let scanEnd: number;
+
+    if (prevTick < 0) {
+      // First scrub — just trigger at the current tick
+      scanStart = currLooped;
+      scanEnd = currLooped;
+    } else {
+      const prevLooped =
+        loop.start +
+        ((((prevTick - loop.start) % loop.length) + loop.length) % loop.length);
+
+      if (targetTick >= prevTick) {
+        // Scrubbing forward
+        scanStart = prevLooped + 1;
+        scanEnd = currLooped;
+      } else {
+        // Scrubbing backward
+        scanStart = currLooped;
+        scanEnd = prevLooped - 1;
+      }
+    }
+
+    if (scanStart > scanEnd) {
+      // Swap for backward scrubbing — we still want to trigger all notes in range
+      const tmp = scanStart;
+      scanStart = scanEnd;
+      scanEnd = tmp;
+    }
+
+    // Clamp to loop range
+    scanStart = Math.max(loop.start, scanStart);
+    scanEnd = Math.min(loopEnd - 1, scanEnd);
+
+    // Scan all ticks in range and trigger notes found in the lookup
+    for (const [tick, entries] of lookup) {
+      if (tick < scanStart || tick > scanEnd) continue;
+
+      for (const { event, repeatIndex } of entries) {
+        const velocity = resolveSubModeValue(event, "velocity", repeatIndex, ch);
+        const modulateVal = resolveSubModeValue(event, "modulate", repeatIndex, ch);
+        const midiNote = event.row + modulateVal;
+
+        // Send note-off for any currently active note on this event
+        const activeKey = `${ch}:${event.id}:${repeatIndex}`;
+        const existing = activeNotes.get(activeKey);
+        if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
+        activeNotes.set(activeKey, { start: tick, end: tick + event.length - 1, midiNote });
+
+        stepTriggerCallback(ch, event.row, tick, event.length, velocity, modulateVal !== 0 ? { modulateHalfSteps: modulateVal } : undefined);
+      }
+    }
+  }
+
+  lastScrubTick = targetTick;
+}
+
+/**
+ * Reset scrub state (call when scrub ends).
+ */
+export function scrubEnd(): void {
+  lastScrubTick = -1;
+}
+
 export function setBpm(bpm: number): void {
   getSequencerStore()._setBpm(bpm);
   // Playback loop auto-adjusts via msPerTick calculation each iteration

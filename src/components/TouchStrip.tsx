@@ -4,6 +4,8 @@ interface TouchStripProps {
   orientation: 'vertical' | 'horizontal';
   value: number;
   onChange: (value: number) => void;
+  onShiftChange?: (value: number) => void; // Called instead of onChange when shift is held
+  onShiftEnd?: () => void; // Called when shift-drag ends
   length?: number;
   thickness?: number;
   totalItems: number; // Total number of items (rows or cols)
@@ -18,6 +20,8 @@ export const TouchStrip = memo(({
   orientation,
   value,
   onChange,
+  onShiftChange,
+  onShiftEnd,
   length = 300,
   thickness = 28,
   totalItems,
@@ -26,11 +30,16 @@ export const TouchStrip = memo(({
 }: TouchStripProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
+  const isShiftDragging = useRef(false);
   const lastPos = useRef(0);
   const lastTime = useRef(0);
   const velocity = useRef(0);
   const currentValue = useRef(value);
   const animationId = useRef<number | null>(null);
+  const onShiftChangeRef = useRef(onShiftChange);
+  onShiftChangeRef.current = onShiftChange;
+  const onShiftEndRef = useRef(onShiftEnd);
+  onShiftEndRef.current = onShiftEnd;
 
   // Calculate how many items can be scrolled
   const scrollableItems = totalItems - visibleItems;
@@ -83,16 +92,41 @@ export const TouchStrip = memo(({
       return orientation === 'vertical' ? e.clientY : e.clientX;
     };
 
-    const onStart = (pos: number) => {
+    // Convert absolute pixel position to 0-1 value relative to strip
+    const posToAbsoluteValue = (pos: number): number => {
+      const rect = container.getBoundingClientRect();
+      const start = orientation === 'vertical' ? rect.top : rect.left;
+      const size = orientation === 'vertical' ? rect.height : rect.width;
+      const fraction = (pos - start) / size;
+      // Vertical strip is inverted (top = 1, bottom = 0)
+      return orientation === 'vertical'
+        ? Math.max(0, Math.min(1, 1 - fraction))
+        : Math.max(0, Math.min(1, fraction));
+    };
+
+    const onStart = (pos: number, shiftKey: boolean) => {
       stopAnimation();
       isDragging.current = true;
+      isShiftDragging.current = shiftKey && !!onShiftChangeRef.current;
       lastPos.current = pos;
       lastTime.current = performance.now();
       velocity.current = 0;
+
+      // Shift-drag: immediately scrub to absolute position
+      if (isShiftDragging.current) {
+        onShiftChangeRef.current!(posToAbsoluteValue(pos));
+      }
     };
 
     const onMove = (pos: number) => {
       if (!isDragging.current) return;
+
+      // Shift-drag: absolute position mapping
+      if (isShiftDragging.current) {
+        onShiftChangeRef.current!(posToAbsoluteValue(pos));
+        lastPos.current = pos;
+        return;
+      }
 
       const now = performance.now();
       const dt = now - lastTime.current;
@@ -117,16 +151,20 @@ export const TouchStrip = memo(({
 
     const onEnd = () => {
       if (!isDragging.current) return;
+      const wasShift = isShiftDragging.current;
       isDragging.current = false;
+      isShiftDragging.current = false;
 
-      if (Math.abs(velocity.current) > MIN_VELOCITY) {
+      if (wasShift) {
+        onShiftEndRef.current?.();
+      } else if (Math.abs(velocity.current) > MIN_VELOCITY) {
         runInertia();
       }
     };
 
     const handleMouseDown = (e: MouseEvent) => {
       e.preventDefault();
-      onStart(getPos(e));
+      onStart(getPos(e), e.shiftKey);
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -139,7 +177,7 @@ export const TouchStrip = memo(({
 
     const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
-      onStart(getPos(e.touches[0]));
+      onStart(getPos(e.touches[0]), e.shiftKey);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
