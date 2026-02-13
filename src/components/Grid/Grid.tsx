@@ -602,8 +602,12 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         const notesInCol = findEventsInRange(displayNotes, actualRow, actualTick, colEndTick);
 
         if (notesInCol.length > 0) {
-          // Pick the primary note for display: prefer the one starting earliest in the column
-          const noteAtTick = notesInCol.reduce((best, n) =>
+          // Pick the primary note for display: prefer a note that starts in this column
+          // over a continuation from a previous column (so hits render as bright, not medium)
+          const noteStartingHere = notesInCol.find(
+            (n) => n.position >= actualTick && n.position < colEndTick
+          );
+          const noteAtTick = noteStartingHere ?? notesInCol.reduce((best, n) =>
             n.position < best.position ? n : best
           );
           const isNoteStart = noteAtTick.position >= actualTick && noteAtTick.position < colEndTick;
