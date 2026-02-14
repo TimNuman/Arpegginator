@@ -3,15 +3,10 @@ import { immer } from "zustand/middleware/immer";
 import type { ModifySubMode, NoteEvent, PatternData, Subdivision } from "../types/event";
 import {
   createEmptyPatternData,
-  createNoteEvent,
   WHOLE_NOTE,
-  QUARTER_NOTE,
-  HALF_NOTE,
-  SIXTEENTH_NOTE,
 } from "../types/event";
 
 // ============ Constants ============
-export const ROWS = 128;
 export const NUM_CHANNELS = 8;
 const PATTERNS_PER_CHANNEL = 8;
 export const VISIBLE_ROWS = 8;
@@ -55,6 +50,10 @@ export interface SequencerState {
   mutedChannels: boolean[];
   soloedChannels: boolean[];
 
+  // === Scale/Key State ===
+  scaleRoot: number;  // Root note as semitone offset (0=C, 1=C#, ..., 11=B)
+  scaleId: string;    // Key into SCALES record
+
   // === View State ===
   view: ViewState;
 }
@@ -71,6 +70,7 @@ export interface SequencerActions {
   _setCurrentTick: (tick: number) => void;
   _setMutedChannels: (muted: boolean[]) => void;
   _setSoloedChannels: (soloed: boolean[]) => void;
+  _setScale: (root: number, scaleId: string) => void;
   _setView: (view: Partial<ViewState>) => void;
 
   // === Event-Based Pattern Operations ===
@@ -98,17 +98,9 @@ const createEmptyPatterns = (): PatternData[] =>
   );
 
 const createEmptyChannels = (): PatternData[][] => {
-  const channels = Array.from({ length: NUM_CHANNELS }, () =>
+  return Array.from({ length: NUM_CHANNELS }, () =>
     createEmptyPatterns(),
   );
-  // Seed channel 1 pattern 0 with a basic drumbeat for testing
-  const drums = channels[0][0];
-  drums.events.push(
-    createNoteEvent(36, 0, SIXTEENTH_NOTE, 4, QUARTER_NOTE),         // kick: every quarter note, 4x
-    createNoteEvent(40, QUARTER_NOTE, SIXTEENTH_NOTE, 2, HALF_NOTE), // snare: on beat 2 & 4
-    createNoteEvent(42, 0, SIXTEENTH_NOTE, 16, SIXTEENTH_NOTE),      // closed hat: every 16th
-  );
-  return channels;
 };
 
 const createDefaultLoops = (): PatternLoop[][] =>
@@ -119,17 +111,8 @@ const createDefaultLoops = (): PatternLoop[][] =>
     })),
   );
 
-const getInitialRowOffset = (channel: number): number => {
-  const maxRowOffset = ROWS - VISIBLE_ROWS;
-  return channel < 4
-    ? 1 - 36 / maxRowOffset // Drums: MIDI note 36
-    : 1 - 60 / maxRowOffset; // Melodic: middle C (60)
-};
-
 const createInitialView = (): ViewState => ({
-  rowOffsets: Array.from({ length: NUM_CHANNELS }, (_, i) =>
-    getInitialRowOffset(i),
-  ),
+  rowOffsets: Array.from({ length: NUM_CHANNELS }, () => 0.5), // Center on row 0
   colOffset: 0,
   uiMode: "pattern",
   modifySubMode: "velocity",
@@ -152,6 +135,8 @@ export const useSequencerStore = create<SequencerStore>()(
     currentTick: -1,
     mutedChannels: Array(NUM_CHANNELS).fill(false),
     soloedChannels: Array(NUM_CHANNELS).fill(false),
+    scaleRoot: 0,          // C
+    scaleId: "major",      // C Major
     view: createInitialView(),
 
     // Basic setters (direct state updates)
@@ -165,6 +150,7 @@ export const useSequencerStore = create<SequencerStore>()(
     _setCurrentTick: (tick) => set({ currentTick: tick }),
     _setMutedChannels: (muted) => set({ mutedChannels: muted }),
     _setSoloedChannels: (soloed) => set({ soloedChannels: soloed }),
+    _setScale: (root, scaleId) => set({ scaleRoot: root, scaleId }),
     _setView: (viewUpdate) =>
       set((state) => {
         Object.assign(state.view, viewUpdate);

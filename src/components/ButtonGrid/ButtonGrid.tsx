@@ -57,6 +57,7 @@ const isNoteContinuation = (value: number): boolean => (value & 512) !== 0;
 const isCurrentlyPlaying = (value: number): boolean => (value & 1024) !== 0;
 const isLoopBoundaryPulsing = (value: number): boolean => (value & 2048) !== 0;
 const isDimmed = (value: number): boolean => (value & 4096) !== 0;
+const isInScale = (value: number): boolean => (value & 8192) !== 0;
 
 // Parse hex color to RGB
 const parseHex = (hex: string): { r: number; g: number; b: number } => {
@@ -76,6 +77,7 @@ const getBackgroundColor = (value: number, channelColor: string): string => {
   const selected = isSelected(value);
   const playhead = isPlayhead(value);
   const cNote = isCNote(value);
+  const inScale = isInScale(value);
   const loopBoundary = isLoopBoundary(value);
   const beatMarker = isBeatMarker(value);
 
@@ -85,6 +87,7 @@ const getBackgroundColor = (value: number, channelColor: string): string => {
   else if (beatMarker) baseBrightness = 0.15;
   else if (level === 0) baseBrightness = 0.1; // In-loop default
   if (cNote) baseBrightness += 0.1;
+  else if (inScale) baseBrightness += 0.08;
 
   // Off state
   if (level === 0) {
@@ -318,3 +321,4 @@ export const FLAG_CONTINUATION = 512;
 export const FLAG_PLAYING = 1024;
 export const FLAG_LOOP_BOUNDARY_PULSING = 2048;
 export const FLAG_DIMMED = 4096;
+export const FLAG_IN_SCALE = 8192;

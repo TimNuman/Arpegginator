@@ -1,7 +1,6 @@
 import { useCallback, useRef, useMemo } from "react";
 import {
   useSequencerStore,
-  ROWS,
   VISIBLE_ROWS,
   VISIBLE_COLS,
 } from "../store/sequencerStore";
@@ -19,6 +18,7 @@ import {
   SUBDIVISION_TICKS,
   findEventById,
 } from "../types/event";
+import { SCALES, buildScaleMapping } from "../types/scales";
 
 // Keyboard to grid position mapping
 const KEY_MAP: Record<string, { row: number; col: number }> = {
@@ -75,10 +75,22 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const colOffset = useSequencerStore((s) => s.view.colOffset);
   const uiMode = useSequencerStore((s) => s.view.uiMode);
   const modifySubMode = useSequencerStore((s) => s.view.modifySubMode);
+  const scaleRoot = useSequencerStore((s) => s.scaleRoot);
+  const scaleId = useSequencerStore((s) => s.scaleId);
   const currentPattern = useCurrentPattern();
   const currentLoop = useCurrentLoop();
   const patternData = usePatternData();
   const zoom = useZoom();
+
+  // Always-on scale mapping
+  const scalePattern = useMemo(
+    () => SCALES[scaleId]?.pattern ?? SCALES.major.pattern,
+    [scaleId],
+  );
+  const scaleMapping = useMemo(
+    () => buildScaleMapping(scaleRoot, scalePattern),
+    [scaleRoot, scalePattern],
+  );
 
   // Tick-based layout
   const ticksPerCol = SUBDIVISION_TICKS[zoom];
@@ -86,8 +98,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
   // Compute rendered notes with useMemo to avoid recreating on every render
   const renderedNotes = useMemo(
-    () => renderEventsToArray(patternData.events, patternData.lengthTicks),
-    [patternData.events, patternData.lengthTicks],
+    () => renderEventsToArray(patternData.events, patternData.lengthTicks, scaleMapping.minRow, scaleMapping.maxRow),
+    [patternData.events, patternData.lengthTicks, scaleMapping.minRow, scaleMapping.maxRow],
   );
 
   // Ref for unified grid press handler (set by Grid.tsx)
@@ -99,9 +111,13 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const prevIsPlaying = useRef(false);
 
   // Calculate visible area
-  const maxRowOffset = ROWS - VISIBLE_ROWS;
+  const totalRows = scaleMapping.totalRows;
+  const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = totalCols - VISIBLE_COLS;
-  const startRow = Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset);
+  const startArrayIndex = maxRowOffset > 0
+    ? Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset)
+    : 0;
+  const startRow = startArrayIndex + scaleMapping.minRow;
   const startCol = maxColOffset > 0
     ? Math.round(colOffset * maxColOffset)
     : 0;
@@ -252,6 +268,22 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         (code === "ArrowLeft" || code === "ArrowRight")
       ) {
         commands.adjustSubModeArrayLength(code === "ArrowRight" ? "right" : "left");
+        return true;
+      }
+
+      // Alt+Arrow: cycle scale root (left/right) and scale mode (up/down)
+      if (
+        state.alt &&
+        !state.meta &&
+        !state.ctrl &&
+        !state.shift &&
+        (code === "ArrowUp" || code === "ArrowDown" || code === "ArrowLeft" || code === "ArrowRight")
+      ) {
+        if (code === "ArrowUp" || code === "ArrowDown") {
+          actions.cycleScale(code === "ArrowUp" ? "up" : "down");
+        } else {
+          actions.cycleScaleRoot(code === "ArrowRight" ? "up" : "down");
+        }
         return true;
       }
 
@@ -414,6 +446,10 @@ export function useGridController(options: UseGridControllerOptions = {}) {
     ticksPerCol,
     startTick,
     totalCols,
+    totalRows,
+
+    // Scale mapping
+    scaleMapping,
 
     // Unified grid press ref (set by Grid.tsx)
     gridPressRef,

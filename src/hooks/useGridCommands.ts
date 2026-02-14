@@ -1,7 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   useSequencerStore,
-  ROWS,
   VISIBLE_ROWS,
   VISIBLE_COLS,
 } from "../store/sequencerStore";
@@ -16,6 +15,7 @@ import {
   type RenderedNoteT,
 } from "../types/event";
 import type { UiMode } from "../store/sequencerStore";
+import { SCALES, buildScaleMapping, noteToMidi } from "../types/scales";
 
 interface UseGridCommandsOptions {
   onPlayNote?: (note: number, channel: number, lengthTicks?: number) => void;
@@ -30,21 +30,47 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
   const rowOffsets = useSequencerStore((s) => s.view.rowOffsets);
   const colOffset = useSequencerStore((s) => s.view.colOffset);
   const modifySubMode = useSequencerStore((s) => s.view.modifySubMode);
+  const scaleRoot = useSequencerStore((s) => s.scaleRoot);
+  const scaleId = useSequencerStore((s) => s.scaleId);
   const currentLoop = useCurrentLoop();
   const currentPattern = useCurrentPattern();
   const patternData = usePatternData();
   const zoom = useZoom();
 
+  // Scale pattern for mapping
+  const scalePattern = useMemo(
+    () => SCALES[scaleId]?.pattern ?? SCALES.major.pattern,
+    [scaleId],
+  );
+
+  // Always-on scale mapping
+  const scaleMapping = useMemo(
+    () => buildScaleMapping(scaleRoot, scalePattern),
+    [scaleRoot, scalePattern],
+  );
+
   // Tick-based grid calculations
   const ticksPerCol = SUBDIVISION_TICKS[zoom];
   const totalCols = Math.ceil(patternData.lengthTicks / ticksPerCol);
-  const maxRowOffset = ROWS - VISIBLE_ROWS;
+  const totalRows = scaleMapping.totalRows;
+  const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
-  const startRow = Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset);
+  const startArrayIndex = maxRowOffset > 0
+    ? Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset)
+    : 0;
+  const startRow = startArrayIndex + scaleMapping.minRow;
   const startCol = maxColOffset > 0
     ? Math.round(colOffset * maxColOffset)
     : 0;
   const startTick = startCol * ticksPerCol;
+
+  /** Map a visible row index (0 = lowest) to a scale-relative index */
+  const visibleRowToScaleIndex = useCallback(
+    (visibleRow: number): number => {
+      return startRow + visibleRow;
+    },
+    [startRow],
+  );
 
   // Helper to get fresh pattern data from store (always reads latest state)
   const getPatternData = () => {
@@ -52,32 +78,32 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
     return s.patterns[s.currentChannel][s.currentPatterns[s.currentChannel]];
   };
 
-  // Helper to play a preview note
+  // Helper to play a preview note (converts scale index to MIDI)
   const playPreviewNote = useCallback(
     (row: number, lengthTicks?: number) => {
       if (!isPlaying && onPlayNote) {
-        onPlayNote(row, currentChannel, lengthTicks);
+        const midiNote = noteToMidi(row, scaleMapping);
+        if (midiNote >= 0) {
+          onPlayNote(midiNote, currentChannel, lengthTicks);
+        }
       }
     },
-    [isPlaying, onPlayNote, currentChannel],
+    [isPlaying, onPlayNote, currentChannel, scaleMapping],
   );
 
   // Helper to follow note with camera (tick-based)
   const followNoteWithCamera = useCallback(
     (row: number, tick: number) => {
-      // Row: check if row is outside visible area
-      if (row < startRow) {
-        const newRowOffset = 1 - row / maxRowOffset;
-        actions.setRowOffset(
-          currentChannel,
-          Math.max(0, Math.min(1, newRowOffset)),
-        );
-      } else if (row > startRow + VISIBLE_ROWS - 1) {
-        const newRowOffset = 1 - (row - VISIBLE_ROWS + 1) / maxRowOffset;
-        actions.setRowOffset(
-          currentChannel,
-          Math.max(0, Math.min(1, newRowOffset)),
-        );
+      // Row: convert scale-relative index to array position, check if outside visible area
+      const arrayPos = row - scaleMapping.minRow;
+      if (maxRowOffset > 0) {
+        if (arrayPos < startArrayIndex) {
+          const newRowOffset = 1 - arrayPos / maxRowOffset;
+          actions.setRowOffset(currentChannel, Math.max(0, Math.min(1, newRowOffset)));
+        } else if (arrayPos > startArrayIndex + VISIBLE_ROWS - 1) {
+          const newRowOffset = 1 - (arrayPos - VISIBLE_ROWS + 1) / maxRowOffset;
+          actions.setRowOffset(currentChannel, Math.max(0, Math.min(1, newRowOffset)));
+        }
       }
 
       // Column: convert tick to column index, then check visible area
@@ -92,7 +118,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
         }
       }
     },
-    [currentChannel, startRow, startCol, maxRowOffset, maxColOffset, ticksPerCol],
+    [currentChannel, startArrayIndex, startCol, maxRowOffset, maxColOffset, ticksPerCol, scaleMapping.minRow],
   );
 
   // Move selected note in a direction
@@ -108,12 +134,20 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       let newPosition = event.position;
 
       switch (direction) {
-        case "up":
-          newRow = Math.min(ROWS - 1, event.row + 1);
+        case "up": {
+          const candidateRow = event.row + 1;
+          if (noteToMidi(candidateRow, scaleMapping) >= 0) {
+            newRow = candidateRow;
+          }
           break;
-        case "down":
-          newRow = Math.max(0, event.row - 1);
+        }
+        case "down": {
+          const candidateRow = event.row - 1;
+          if (noteToMidi(candidateRow, scaleMapping) >= 0) {
+            newRow = candidateRow;
+          }
           break;
+        }
         case "left":
           newPosition = Math.max(0, event.position - ticksPerCol);
           break;
@@ -128,7 +162,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
         playPreviewNote(newRow);
       }
     },
-    [selectedNoteId, ticksPerCol, followNoteWithCamera, playPreviewNote],
+    [selectedNoteId, ticksPerCol, followNoteWithCamera, playPreviewNote, scaleMapping],
   );
 
   // Adjust loop end boundary
@@ -359,7 +393,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       renderedNotes: RenderedNoteT[],
       modifiers: { meta: boolean; shift: boolean },
     ) => {
-      const row = startRow + visibleRow;
+      const row = visibleRowToScaleIndex(visibleRow);
       const tick = startTick + visibleCol * ticksPerCol;
       const pd = getPatternData();
       const noteAtTick = findEventAtTick(renderedNotes, row, tick);
@@ -452,7 +486,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       }
       playPreviewNote(row);
     },
-    [startRow, startTick, ticksPerCol, playPreviewNote],
+    [visibleRowToScaleIndex, startTick, ticksPerCol, playPreviewNote],
   );
 
   // Channel mode cell press logic

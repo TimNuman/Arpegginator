@@ -25,7 +25,6 @@ import {
   useSequencerStore,
   VISIBLE_ROWS,
   VISIBLE_COLS,
-  ROWS,
   type UiMode,
 } from "../../store/sequencerStore";
 import {
@@ -48,6 +47,7 @@ import {
   TICKS_PER_QUARTER,
   type ModifySubMode,
 } from "../../types/event";
+import { SCALES, NOTE_NAMES, noteToMidi } from "../../types/scales";
 
 const noop = () => {};
 
@@ -367,6 +367,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const mutedChannels = useMutedChannels();
   const soloedChannels = useSoloedChannels();
   const view = useSequencerStore((s) => s.view);
+  const scaleRoot = useSequencerStore((s) => s.scaleRoot);
+  const scaleId = useSequencerStore((s) => s.scaleId);
 
   const {
     commands,
@@ -386,6 +388,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     ticksPerCol,
     startTick,
     totalCols,
+    totalRows,
+    scaleMapping,
     gridPressRef,
     onRowOffsetChange,
     onColOffsetChange,
@@ -439,9 +443,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     return allLevels.slice(scrollIndex, scrollIndex + VISIBLE_ROWS);
   }, [allLevels, needsModifyScroll, modifyScroll]);
 
-  // Apply modulate preview offsets to rendered notes when playing
+  // Apply modulate preview offsets to rendered notes
   const displayNotes = useMemo(() => {
-    if (loopedTick < 0) return renderedNotes; // not playing, use static
+    const isPlayback = loopedTick >= 0;
+    if (!isPlayback) return renderedNotes;
     let changed = false;
     const adjusted = renderedNotes.map((note) => {
       const modPreview = actions.getSubModePreview(
@@ -450,14 +455,17 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         note.sourceId,
         note.position,
       );
-      if (modPreview === undefined) return note;
-      const displayRow = Math.max(0, Math.min(ROWS - 1, note.sourceRow + modPreview));
-      if (displayRow === note.row) return note;
-      changed = true;
-      return { ...note, row: displayRow };
+      if (modPreview !== undefined) {
+        const displayRow = Math.max(scaleMapping.minRow, Math.min(scaleMapping.maxRow, note.sourceRow + modPreview));
+        if (displayRow !== note.row) {
+          changed = true;
+          return { ...note, row: displayRow };
+        }
+      }
+      return note;
     });
     return changed ? adjusted : renderedNotes;
-  }, [renderedNotes, loopedTick, currentChannel]);
+  }, [renderedNotes, loopedTick, currentChannel, scaleMapping.minRow, scaleMapping.maxRow]);
 
   // Compute button values and color overrides for all modes
   const { buttonValues, colorOverrides } = useMemo(() => {
@@ -592,7 +600,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const colorRow: (string | null)[] = [];
 
       // Always render the note grid as the base layer
-      const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+      const flippedVisibleRow = VISIBLE_ROWS - 1 - visibleRow;
+      const actualRow = startRow + flippedVisibleRow;
 
       for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
         const actualTick = startTick + visibleCol * ticksPerCol;
@@ -710,16 +719,18 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const isBottomEdge = visibleRow === VISIBLE_ROWS - 1;
           const isLeftEdge = visibleCol === 0;
           const isRightEdge = visibleCol === VISIBLE_COLS - 1;
-          const visibleEndRow = startRow + VISIBLE_ROWS - 1;
+          const visibleBottomRow = startRow;
+          const visibleTopRow = startRow + VISIBLE_ROWS - 1;
           const endTick = startTick + VISIBLE_COLS * ticksPerCol;
 
           if (isTopEdge || isBottomEdge || isLeftEdge || isRightEdge) {
             for (const note of displayNotes) {
               const noteEndTick = note.position + note.length;
+
               // Top edge: notes above visible area at this tick
               if (
                 isTopEdge &&
-                note.row > visibleEndRow &&
+                note.row > visibleTopRow &&
                 note.position <= actualTick &&
                 noteEndTick > actualTick
               ) {
@@ -730,7 +741,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
               // Bottom edge: notes below visible area at this tick
               if (
                 isBottomEdge &&
-                note.row < startRow &&
+                note.row < visibleBottomRow &&
                 note.position <= actualTick &&
                 noteEndTick > actualTick
               ) {
@@ -783,8 +794,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           }
         }
 
-        // C note marker
-        if (actualRow % 12 === 0) {
+        // Root note marker (check if this scale-relative row maps to a root note)
+        const midiForRow = noteToMidi(actualRow, scaleMapping);
+        if (midiForRow >= 0 && midiForRow % 12 === scaleRoot) {
           value |= FLAG_C_NOTE;
         }
 
@@ -930,6 +942,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     visibleLevels,
     currentLoop.start,
     currentLoop.length,
+    // Scale mapping
+    scaleMapping,
+    scaleRoot,
   ]);
 
   // Handle button press — unified handler for both keyboard and click/touch
@@ -974,7 +989,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           commands.setSubModeValueAtCell(visibleRow, visibleCol, visibleLevels, modifiers.meta);
         } else {
           // No note selected: click to select a note (convert to tick coordinates)
-          const actualRow = startRow + (VISIBLE_ROWS - 1 - visibleRow);
+          const flipped = VISIBLE_ROWS - 1 - visibleRow;
+          const actualRow = startRow + flipped;
           const actualTick = startTick + visibleCol * ticksPerCol;
           commands.selectNoteAtCell(actualRow, actualTick, renderedNotes);
         }
@@ -1054,7 +1070,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const getOledContent = useCallback((): { rows: OledRow[] } => {
     // Pattern mode: show note info if a note is selected
     if (uiMode === "pattern" && selectedEvent) {
-      const noteName = midiNoteToName(selectedEvent.row);
+      const midiNote = noteToMidi(selectedEvent.row, scaleMapping);
+      const noteName = midiNote >= 0 ? midiNoteToName(midiNote) : "??";
       const lengthDisplay = ticksToDisplay(selectedEvent.length, ticksPerCol);
       const repeatAmount = selectedEvent.repeatAmount;
       const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
@@ -1101,7 +1118,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     if (uiMode === "modify") {
       const subModeLabel = SUB_MODE_CONFIG[modifySubMode].label;
       if (selectedEvent) {
-        const noteName = midiNoteToName(selectedEvent.row);
+        const midiNote = noteToMidi(selectedEvent.row, scaleMapping);
+        const noteName = midiNote >= 0 ? midiNoteToName(midiNote) : "??";
         const loopMode = getEventSubModeLoopMode(selectedEvent, modifySubMode);
         const loopModeLabel =
           loopMode === "reset"
@@ -1184,6 +1202,11 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     }
 
     // Default: pattern mode summary
+    const scaleDef = SCALES[scaleId];
+    const scaleRootName = NOTE_NAMES[scaleRoot];
+    const scaleName = scaleDef?.name ?? scaleId;
+    const highlightKey = keyboard.alt;
+
     return {
       rows: [
         {
@@ -1198,8 +1221,12 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           valueParts: [{ text: `${tickToBeatDisplay(currentLoop.start)}-${tickToBeatDisplay(loopEndTick)}` }],
         },
         {
-          label: "ZOOM",
-          valueParts: [{ text: zoom, highlight: true }],
+          label: "KEY",
+          valueParts: [
+            { text: scaleRootName, highlight: highlightKey },
+            { text: " " },
+            { text: scaleName, highlight: highlightKey },
+          ],
         },
       ],
     };
@@ -1214,6 +1241,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     loopEndTick,
     ticksPerCol,
     zoom,
+    scaleRoot,
+    scaleId,
+    scaleMapping,
   ]);
 
   const oledContent = getOledContent();
@@ -1264,7 +1294,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             onChange={onRowOffsetChange}
             length={gridHeight}
             thickness={24}
-            totalItems={ROWS}
+            totalItems={totalRows}
             visibleItems={VISIBLE_ROWS}
             itemSize={buttonSize}
           />
@@ -1323,7 +1353,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         </Box>
         <Box css={debugStyles}>
           <span>
-            Notes: {startRow} - {endRow}
+            Notes: {(() => { const m = noteToMidi(startRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : startRow; })()} - {(() => { const m = noteToMidi(endRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : endRow; })()}
           </span>
           <span>Zoom: {zoom}</span>
           <span>

@@ -14,4 +14,5 @@ export {
   FLAG_PLAYING,
   FLAG_LOOP_BOUNDARY_PULSING,
   FLAG_DIMMED,
+  FLAG_IN_SCALE,
 } from "./ButtonGrid";

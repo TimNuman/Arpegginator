@@ -66,3 +66,10 @@ export {
   setZoom,
   cycleZoom,
 } from './viewActions';
+
+// Scale actions
+export {
+  cycleScaleRoot,
+  cycleScale,
+  getScaleRootName,
+} from './scaleActions';

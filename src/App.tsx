@@ -9,6 +9,7 @@ import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
 import { TICKS_PER_QUARTER } from './types/event';
 
+
 const darkTheme = createTheme({
   palette: {
     mode: 'dark',
@@ -51,11 +52,6 @@ const titleStyles = css`
   background-clip: text;
 `;
 
-// Row number equals MIDI note number directly (0-127)
-const getRowNote = (row: number): number => {
-  return row;
-};
-
 function App() {
   // Use a ref for BPM so handleStepTrigger can access current value without re-creating
   const bpmRef = useRef(120);
@@ -86,8 +82,8 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, row: number, _tick: number, _noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
-      const note = getRowNote(row) + (extras?.modulateHalfSteps ?? 0);
+    (channel: number, midiNote: number, _tick: number, _noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
+      const note = midiNote; // Already MIDI, modulation applied in playbackActions
       const midiChannel = channel + 1;
       // Tick-based timing: ms per tick = 60000 / (bpm * PPQ)
       const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);

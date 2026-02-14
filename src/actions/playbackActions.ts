@@ -8,12 +8,12 @@ import {
   getEventSubModeValueAtRepeatFill,
   TICKS_PER_QUARTER,
 } from '../types/event';
+import { SCALES, buildScaleMapping, noteToMidi, type ScaleMapping } from '../types/scales';
 
 // Extra parameters passed alongside each triggered note
 export interface StepTriggerExtras {
   timingOffsetPercent?: number; // Fixed micro-timing offset as % of step (signed)
   flamCount?: number;            // Number of flam grace notes (0 = none)
-  modulateHalfSteps?: number;    // Pitch transposition in half steps (signed)
 }
 
 // Callback references
@@ -178,6 +178,15 @@ function resolveSubModeValue(
   }
 }
 
+/**
+ * Get the current scale mapping from the store.
+ */
+function getCurrentScaleMapping(): ScaleMapping {
+  const store = getSequencerStore();
+  const pattern = SCALES[store.scaleId]?.pattern ?? SCALES.major.pattern;
+  return buildScaleMapping(store.scaleRoot, pattern);
+}
+
 // ============ Public API ============
 
 export function setStepTriggerCallback(
@@ -201,6 +210,7 @@ export function tick(): void {
 
   const nextTick = currentTick + 1;
   const patternsToSwitch: { channel: number; pattern: number }[] = [];
+  const mapping = getCurrentScaleMapping();
 
   for (let ch = 0; ch < NUM_CHANNELS; ch++) {
     const patternIdx = currentPatterns[ch];
@@ -260,17 +270,18 @@ export function tick(): void {
           const extras: StepTriggerExtras = {};
           if (timingOffsetPct !== 0) extras.timingOffsetPercent = timingOffsetPct;
           if (flamProb > 0 && Math.random() * 100 < flamProb) extras.flamCount = 1;
-          if (modulateVal !== 0) extras.modulateHalfSteps = modulateVal;
 
-          const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined || extras.modulateHalfSteps !== undefined;
-          const midiNote = event.row + (extras.modulateHalfSteps ?? 0);
+          const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
+          const effectiveRow = event.row + modulateVal;
+          const midiNote = noteToMidi(effectiveRow, mapping);
+          if (midiNote < 0) continue; // Out of MIDI range
 
           const activeKey = `${ch}:${event.id}:${repeatIndex}`;
           const existing = activeNotes.get(activeKey);
           if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
           activeNotes.set(activeKey, { start: channelTick, end: channelTick + event.length - 1, midiNote });
 
-          stepTriggerCallback(ch, event.row, channelTick, event.length, velocity, hasExtras ? extras : undefined);
+          stepTriggerCallback(ch, midiNote, channelTick, event.length, velocity, hasExtras ? extras : undefined);
         }
       }
     }
@@ -389,6 +400,7 @@ let lastScrubTick = -1;
 export function scrubToTick(targetTick: number): void {
   const store = getSequencerStore();
   const { currentPatterns, patternLoops, mutedChannels, soloedChannels } = store;
+  const mapping = getCurrentScaleMapping();
 
   // Set the tick directly
   store._setCurrentTick(targetTick);
@@ -458,7 +470,9 @@ export function scrubToTick(targetTick: number): void {
       for (const { event, repeatIndex } of entries) {
         const velocity = resolveSubModeValue(event, "velocity", repeatIndex, ch);
         const modulateVal = resolveSubModeValue(event, "modulate", repeatIndex, ch);
-        const midiNote = event.row + modulateVal;
+        const effectiveRow = event.row + modulateVal;
+        const midiNote = noteToMidi(effectiveRow, mapping);
+        if (midiNote < 0) continue; // Out of MIDI range
 
         // Send note-off for any currently active note on this event
         const activeKey = `${ch}:${event.id}:${repeatIndex}`;
@@ -466,7 +480,7 @@ export function scrubToTick(targetTick: number): void {
         if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
         activeNotes.set(activeKey, { start: tick, end: tick + event.length - 1, midiNote });
 
-        stepTriggerCallback(ch, event.row, tick, event.length, velocity, modulateVal !== 0 ? { modulateHalfSteps: modulateVal } : undefined);
+        stepTriggerCallback(ch, midiNote, tick, event.length, velocity);
       }
     }
   }

@@ -64,7 +64,7 @@ export const SUBDIVISION_ORDER: Subdivision[] = [
 
 export interface NoteEvent {
   id: string;
-  row: number;                   // MIDI note (0-127)
+  row: number;                   // Scale-relative index (0 = root at octave 4)
   position: number;              // Start position in ticks (0-based within pattern)
   length: number;                // Duration in ticks
   enabled: boolean;
@@ -107,11 +107,11 @@ export type TickLookupMap = Map<number, { event: NoteEvent; repeatIndex: number 
 /** A rendered note instance for display purposes (tick-based) */
 export interface RenderedNoteT {
   id: string;                    // Unique ID for this rendered instance
-  row: number;                   // Display row (after modulation offset)
+  row: number;                   // Display row (scale-relative index, after modulation offset)
   position: number;              // Tick position of this instance
   length: number;                // Length in ticks
   sourceId: string;              // NoteEvent.id of the parent
-  sourceRow: number;             // Original row of the parent NoteEvent
+  sourceRow: number;             // Original scale-relative index of the parent NoteEvent
   sourcePosition: number;        // Tick position of the parent NoteEvent
   isRepeat: boolean;             // True if this is a repeat (not the original)
   repeatIndex: number;           // Which repeat (0 = original)
@@ -239,12 +239,13 @@ export const buildTickLookup = (
 
 /**
  * Render all enabled NoteEvents to a flat array of RenderedNoteT instances.
- * Expands repeats and applies modulation offsets.
+ * Expands repeats and applies modulation offsets (in scale steps).
  */
 export const renderEventsToArray = (
   events: NoteEvent[],
   patternLengthTicks: number,
-  maxRow: number = 127,
+  minRow: number = -128,
+  maxRow: number = 128,
 ): RenderedNoteT[] => {
   const rendered: RenderedNoteT[] = [];
 
@@ -256,7 +257,7 @@ export const renderEventsToArray = (
       if (tick >= patternLengthTicks) break;
 
       const modOffset = getEventSubModeValueAtRepeat(event, "modulate", r);
-      const displayRow = Math.max(0, Math.min(maxRow, event.row + modOffset));
+      const displayRow = Math.max(minRow, Math.min(maxRow, event.row + modOffset));
 
       rendered.push({
         id: `${event.id}:${r}`,
