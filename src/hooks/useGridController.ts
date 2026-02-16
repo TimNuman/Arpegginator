@@ -277,10 +277,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // Alt+Arrow: cycle scale root (left/right) and scale mode (up/down) — melodic pattern mode only
+      // Alt+Arrow: cycle scale root (left/right) and scale mode (up/down) — melodic pattern mode, no selected note
       if (
         uiMode === "pattern" &&
         !isDrum &&
+        !selectedEvent &&
         state.alt &&
         !state.meta &&
         !state.ctrl &&
@@ -297,11 +298,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
       // Note-related arrow shortcuts (pattern mode only, require selected note with valid event)
       if (uiMode === "pattern" && selectedEvent && selectedEvent.length > 0) {
-        // Cmd+Up/Down: cycle note speed (faster/slower)
+        // Opt+Up/Down: cycle note speed (faster/slower)
         if (
-          state.meta &&
+          state.alt &&
           !state.shift &&
-          !state.alt &&
+          !state.meta &&
           (key === "arrowup" || key === "arrowdown")
         ) {
           actions.cycleNoteSpeed(selectedEvent.id, key === "arrowup" ? "faster" : "slower");

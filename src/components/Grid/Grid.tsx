@@ -1087,8 +1087,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const repeatAmount = selectedEvent.repeatAmount;
       const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
       const speed = selectedEvent.speed ?? "1/16";
-      const highlightSpeed = keyboard.meta && !keyboard.shift;
-      const highlightLength = keyboard.shift && !keyboard.meta;
+      const highlightSpeed = keyboard.alt && !keyboard.shift;
+      const highlightLength = keyboard.shift && !keyboard.alt;
       const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
 
