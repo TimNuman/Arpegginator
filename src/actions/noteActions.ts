@@ -11,6 +11,7 @@ import {
   PATTERN_SPEED_TICKS,
   PATTERN_SPEED_ORDER,
 } from '../types/event';
+import { getShapeCount, getMaxInversion } from '../types/chords';
 
 // ============ Helpers ============
 
@@ -318,5 +319,81 @@ export function toggleSubModeLoopMode(eventId: string, subMode: ModifySubMode): 
   store._updateEvent(currentChannel, patternIdx, eventId, {
     [loopModeField]: newMode,
   } as Partial<NoteEvent>);
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+// ============ Chord Stack Operations ============
+
+/**
+ * Adjust the chord stack size (Cmd+Up to add, Cmd+Down to remove).
+ * When shrinking, clamp shape index and reset inversion if they exceed new bounds.
+ */
+export function adjustChordStack(eventId: string, direction: "up" | "down"): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
+
+  const newSize = direction === "up"
+    ? Math.min(5, event.chordStackSize + 1)
+    : Math.max(1, event.chordStackSize - 1);
+
+  if (newSize === event.chordStackSize) return;
+
+  // Clamp shape index if it exceeds available shapes for the new size
+  const shapeCount = getShapeCount(newSize);
+  const newShapeIndex = event.chordShapeIndex >= shapeCount ? 0 : event.chordShapeIndex;
+
+  // Clamp inversion to valid range for new size
+  const maxInv = getMaxInversion(newSize);
+  const newInversion = Math.max(-maxInv, Math.min(maxInv, event.chordInversion));
+
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    chordStackSize: newSize,
+    chordShapeIndex: newShapeIndex,
+    chordInversion: newInversion,
+  });
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+/**
+ * Cycle through chord shapes (Cmd+Shift+Up/Down).
+ */
+export function cycleChordShape(eventId: string, direction: "up" | "down"): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
+
+  if (event.chordStackSize <= 1) return; // No shapes for single notes
+
+  const shapeCount = getShapeCount(event.chordStackSize);
+  const delta = direction === "up" ? 1 : -1;
+  const newIndex = ((event.chordShapeIndex + delta) % shapeCount + shapeCount) % shapeCount;
+
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    chordShapeIndex: newIndex,
+  });
+  invalidateLookup(currentChannel, patternIdx);
+}
+
+/**
+ * Cycle chord inversion (Shift+Up/Down in pattern mode with selected note).
+ * Up = bottom note +octave, Down = top note -octave.
+ */
+export function cycleChordInversion(eventId: string, direction: "up" | "down"): void {
+  const { store, currentChannel, patternIdx, patternData } = getCurrentPatternContext();
+  const event = findEventById(patternData.events, eventId);
+  if (!event) return;
+
+  if (event.chordStackSize <= 1) return; // No inversions for single notes
+
+  const maxInv = getMaxInversion(event.chordStackSize);
+  const delta = direction === "up" ? 1 : -1;
+  const newInversion = Math.max(-maxInv, Math.min(maxInv, event.chordInversion + delta));
+
+  if (newInversion === event.chordInversion) return;
+
+  store._updateEvent(currentChannel, patternIdx, eventId, {
+    chordInversion: newInversion,
+  });
   invalidateLookup(currentChannel, patternIdx);
 }

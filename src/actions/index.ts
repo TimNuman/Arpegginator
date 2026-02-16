@@ -13,6 +13,9 @@ export {
   toggleSubModeLoopMode,
   clearDisplacedEvents,
   cycleNoteSpeed,
+  adjustChordStack,
+  cycleChordShape,
+  cycleChordInversion,
 } from './noteActions';
 
 // Playback actions

@@ -9,6 +9,7 @@ import {
   TICKS_PER_QUARTER,
 } from '../types/event';
 import { SCALES, buildScaleMapping, noteToMidi, type ScaleMapping } from '../types/scales';
+import { getChordOffsets } from '../types/chords';
 
 // Extra parameters passed alongside each triggered note
 export interface StepTriggerExtras {
@@ -273,17 +274,24 @@ export function tick(): void {
 
           const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
           const effectiveRow = event.row + modulateVal;
-          const midiNote = store.channelTypes[ch] === "drum"
-            ? Math.max(0, Math.min(127, effectiveRow))
-            : noteToMidi(effectiveRow, mapping);
-          if (midiNote < 0) continue; // Out of MIDI range
 
-          const activeKey = `${ch}:${event.id}:${repeatIndex}`;
-          const existing = activeNotes.get(activeKey);
-          if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
-          activeNotes.set(activeKey, { start: channelTick, end: channelTick + event.length - 1, midiNote });
+          // Expand chord offsets
+          const chordOffsets = getChordOffsets(event.chordStackSize, event.chordShapeIndex, event.chordInversion);
 
-          stepTriggerCallback(ch, midiNote, channelTick, event.length, velocity, hasExtras ? extras : undefined);
+          for (let ci = 0; ci < chordOffsets.length; ci++) {
+            const chordRow = effectiveRow + chordOffsets[ci];
+            const midiNote = store.channelTypes[ch] === "drum"
+              ? Math.max(0, Math.min(127, chordRow))
+              : noteToMidi(chordRow, mapping);
+            if (midiNote < 0) continue; // Out of MIDI range
+
+            const activeKey = `${ch}:${event.id}:${repeatIndex}:${ci}`;
+            const existing = activeNotes.get(activeKey);
+            if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
+            activeNotes.set(activeKey, { start: channelTick, end: channelTick + event.length - 1, midiNote });
+
+            stepTriggerCallback(ch, midiNote, channelTick, event.length, velocity, hasExtras ? extras : undefined);
+          }
         }
       }
     }
@@ -473,18 +481,25 @@ export function scrubToTick(targetTick: number): void {
         const velocity = resolveSubModeValue(event, "velocity", repeatIndex, ch);
         const modulateVal = resolveSubModeValue(event, "modulate", repeatIndex, ch);
         const effectiveRow = event.row + modulateVal;
-        const midiNote = store.channelTypes[ch] === "drum"
-          ? Math.max(0, Math.min(127, effectiveRow))
-          : noteToMidi(effectiveRow, mapping);
-        if (midiNote < 0) continue; // Out of MIDI range
 
-        // Send note-off for any currently active note on this event
-        const activeKey = `${ch}:${event.id}:${repeatIndex}`;
-        const existing = activeNotes.get(activeKey);
-        if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
-        activeNotes.set(activeKey, { start: tick, end: tick + event.length - 1, midiNote });
+        // Expand chord offsets
+        const chordOffsets = getChordOffsets(event.chordStackSize, event.chordShapeIndex, event.chordInversion);
 
-        stepTriggerCallback(ch, midiNote, tick, event.length, velocity);
+        for (let ci = 0; ci < chordOffsets.length; ci++) {
+          const chordRow = effectiveRow + chordOffsets[ci];
+          const midiNote = store.channelTypes[ch] === "drum"
+            ? Math.max(0, Math.min(127, chordRow))
+            : noteToMidi(chordRow, mapping);
+          if (midiNote < 0) continue; // Out of MIDI range
+
+          // Send note-off for any currently active note on this event
+          const activeKey = `${ch}:${event.id}:${repeatIndex}:${ci}`;
+          const existing = activeNotes.get(activeKey);
+          if (existing && noteOffCallback) noteOffCallback(ch, existing.midiNote);
+          activeNotes.set(activeKey, { start: tick, end: tick + event.length - 1, midiNote });
+
+          stepTriggerCallback(ch, midiNote, tick, event.length, velocity);
+        }
       }
     }
   }

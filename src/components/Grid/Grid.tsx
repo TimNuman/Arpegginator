@@ -460,7 +460,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       if (modPreview !== undefined) {
         const minBound = isDrumChannel ? 0 : scaleMapping.minRow;
         const maxBound = isDrumChannel ? 127 : scaleMapping.maxRow;
-        const displayRow = Math.max(minBound, Math.min(maxBound, note.sourceRow + modPreview));
+        const displayRow = Math.max(minBound, Math.min(maxBound, note.sourceRow + modPreview + note.chordOffset));
         if (displayRow !== note.row) {
           changed = true;
           return { ...note, row: displayRow };
@@ -1088,9 +1088,16 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
       const speed = selectedEvent.speed ?? "1/16";
       const highlightSpeed = keyboard.alt && !keyboard.shift;
-      const highlightLength = keyboard.shift && !keyboard.alt;
+      const highlightLength = keyboard.shift && !keyboard.alt && !keyboard.meta;
       const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
+      const highlightChord = keyboard.meta;
+      const chordSize = selectedEvent.chordStackSize;
+      const chordShape = selectedEvent.chordShapeIndex;
+      const chordInv = selectedEvent.chordInversion;
+
+      // Show chord row when meta is held, shift+up/down for inversion, or chord is active
+      const showChord = keyboard.meta || chordSize > 1;
 
       return {
         rows: [
@@ -1102,12 +1109,21 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
               { text: speed, highlight: highlightSpeed },
             ],
           },
-          {
-            label: "LENGTH",
-            valueParts: [
-              { text: lengthDisplay, highlight: highlightLength },
-            ],
-          },
+          showChord
+            ? {
+                label: "CHORD",
+                valueParts: [
+                  { text: `${chordSize}`, highlight: highlightChord && !keyboard.shift },
+                  { text: chordSize > 1 ? ` S${chordShape + 1}` : "", highlight: highlightChord && keyboard.shift },
+                  { text: chordInv !== 0 ? ` I${chordInv > 0 ? "+" : ""}${chordInv}` : "", highlight: keyboard.shift && !keyboard.meta },
+                ],
+              }
+            : {
+                label: "LENGTH",
+                valueParts: [
+                  { text: lengthDisplay, highlight: highlightLength },
+                ],
+              },
           {
             label: "REPEAT",
             valueParts: [

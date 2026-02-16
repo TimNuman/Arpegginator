@@ -1,3 +1,5 @@
+import { getChordOffsets } from './chords';
+
 // ============ Tick-Based Event Model ============
 
 // Velocity loop mode: "reset" resets with pattern loop, "continue" keeps counting across loops, "fill" clamps to last value
@@ -87,6 +89,11 @@ export interface NoteEvent {
   flamLoopMode: VelocityLoopMode;
   modulate: number[];
   modulateLoopMode: VelocityLoopMode;
+
+  // Chord stack (pitch stacking on Y axis)
+  chordStackSize: number;       // 1 = single note, 2-5 = chord
+  chordShapeIndex: number;      // which shape for this stack size
+  chordInversion: number;       // inversion: 0 = root, +N = bottom note up, -N = top note down
 }
 
 // ============ PatternData ============
@@ -115,6 +122,7 @@ export interface RenderedNoteT {
   sourcePosition: number;        // Tick position of the parent NoteEvent
   isRepeat: boolean;             // True if this is a repeat (not the original)
   repeatIndex: number;           // Which repeat (0 = original)
+  chordOffset: number;           // Scale-degree offset from base (0 = root of chord)
 }
 
 // ============ Factory Functions ============
@@ -146,6 +154,9 @@ export const createNoteEvent = (
   flamLoopMode: "reset",
   modulate: [0],
   modulateLoopMode: "reset",
+  chordStackSize: 1,
+  chordShapeIndex: 0,
+  chordInversion: 0,
 });
 
 /** Create an empty PatternData */
@@ -252,24 +263,30 @@ export const renderEventsToArray = (
   for (const event of events) {
     if (!event.enabled) continue;
 
+    const offsets = getChordOffsets(event.chordStackSize, event.chordShapeIndex, event.chordInversion);
+
     for (let r = 0; r < event.repeatAmount; r++) {
       const tick = event.position + r * event.repeatSpace;
       if (tick >= patternLengthTicks) break;
 
       const modOffset = getEventSubModeValueAtRepeat(event, "modulate", r);
-      const displayRow = Math.max(minRow, Math.min(maxRow, event.row + modOffset));
 
-      rendered.push({
-        id: `${event.id}:${r}`,
-        row: displayRow,
-        position: tick,
-        length: event.length,
-        sourceId: event.id,
-        sourceRow: event.row,
-        sourcePosition: event.position,
-        isRepeat: r > 0,
-        repeatIndex: r,
-      });
+      for (const chordOff of offsets) {
+        const displayRow = Math.max(minRow, Math.min(maxRow, event.row + modOffset + chordOff));
+
+        rendered.push({
+          id: `${event.id}:${r}:${chordOff}`,
+          row: displayRow,
+          position: tick,
+          length: event.length,
+          sourceId: event.id,
+          sourceRow: event.row,
+          sourcePosition: event.position,
+          isRepeat: r > 0,
+          repeatIndex: r,
+          chordOffset: chordOff,
+        });
+      }
     }
   }
 

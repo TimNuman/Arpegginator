@@ -309,6 +309,38 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           return true;
         }
 
+        // Cmd+Shift+Up/Down: cycle chord shape
+        if (
+          state.meta &&
+          state.shift &&
+          (key === "arrowup" || key === "arrowdown")
+        ) {
+          actions.cycleChordShape(selectedEvent.id, key === "arrowup" ? "up" : "down");
+          return true;
+        }
+
+        // Cmd+Up/Down: adjust chord stack size
+        if (
+          state.meta &&
+          !state.shift &&
+          (key === "arrowup" || key === "arrowdown")
+        ) {
+          actions.adjustChordStack(selectedEvent.id, key === "arrowup" ? "up" : "down");
+          return true;
+        }
+
+        // Shift+Up/Down: cycle chord inversion (only when chord is active)
+        if (
+          state.shift &&
+          !state.meta &&
+          !state.alt &&
+          selectedEvent.chordStackSize > 1 &&
+          (key === "arrowup" || key === "arrowdown")
+        ) {
+          actions.cycleChordInversion(selectedEvent.id, key === "arrowup" ? "up" : "down");
+          return true;
+        }
+
         // Cmd+Shift+Arrow: change repeat space (auto-enable repeat if needed)
         if (
           state.meta &&
@@ -329,7 +361,7 @@ export function useGridController(options: UseGridControllerOptions = {}) {
           return true;
         }
 
-        // Shift+Arrow: resize note
+        // Shift+Arrow left/right: resize note
         if (
           state.shift &&
           !state.meta &&

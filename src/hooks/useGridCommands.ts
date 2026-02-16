@@ -17,6 +17,7 @@ import {
 import type { UiMode } from "../store/sequencerStore";
 import { SCALES, buildScaleMapping, noteToMidi } from "../types/scales";
 import { DRUM_TOTAL_ROWS, DRUM_MIN_ROW, DRUM_MAX_ROW } from "../types/drums";
+import { getChordOffsets } from "../types/chords";
 
 interface UseGridCommandsOptions {
   onPlayNote?: (note: number, channel: number, lengthTicks?: number) => void;
@@ -83,14 +84,28 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
   };
 
   // Helper to play a preview note (converts scale index to MIDI, or uses raw MIDI for drums)
+  // When an event with a chord is provided, plays all chord notes
   const playPreviewNote = useCallback(
-    (row: number, lengthTicks?: number) => {
+    (row: number, lengthTicks?: number, event?: { chordStackSize: number; chordShapeIndex: number; chordInversion: number }) => {
       if (!isPlaying && onPlayNote) {
-        const midiNote = isDrum
-          ? Math.max(0, Math.min(127, row))
-          : noteToMidi(row, scaleMapping);
-        if (midiNote >= 0) {
-          onPlayNote(midiNote, currentChannel, lengthTicks);
+        if (event && event.chordStackSize > 1) {
+          const offsets = getChordOffsets(event.chordStackSize, event.chordShapeIndex, event.chordInversion);
+          for (const offset of offsets) {
+            const chordRow = row + offset;
+            const midiNote = isDrum
+              ? Math.max(0, Math.min(127, chordRow))
+              : noteToMidi(chordRow, scaleMapping);
+            if (midiNote >= 0) {
+              onPlayNote(midiNote, currentChannel, lengthTicks);
+            }
+          }
+        } else {
+          const midiNote = isDrum
+            ? Math.max(0, Math.min(127, row))
+            : noteToMidi(row, scaleMapping);
+          if (midiNote >= 0) {
+            onPlayNote(midiNote, currentChannel, lengthTicks);
+          }
         }
       }
     },
@@ -165,7 +180,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       if (newRow !== event.row || newPosition !== event.position) {
         actions.moveEvent(selectedNoteId, newRow, newPosition);
         followNoteWithCamera(newRow, newPosition);
-        playPreviewNote(newRow);
+        playPreviewNote(newRow, undefined, event);
       }
     },
     [selectedNoteId, ticksPerCol, followNoteWithCamera, playPreviewNote, scaleMapping, isDrum],
@@ -309,7 +324,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       }
       if (newLength !== event.length) {
         actions.setEventLength(selectedNoteId, newLength);
-        playPreviewNote(event.row, newLength);
+        playPreviewNote(event.row, newLength, event);
       }
     },
     [selectedNoteId, ticksPerCol, playPreviewNote],
@@ -430,7 +445,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
           }
           actions.setEventLength(currentSelectedId, newLength);
           actions.setSelectedNoteId(currentSelectedId);
-          playPreviewNote(row);
+          playPreviewNote(row, undefined, selectedEvent);
           return;
         }
       }
@@ -447,7 +462,8 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
           }
           actions.setSelectedNoteId(sourceId);
         }
-        playPreviewNote(noteAtTick.sourceRow);
+        const sourceEvent = findEventById(pd.events, noteAtTick.sourceId);
+        playPreviewNote(noteAtTick.sourceRow, undefined, sourceEvent ?? undefined);
         return;
       }
 
@@ -461,7 +477,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
         }
         actions.setSelectedNoteId(disabledEvent.id);
         actions.toggleEventEnabled(disabledEvent.id);
-        playPreviewNote(row);
+        playPreviewNote(row, undefined, disabledEvent);
         return;
       }
 
