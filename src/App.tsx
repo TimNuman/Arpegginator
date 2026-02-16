@@ -55,6 +55,8 @@ const titleStyles = css`
 function App() {
   // Use a ref for BPM so handleStepTrigger can access current value without re-creating
   const bpmRef = useRef(120);
+  // Track pending note timeouts so we can cancel them on stop
+  const pendingTimeouts = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   // Refs for transport callbacks to avoid circular dependencies
   const playExternalRef = useRef<() => void>(() => {});
@@ -105,24 +107,26 @@ function App() {
       const flamCount = extras?.flamCount ?? 0;
       const thirtySecondMs = stepDurationMs / 2;
 
+      const scheduleNote = (fn: () => void, delayMs: number) => {
+        const id = setTimeout(() => {
+          pendingTimeouts.current.delete(id);
+          fn();
+        }, delayMs);
+        pendingTimeouts.current.add(id);
+      };
+
       if (flamCount > 0) {
         const flamVelocity = Math.round(velocity * 0.6);
         // Main note plays at its delayed time
-        setTimeout(() => {
-          playNote(note, velocity, midiChannel);
-        }, noteDelayMs);
+        scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
         // Grace note(s) follow a 32nd note later — retrigger cuts off main note naturally
         for (let f = 0; f < flamCount; f++) {
           const flamTime = noteDelayMs + (f + 1) * thirtySecondMs;
-          setTimeout(() => {
-            playNote(note, flamVelocity, midiChannel);
-          }, flamTime);
+          scheduleNote(() => playNote(note, flamVelocity, midiChannel), flamTime);
         }
         // Note-off is handled by the tick-based noteOffCallback
       } else {
-        setTimeout(() => {
-          playNote(note, velocity, midiChannel);
-        }, noteDelayMs);
+        scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
         // Note-off is handled by the tick-based noteOffCallback
       }
     },
@@ -156,6 +160,10 @@ function App() {
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;
   stopExternalRef.current = () => {
+    for (const id of pendingTimeouts.current) {
+      clearTimeout(id);
+    }
+    pendingTimeouts.current.clear();
     actions.stopExternal();
     stopAllNotes();
   };
@@ -180,6 +188,11 @@ function App() {
   }, []);
 
   const handleStop = useCallback(() => {
+    // Cancel all pending scheduled notes
+    for (const id of pendingTimeouts.current) {
+      clearTimeout(id);
+    }
+    pendingTimeouts.current.clear();
     actions.stop();
     stopAllNotes();
   }, [stopAllNotes]);
