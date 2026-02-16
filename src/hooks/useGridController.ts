@@ -277,8 +277,10 @@ export function useGridController(options: UseGridControllerOptions = {}) {
         return true;
       }
 
-      // Alt+Arrow: cycle scale root (left/right) and scale mode (up/down)
+      // Alt+Arrow: cycle scale root (left/right) and scale mode (up/down) — melodic pattern mode only
       if (
+        uiMode === "pattern" &&
+        !isDrum &&
         state.alt &&
         !state.meta &&
         !state.ctrl &&
