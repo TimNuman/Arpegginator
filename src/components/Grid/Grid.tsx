@@ -661,7 +661,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
             isActivePattern && channelsPlayingNow[channelIndex];
           const isPulsing = isQueued && isPulseBeat;
           const isEmptyPattern =
-            !patternHasNotes && !isSelectedPattern && !isQueued;
+            !patternHasNotes && !isQueued;
 
           if (!isEmptyPattern) {
             const isMuted = mutedChannels[channelIndex];
