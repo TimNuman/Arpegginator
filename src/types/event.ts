@@ -94,6 +94,10 @@ export interface NoteEvent {
   chordStackSize: number;       // 1 = single note, 2-5 = chord
   chordShapeIndex: number;      // which shape for this stack size
   chordInversion: number;       // inversion: 0 = root, +N = bottom note up, -N = top note down
+
+  // Absolute pitch anchor — MIDI note when placed/last edited.
+  // Used by scale root changes to remap losslessly from the original pitch.
+  originalMidi: number;
 }
 
 // ============ PatternData ============
@@ -135,6 +139,7 @@ export const createNoteEvent = (
   repeatAmount: number = 1,
   repeatSpace: number = SIXTEENTH_NOTE,
   speed: PatternSpeed = "1/16",
+  originalMidi: number = -1,
 ): NoteEvent => ({
   id: crypto.randomUUID(),
   row,
@@ -157,6 +162,7 @@ export const createNoteEvent = (
   chordStackSize: 1,
   chordShapeIndex: 0,
   chordInversion: 0,
+  originalMidi,
 });
 
 /** Create an empty PatternData */

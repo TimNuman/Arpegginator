@@ -12,6 +12,15 @@ import {
   PATTERN_SPEED_ORDER,
 } from '../types/event';
 import { getShapeCount, getMaxInversion } from '../types/chords';
+import { SCALES, buildScaleMapping, noteToMidi } from '../types/scales';
+
+/** Resolve a scale-relative row to its MIDI note using the current scale. */
+function rowToMidi(row: number): number {
+  const store = getSequencerStore();
+  const pattern = SCALES[store.scaleId]?.pattern ?? SCALES.major.pattern;
+  const mapping = buildScaleMapping(store.scaleRoot, pattern);
+  return noteToMidi(row, mapping);
+}
 
 // ============ Helpers ============
 
@@ -73,7 +82,7 @@ export function toggleEvent(row: number, tick: number, lengthTicks: number = SIX
 
     // Create new event, truncating any overlapping notes
     truncateOverlapping(patternData.events, row, tick);
-    const event = createNoteEvent(row, tick, lengthTicks);
+    const event = createNoteEvent(row, tick, lengthTicks, 1, SIXTEENTH_NOTE, "1/16", rowToMidi(row));
     store._addEvent(currentChannel, patternIdx, event);
   }
   invalidateLookup(currentChannel, patternIdx);
@@ -111,7 +120,7 @@ export function toggleEnabledAtPosition(row: number, tick: number, lengthTicks: 
   } else {
     // Create new enabled event
     truncateOverlapping(patternData.events, row, tick);
-    const event = createNoteEvent(row, tick, lengthTicks);
+    const event = createNoteEvent(row, tick, lengthTicks, 1, SIXTEENTH_NOTE, "1/16", rowToMidi(row));
     store._addEvent(currentChannel, patternIdx, event);
   }
   invalidateLookup(currentChannel, patternIdx);
@@ -125,6 +134,7 @@ export function moveEvent(eventId: string, newRow: number, newPosition: number):
   store._updateEvent(currentChannel, patternIdx, eventId, {
     row: newRow,
     position: newPosition,
+    originalMidi: rowToMidi(newRow),
   });
   invalidateLookup(currentChannel, patternIdx);
 }
