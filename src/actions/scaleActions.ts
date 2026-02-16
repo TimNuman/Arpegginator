@@ -2,15 +2,16 @@ import { getSequencerStore } from '../store/sequencerStore';
 import { SCALE_ORDER, NOTE_NAMES } from '../types/scales';
 
 /**
- * Cycle the scale root note (C, C#, D, ..., B).
- * "up" = next semitone, "down" = previous semitone.
+ * Cycle the scale root note in fifths (circle of fifths).
+ * "up" = up a fifth (+7 semitones), "down" = down a fifth (-7 semitones).
+ * C → G → D → A → E → B → F# → C# → G# → D# → A# → F → C
  */
 export function cycleScaleRoot(direction: "up" | "down"): void {
   const store = getSequencerStore();
   const current = store.scaleRoot;
   const next = direction === "up"
-    ? (current + 1) % 12
-    : (current + 11) % 12;
+    ? (current + 7) % 12
+    : (current + 5) % 12;
   store._setScale(next, store.scaleId);
 }
 
