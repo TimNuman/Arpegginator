@@ -5,6 +5,9 @@ import {
   createEmptyPatternData,
   WHOLE_NOTE,
 } from "../types/event";
+import type { ChannelType } from "../types/drums";
+import { DRUM_TOTAL_ROWS } from "../types/drums";
+import { buildScaleMapping, SCALES } from "../types/scales";
 
 // ============ Constants ============
 export const NUM_CHANNELS = 8;
@@ -50,6 +53,9 @@ export interface SequencerState {
   mutedChannels: boolean[];
   soloedChannels: boolean[];
 
+  // === Channel Types ===
+  channelTypes: ChannelType[];  // "melodic" or "drum" per channel
+
   // === Scale/Key State ===
   scaleRoot: number;  // Root note as semitone offset (0=C, 1=C#, ..., 11=B)
   scaleId: string;    // Key into SCALES record
@@ -70,6 +76,7 @@ export interface SequencerActions {
   _setCurrentTick: (tick: number) => void;
   _setMutedChannels: (muted: boolean[]) => void;
   _setSoloedChannels: (soloed: boolean[]) => void;
+  _setChannelTypes: (types: ChannelType[]) => void;
   _setScale: (root: number, scaleId: string) => void;
   _setView: (view: Partial<ViewState>) => void;
 
@@ -111,14 +118,29 @@ const createDefaultLoops = (): PatternLoop[][] =>
     })),
   );
 
-const createInitialView = (): ViewState => ({
-  rowOffsets: Array.from({ length: NUM_CHANNELS }, () => 0.5), // Center on row 0
-  colOffset: 0,
-  uiMode: "pattern",
-  modifySubMode: "velocity",
-  selectedNoteId: null,
-  zoom: DEFAULT_SUBDIVISION,
-});
+const createInitialView = (): ViewState => {
+  // Compute melodic offset so row 0 (C4) is at the bottom of the visible area
+  const defaultMapping = buildScaleMapping(0, SCALES.major.pattern);
+  const melodicMaxRowOffset = Math.max(0, defaultMapping.totalRows - VISIBLE_ROWS);
+  const melodicOffset = melodicMaxRowOffset > 0
+    ? 1 - defaultMapping.zeroIndex / melodicMaxRowOffset
+    : 0.5;
+
+  // Compute drum offset so MIDI 36 (bass drum) is at the bottom of the visible area
+  const drumMaxRowOffset = Math.max(0, DRUM_TOTAL_ROWS - VISIBLE_ROWS);
+  const drumOffset = drumMaxRowOffset > 0
+    ? 1 - 36 / drumMaxRowOffset
+    : 0.5;
+
+  return {
+    rowOffsets: Array.from({ length: NUM_CHANNELS }, (_, i) => i >= 6 ? drumOffset : melodicOffset),
+    colOffset: 0,
+    uiMode: "pattern",
+    modifySubMode: "velocity",
+    selectedNoteId: null,
+    zoom: DEFAULT_SUBDIVISION,
+  };
+};
 
 // ============ Store Definition ============
 export const useSequencerStore = create<SequencerStore>()(
@@ -135,6 +157,7 @@ export const useSequencerStore = create<SequencerStore>()(
     currentTick: -1,
     mutedChannels: Array(NUM_CHANNELS).fill(false),
     soloedChannels: Array(NUM_CHANNELS).fill(false),
+    channelTypes: ["melodic", "melodic", "melodic", "melodic", "melodic", "melodic", "drum", "drum"] as ChannelType[],
     scaleRoot: 0,          // C
     scaleId: "major",      // C Major
     view: createInitialView(),
@@ -150,6 +173,7 @@ export const useSequencerStore = create<SequencerStore>()(
     _setCurrentTick: (tick) => set({ currentTick: tick }),
     _setMutedChannels: (muted) => set({ mutedChannels: muted }),
     _setSoloedChannels: (soloed) => set({ soloedChannels: soloed }),
+    _setChannelTypes: (types) => set({ channelTypes: types }),
     _setScale: (root, scaleId) => set({ scaleRoot: root, scaleId }),
     _setView: (viewUpdate) =>
       set((state) => {

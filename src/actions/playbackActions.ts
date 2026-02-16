@@ -273,7 +273,9 @@ export function tick(): void {
 
           const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
           const effectiveRow = event.row + modulateVal;
-          const midiNote = noteToMidi(effectiveRow, mapping);
+          const midiNote = store.channelTypes[ch] === "drum"
+            ? Math.max(0, Math.min(127, effectiveRow))
+            : noteToMidi(effectiveRow, mapping);
           if (midiNote < 0) continue; // Out of MIDI range
 
           const activeKey = `${ch}:${event.id}:${repeatIndex}`;
@@ -471,7 +473,9 @@ export function scrubToTick(targetTick: number): void {
         const velocity = resolveSubModeValue(event, "velocity", repeatIndex, ch);
         const modulateVal = resolveSubModeValue(event, "modulate", repeatIndex, ch);
         const effectiveRow = event.row + modulateVal;
-        const midiNote = noteToMidi(effectiveRow, mapping);
+        const midiNote = store.channelTypes[ch] === "drum"
+          ? Math.max(0, Math.min(127, effectiveRow))
+          : noteToMidi(effectiveRow, mapping);
         if (midiNote < 0) continue; // Out of MIDI range
 
         // Send note-off for any currently active note on this event

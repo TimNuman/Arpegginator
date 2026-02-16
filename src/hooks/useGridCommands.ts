@@ -16,6 +16,7 @@ import {
 } from "../types/event";
 import type { UiMode } from "../store/sequencerStore";
 import { SCALES, buildScaleMapping, noteToMidi } from "../types/scales";
+import { DRUM_TOTAL_ROWS, DRUM_MIN_ROW, DRUM_MAX_ROW } from "../types/drums";
 
 interface UseGridCommandsOptions {
   onPlayNote?: (note: number, channel: number, lengthTicks?: number) => void;
@@ -25,6 +26,8 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
   const { onPlayNote } = options;
 
   const currentChannel = useSequencerStore((s) => s.currentChannel);
+  const channelType = useSequencerStore((s) => s.channelTypes[s.currentChannel]);
+  const isDrum = channelType === "drum";
   const isPlaying = useSequencerStore((s) => s.isPlaying);
   const selectedNoteId = useSequencerStore((s) => s.view.selectedNoteId);
   const rowOffsets = useSequencerStore((s) => s.view.rowOffsets);
@@ -52,13 +55,14 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
   // Tick-based grid calculations
   const ticksPerCol = SUBDIVISION_TICKS[zoom];
   const totalCols = Math.ceil(patternData.lengthTicks / ticksPerCol);
-  const totalRows = scaleMapping.totalRows;
+  const totalRows = isDrum ? DRUM_TOTAL_ROWS : scaleMapping.totalRows;
+  const minRow = isDrum ? DRUM_MIN_ROW : scaleMapping.minRow;
   const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
   const startArrayIndex = maxRowOffset > 0
     ? Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset)
     : 0;
-  const startRow = startArrayIndex + scaleMapping.minRow;
+  const startRow = startArrayIndex + minRow;
   const startCol = maxColOffset > 0
     ? Math.round(colOffset * maxColOffset)
     : 0;
@@ -78,24 +82,26 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
     return s.patterns[s.currentChannel][s.currentPatterns[s.currentChannel]];
   };
 
-  // Helper to play a preview note (converts scale index to MIDI)
+  // Helper to play a preview note (converts scale index to MIDI, or uses raw MIDI for drums)
   const playPreviewNote = useCallback(
     (row: number, lengthTicks?: number) => {
       if (!isPlaying && onPlayNote) {
-        const midiNote = noteToMidi(row, scaleMapping);
+        const midiNote = isDrum
+          ? Math.max(0, Math.min(127, row))
+          : noteToMidi(row, scaleMapping);
         if (midiNote >= 0) {
           onPlayNote(midiNote, currentChannel, lengthTicks);
         }
       }
     },
-    [isPlaying, onPlayNote, currentChannel, scaleMapping],
+    [isPlaying, onPlayNote, currentChannel, scaleMapping, isDrum],
   );
 
   // Helper to follow note with camera (tick-based)
   const followNoteWithCamera = useCallback(
     (row: number, tick: number) => {
-      // Row: convert scale-relative index to array position, check if outside visible area
-      const arrayPos = row - scaleMapping.minRow;
+      // Row: convert to array position, check if outside visible area
+      const arrayPos = row - minRow;
       if (maxRowOffset > 0) {
         if (arrayPos < startArrayIndex) {
           const newRowOffset = 1 - arrayPos / maxRowOffset;
@@ -118,7 +124,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
         }
       }
     },
-    [currentChannel, startArrayIndex, startCol, maxRowOffset, maxColOffset, ticksPerCol, scaleMapping.minRow],
+    [currentChannel, startArrayIndex, startCol, maxRowOffset, maxColOffset, ticksPerCol, minRow],
   );
 
   // Move selected note in a direction
@@ -136,14 +142,14 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       switch (direction) {
         case "up": {
           const candidateRow = event.row + 1;
-          if (noteToMidi(candidateRow, scaleMapping) >= 0) {
+          if (isDrum ? candidateRow <= DRUM_MAX_ROW : noteToMidi(candidateRow, scaleMapping) >= 0) {
             newRow = candidateRow;
           }
           break;
         }
         case "down": {
           const candidateRow = event.row - 1;
-          if (noteToMidi(candidateRow, scaleMapping) >= 0) {
+          if (isDrum ? candidateRow >= DRUM_MIN_ROW : noteToMidi(candidateRow, scaleMapping) >= 0) {
             newRow = candidateRow;
           }
           break;
@@ -162,7 +168,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
         playPreviewNote(newRow);
       }
     },
-    [selectedNoteId, ticksPerCol, followNoteWithCamera, playPreviewNote, scaleMapping],
+    [selectedNoteId, ticksPerCol, followNoteWithCamera, playPreviewNote, scaleMapping, isDrum],
   );
 
   // Adjust loop end boundary
@@ -548,6 +554,9 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
     selectNoteAtCell,
     handlePatternCellPress,
     handleChannelCellPress,
+
+    // Drum state
+    isDrum,
 
     // Helpers (exposed for use by useGridController's remaining logic)
     playPreviewNote,

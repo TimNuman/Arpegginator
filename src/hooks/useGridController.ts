@@ -19,6 +19,7 @@ import {
   findEventById,
 } from "../types/event";
 import { SCALES, buildScaleMapping } from "../types/scales";
+import { DRUM_TOTAL_ROWS, DRUM_MIN_ROW, DRUM_MAX_ROW } from "../types/drums";
 
 // Keyboard to grid position mapping
 const KEY_MAP: Record<string, { row: number; col: number }> = {
@@ -77,6 +78,8 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const modifySubMode = useSequencerStore((s) => s.view.modifySubMode);
   const scaleRoot = useSequencerStore((s) => s.scaleRoot);
   const scaleId = useSequencerStore((s) => s.scaleId);
+  const channelType = useSequencerStore((s) => s.channelTypes[s.currentChannel]);
+  const isDrum = channelType === "drum";
   const currentPattern = useCurrentPattern();
   const currentLoop = useCurrentLoop();
   const patternData = usePatternData();
@@ -97,9 +100,11 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const totalCols = Math.ceil(patternData.lengthTicks / ticksPerCol);
 
   // Compute rendered notes with useMemo to avoid recreating on every render
+  const renderMinRow = isDrum ? DRUM_MIN_ROW : scaleMapping.minRow;
+  const renderMaxRow = isDrum ? DRUM_MAX_ROW : scaleMapping.maxRow;
   const renderedNotes = useMemo(
-    () => renderEventsToArray(patternData.events, patternData.lengthTicks, scaleMapping.minRow, scaleMapping.maxRow),
-    [patternData.events, patternData.lengthTicks, scaleMapping.minRow, scaleMapping.maxRow],
+    () => renderEventsToArray(patternData.events, patternData.lengthTicks, renderMinRow, renderMaxRow),
+    [patternData.events, patternData.lengthTicks, renderMinRow, renderMaxRow],
   );
 
   // Ref for unified grid press handler (set by Grid.tsx)
@@ -111,13 +116,14 @@ export function useGridController(options: UseGridControllerOptions = {}) {
   const prevIsPlaying = useRef(false);
 
   // Calculate visible area
-  const totalRows = scaleMapping.totalRows;
+  const totalRows = isDrum ? DRUM_TOTAL_ROWS : scaleMapping.totalRows;
+  const minRow = isDrum ? DRUM_MIN_ROW : scaleMapping.minRow;
   const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = totalCols - VISIBLE_COLS;
   const startArrayIndex = maxRowOffset > 0
     ? Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset)
     : 0;
-  const startRow = startArrayIndex + scaleMapping.minRow;
+  const startRow = startArrayIndex + minRow;
   const startCol = maxColOffset > 0
     ? Math.round(colOffset * maxColOffset)
     : 0;
@@ -450,6 +456,9 @@ export function useGridController(options: UseGridControllerOptions = {}) {
 
     // Scale mapping
     scaleMapping,
+
+    // Drum state
+    isDrumChannel: isDrum,
 
     // Unified grid press ref (set by Grid.tsx)
     gridPressRef,

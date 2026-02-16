@@ -48,6 +48,7 @@ import {
   type ModifySubMode,
 } from "../../types/event";
 import { SCALES, NOTE_NAMES, noteToMidi } from "../../types/scales";
+import { getDrumName } from "../../types/drums";
 
 const noop = () => {};
 
@@ -390,6 +391,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     totalCols,
     totalRows,
     scaleMapping,
+    isDrumChannel,
     gridPressRef,
     onRowOffsetChange,
     onColOffsetChange,
@@ -456,7 +458,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         note.position,
       );
       if (modPreview !== undefined) {
-        const displayRow = Math.max(scaleMapping.minRow, Math.min(scaleMapping.maxRow, note.sourceRow + modPreview));
+        const minBound = isDrumChannel ? 0 : scaleMapping.minRow;
+        const maxBound = isDrumChannel ? 127 : scaleMapping.maxRow;
+        const displayRow = Math.max(minBound, Math.min(maxBound, note.sourceRow + modPreview));
         if (displayRow !== note.row) {
           changed = true;
           return { ...note, row: displayRow };
@@ -465,7 +469,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       return note;
     });
     return changed ? adjusted : renderedNotes;
-  }, [renderedNotes, loopedTick, currentChannel, scaleMapping.minRow, scaleMapping.maxRow]);
+  }, [renderedNotes, loopedTick, currentChannel, scaleMapping.minRow, scaleMapping.maxRow, isDrumChannel]);
 
   // Compute button values and color overrides for all modes
   const { buttonValues, colorOverrides } = useMemo(() => {
@@ -794,10 +798,16 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           }
         }
 
-        // Root note marker (check if this scale-relative row maps to a root note)
-        const midiForRow = noteToMidi(actualRow, scaleMapping);
-        if (midiForRow >= 0 && midiForRow % 12 === scaleRoot) {
-          value |= FLAG_C_NOTE;
+        // Root note marker: for drums highlight every 7 rows from MIDI 36, for melodic highlight scale root
+        if (isDrumChannel) {
+          if ((actualRow - 36) % 7 === 0) {
+            value |= FLAG_C_NOTE;
+          }
+        } else {
+          const midiForRow = noteToMidi(actualRow, scaleMapping);
+          if (midiForRow >= 0 && midiForRow % 12 === scaleRoot) {
+            value |= FLAG_C_NOTE;
+          }
         }
 
         // Mode hint on bottom row (Z/X/C/V keys) — only while ctrl is held
@@ -945,6 +955,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     // Scale mapping
     scaleMapping,
     scaleRoot,
+    isDrumChannel,
   ]);
 
   // Handle button press — unified handler for both keyboard and click/touch
@@ -1070,8 +1081,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
   const getOledContent = useCallback((): { rows: OledRow[] } => {
     // Pattern mode: show note info if a note is selected
     if (uiMode === "pattern" && selectedEvent) {
-      const midiNote = noteToMidi(selectedEvent.row, scaleMapping);
-      const noteName = midiNote >= 0 ? midiNoteToName(midiNote) : "??";
+      const noteName = isDrumChannel
+        ? getDrumName(selectedEvent.row)
+        : (() => { const m = noteToMidi(selectedEvent.row, scaleMapping); return m >= 0 ? midiNoteToName(m) : "??"; })();
       const lengthDisplay = ticksToDisplay(selectedEvent.length, ticksPerCol);
       const repeatAmount = selectedEvent.repeatAmount;
       const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
@@ -1118,8 +1130,9 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     if (uiMode === "modify") {
       const subModeLabel = SUB_MODE_CONFIG[modifySubMode].label;
       if (selectedEvent) {
-        const midiNote = noteToMidi(selectedEvent.row, scaleMapping);
-        const noteName = midiNote >= 0 ? midiNoteToName(midiNote) : "??";
+        const noteName = isDrumChannel
+          ? getDrumName(selectedEvent.row)
+          : (() => { const m = noteToMidi(selectedEvent.row, scaleMapping); return m >= 0 ? midiNoteToName(m) : "??"; })();
         const loopMode = getEventSubModeLoopMode(selectedEvent, modifySubMode);
         const loopModeLabel =
           loopMode === "reset"
@@ -1220,14 +1233,16 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           label: "LOOP",
           valueParts: [{ text: `${tickToBeatDisplay(currentLoop.start)}-${tickToBeatDisplay(loopEndTick)}` }],
         },
-        {
-          label: "KEY",
-          valueParts: [
-            { text: scaleRootName, highlight: highlightKey },
-            { text: " " },
-            { text: scaleName, highlight: highlightKey },
-          ],
-        },
+        isDrumChannel
+          ? { label: "TYPE", valueParts: [{ text: "DRUMS" }] }
+          : {
+              label: "KEY",
+              valueParts: [
+                { text: scaleRootName, highlight: highlightKey },
+                { text: " " },
+                { text: scaleName, highlight: highlightKey },
+              ],
+            },
       ],
     };
   }, [
@@ -1244,6 +1259,7 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
     scaleRoot,
     scaleId,
     scaleMapping,
+    isDrumChannel,
   ]);
 
   const oledContent = getOledContent();
@@ -1353,7 +1369,10 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         </Box>
         <Box css={debugStyles}>
           <span>
-            Notes: {(() => { const m = noteToMidi(startRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : startRow; })()} - {(() => { const m = noteToMidi(endRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : endRow; })()}
+            Notes: {isDrumChannel
+              ? `${getDrumName(startRow)} - ${getDrumName(endRow)}`
+              : `${(() => { const m = noteToMidi(startRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : startRow; })()} - ${(() => { const m = noteToMidi(endRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : endRow; })()}`
+            }
           </span>
           <span>Zoom: {zoom}</span>
           <span>
