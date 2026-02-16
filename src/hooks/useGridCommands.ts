@@ -405,7 +405,7 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
       const noteAtTick = findEventAtTick(renderedNotes, row, tick);
       const currentSelectedId = useSequencerStore.getState().view.selectedNoteId;
 
-      // Cmd+click: toggle enabled (enable/disable, preserving event) -- skip repeats
+      // Cmd+click: always disable (turn off) — skip repeats and already-disabled notes
       if (modifiers.meta) {
         if (noteAtTick && !noteAtTick.isRepeat) {
           actions.toggleEventEnabled(noteAtTick.sourceId);
@@ -413,18 +413,6 @@ export function useGridCommands(options: UseGridCommandsOptions = {}) {
             actions.clearDisplacedEvents();
             actions.setSelectedNoteId(null);
           }
-        } else if (!noteAtTick) {
-          // Check for disabled event at this position
-          const disabledEvent = pd.events.find(
-            (e) => e.row === row && e.position === tick && !e.enabled,
-          );
-          if (disabledEvent) {
-            if (currentSelectedId) {
-              actions.placeEvent(currentSelectedId);
-            }
-            actions.setSelectedNoteId(disabledEvent.id);
-          }
-          actions.toggleEnabledAtPosition(row, tick, ticksPerCol);
         }
         return;
       }
