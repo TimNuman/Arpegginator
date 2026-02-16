@@ -531,9 +531,11 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
         const threshold = visibleLevels[visibleRow];
 
         for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
-          // Ctrl mode hints
+          // Ctrl mode hints on bottom row — always rendered on top
           if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
-            row.push(BUTTON_COLOR_100);
+            const modes: UiMode[] = ["channel", "pattern", "loop", "modify"];
+            const isCurrentMode = uiMode === modes[visibleCol];
+            row.push(isCurrentMode ? BUTTON_COLOR_50 : BUTTON_COLOR_100);
             colorRow.push(MODE_HINT_COLORS[visibleCol]);
             continue;
           }
@@ -608,6 +610,85 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
       const actualRow = startRow + flippedVisibleRow;
 
       for (let visibleCol = 0; visibleCol < VISIBLE_COLS; visibleCol++) {
+        // Ctrl mode hints on bottom row — always rendered on top
+        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
+          const modes: UiMode[] = ["channel", "pattern", "loop", "modify"];
+          const isCurrentMode = uiMode === modes[visibleCol];
+          row.push(isCurrentMode ? BUTTON_COLOR_50 : BUTTON_COLOR_100);
+          colorRow.push(MODE_HINT_COLORS[visibleCol]);
+          continue;
+        }
+
+        // Channel mode: overlay channel selector on top of note grid
+        if (uiMode === "channel") {
+          const channelIndex = visibleRow;
+          const chColor = CHANNEL_COLORS[channelIndex];
+          const patternsForChannel = allPatternsHaveNotes[channelIndex];
+          const currentPatternForChannel = currentPatterns[channelIndex];
+
+          if (visibleCol === 0) {
+            // Column 0: mute/solo indicator
+            const isMuted = mutedChannels[channelIndex];
+            const isSoloed = soloedChannels[channelIndex];
+            const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
+            const isPlayingNow =
+              currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
+
+            let chValue: number;
+            if (isSoloed) {
+              chValue = BUTTON_WHITE_25;
+            } else if (isEffectivelyMuted) {
+              chValue = BUTTON_COLOR_25;
+            } else {
+              chValue = BUTTON_COLOR_100;
+            }
+            if (isPlayingNow) chValue |= FLAG_PLAYHEAD;
+            colorRow.push(chColor);
+            row.push(chValue);
+            continue;
+          }
+
+          const patternIndex = visibleCol - 1;
+          const patternHasNotes =
+            patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
+          const isSelectedPattern =
+            channelIndex === currentChannel &&
+            patternIndex === currentPatternForChannel;
+          const isActivePattern = patternIndex === currentPatternForChannel;
+          const isQueued =
+            patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
+          const isPlayingNow =
+            isActivePattern && channelsPlayingNow[channelIndex];
+          const isPulsing = isQueued && isPulseBeat;
+          const isEmptyPattern =
+            !patternHasNotes && !isSelectedPattern && !isQueued;
+
+          if (!isEmptyPattern) {
+            const isMuted = mutedChannels[channelIndex];
+            const isSoloed = soloedChannels[channelIndex];
+            const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
+            let chValue = BUTTON_COLOR_50;
+
+            if (isSelectedPattern) {
+              chValue = BUTTON_COLOR_100;
+            } else if (isQueued) {
+              chValue = isPulsing ? BUTTON_COLOR_100 : BUTTON_COLOR_50;
+            }
+
+            if (isEffectivelyMuted) {
+              chValue = BUTTON_COLOR_25;
+            } else if (isSoloed && !isSelectedPattern) {
+              chValue = BUTTON_WHITE_25;
+            }
+
+            if (isPlayingNow || isPulsing) chValue |= FLAG_PLAYHEAD;
+            colorRow.push(chColor);
+            row.push(chValue);
+            continue;
+          }
+          // Empty pattern slot: fall through to show note grid underneath
+        }
+
         const actualTick = startTick + visibleCol * ticksPerCol;
 
         let value = BUTTON_OFF;
@@ -704,13 +785,8 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           const toHex = (v: number) => Math.round(v).toString(16).padStart(2, "0");
           const velColor = `#${toHex(rr + (255 - rr) * whiteMix)}${toHex(gg + (255 - gg) * whiteMix)}${toHex(bb + (255 - bb) * whiteMix)}`;
 
-          // Repeat notes get a hue-shifted tint (dimmed in channel mode like other note cells)
-          if (noteAtTick.isRepeat) {
-            colorRow.push(velColor);
-            if (uiMode === "channel") value |= FLAG_DIMMED;
-            row.push(value);
-            continue;
-          }
+          // Dim all note cells in channel mode (note grid is background layer)
+          if (uiMode === "channel") value |= FLAG_DIMMED;
 
           colorRow.push(velColor);
           row.push(value);
@@ -808,83 +884,6 @@ export const Grid = memo(({ onPlayNote }: GridProps) => {
           if (midiForRow >= 0 && midiForRow % 12 === scaleRoot) {
             value |= FLAG_C_NOTE;
           }
-        }
-
-        // Mode hint on bottom row (Z/X/C/V keys) — only while ctrl is held
-        if (keyboard.ctrl && visibleRow === 7 && visibleCol <= 3) {
-          value = BUTTON_COLOR_100;
-          colorRow.push(MODE_HINT_COLORS[visibleCol]);
-          row.push(value);
-          continue;
-        }
-
-        // Channel mode: overlay channel selector on top of note grid
-        if (uiMode === "channel") {
-          const channelIndex = visibleRow;
-          const chColor = CHANNEL_COLORS[channelIndex];
-          const patternsForChannel = allPatternsHaveNotes[channelIndex];
-          const currentPatternForChannel = currentPatterns[channelIndex];
-
-          if (visibleCol === 0) {
-            // Column 0: mute/solo indicator
-            const isMuted = mutedChannels[channelIndex];
-            const isSoloed = soloedChannels[channelIndex];
-            const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
-            const isPlayingNow =
-              currentPatternForChannel >= 0 && channelsPlayingNow[channelIndex];
-
-            if (isSoloed) {
-              value = BUTTON_WHITE_25;
-            } else if (isEffectivelyMuted) {
-              value = BUTTON_COLOR_25;
-            } else {
-              value = BUTTON_COLOR_100;
-            }
-            if (isPlayingNow) value |= FLAG_PLAYHEAD;
-            colorRow.push(chColor);
-            row.push(value);
-            continue;
-          }
-
-          const patternIndex = visibleCol - 1;
-          const patternHasNotes =
-            patternIndex >= 0 && (patternsForChannel?.[patternIndex] ?? false);
-          const isSelectedPattern =
-            channelIndex === currentChannel &&
-            patternIndex === currentPatternForChannel;
-          const isActivePattern = patternIndex === currentPatternForChannel;
-          const isQueued =
-            patternIndex >= 0 && queuedPatterns[channelIndex] === patternIndex;
-          const isPlayingNow =
-            isActivePattern && channelsPlayingNow[channelIndex];
-          const isPulsing = isQueued && isPulseBeat;
-          const isEmptyPattern =
-            !patternHasNotes && !isSelectedPattern && !isQueued;
-
-          if (!isEmptyPattern) {
-            const isMuted = mutedChannels[channelIndex];
-            const isSoloed = soloedChannels[channelIndex];
-            const isEffectivelyMuted = isMuted || (anySoloed && !isSoloed);
-            value = BUTTON_COLOR_50;
-
-            if (isSelectedPattern) {
-              value = BUTTON_COLOR_100;
-            } else if (isQueued) {
-              value = isPulsing ? BUTTON_COLOR_100 : BUTTON_COLOR_50;
-            }
-
-            if (isEffectivelyMuted) {
-              value = BUTTON_COLOR_25;
-            } else if (isSoloed && !isSelectedPattern) {
-              value = BUTTON_WHITE_25;
-            }
-
-            if (isPlayingNow || isPulsing) value |= FLAG_PLAYHEAD;
-            colorRow.push(chColor);
-            row.push(value);
-            continue;
-          }
-          // Empty pattern slot: fall through to show note grid underneath
         }
 
         colorRow.push(null);
