@@ -5,11 +5,11 @@ import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
 import { WasmEngine } from './engine/WasmEngine';
 import { useMidi } from './hooks/useMidi';
-import { useSequencerStore } from './store/sequencerStore';
+import { useRenderVersion, getIsPlaying, getIsExternalPlayback, getBpm } from './store/renderStore';
 import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
 import { TICKS_PER_QUARTER } from './types/event';
-import { buildScaleMapping, SCALES, noteToMidi } from './types/scales';
+import { buildScaleMapping, SCALES, SCALE_ORDER, noteToMidi } from './types/scales';
 
 
 const darkTheme = createTheme({
@@ -62,11 +62,50 @@ function App() {
   useEffect(() => {
     const engine = new WasmEngine();
     engine.load().then(() => {
-      // Full init (resets UI state, generates chord shapes, etc.)
+      // Full init (resets UI state, generates chord shapes, sets default loops/patterns)
       engine.fullInit();
-      // Sync all initial state from Zustand → WASM (patterns, loops, scale, etc.)
-      const store = useSequencerStore.getState();
-      engine.syncAll(store);
+
+      // Set initial channel colors
+      const CHANNEL_COLORS = ['#ff3366', '#ff9933', '#ffcc00', '#33cc66', '#3399ff', '#9966ff', '#ff6699', '#66cccc'];
+      for (let ch = 0; ch < 8; ch++) {
+        const hex = CHANNEL_COLORS[ch];
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        engine.setChannelColor(ch, (r << 16) | (g << 8) | b);
+      }
+
+      // Set channel types: channels 0-5 melodic, 6-7 drum
+      engine.writeChannelTypes([0, 0, 0, 0, 0, 0, 1, 1]);
+
+      // Sync initial scale to WASM
+      engine.syncScale(0, 'major');
+
+      // Set initial zoom (1/16 = 120 ticks per col)
+      engine.setZoom(120);
+
+      // Set initial BPM in WASM
+      engine.setBpm(120);
+
+      // Compute initial row offsets to position C4 at bottom for melodic channels
+      // For C Major scale: buildScaleMapping(0, major) gives zeroIndex and totalRows
+      // melodicOffset = 1 - zeroIndex / max(0, totalRows - VISIBLE_ROWS)
+      {
+        const scaleMapping = buildScaleMapping(0, SCALES.major.pattern);
+        const VISIBLE_ROWS = 8;
+        const melodicMaxRowOffset = Math.max(0, scaleMapping.totalRows - VISIBLE_ROWS);
+        const melodicOffset = melodicMaxRowOffset > 0
+          ? 1 - scaleMapping.zeroIndex / melodicMaxRowOffset
+          : 0.5;
+        const DRUM_TOTAL_ROWS = 128;
+        const drumMaxRowOffset = Math.max(0, DRUM_TOTAL_ROWS - VISIBLE_ROWS);
+        const drumOffset = drumMaxRowOffset > 0
+          ? 1 - 36 / drumMaxRowOffset
+          : 0.5;
+        for (let ch = 0; ch < 8; ch++) {
+          engine.setRowOffset(ch, ch >= 6 ? drumOffset : melodicOffset);
+        }
+      }
 
       wasmEngineRef.current = engine;
       setWasmReady(true);
@@ -76,6 +115,9 @@ function App() {
       console.warn('WASM engine not available:', err);
     });
   }, []);
+
+  // Subscribe to render version for transport state re-renders
+  useRenderVersion();
 
   // Use a ref for BPM so handleStepTrigger can access current value without re-creating
   const bpmRef = useRef(120);
@@ -109,25 +151,18 @@ function App() {
 
   const handleStepTrigger = useCallback(
     (channel: number, midiNote: number, _tick: number, _noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
-      const note = midiNote; // Already MIDI, modulation applied in playbackActions
+      const note = midiNote;
       const midiChannel = channel + 1;
-      // Tick-based timing: ms per tick = 60000 / (bpm * PPQ)
       const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
-      // Step duration for timing offset calculations (one 16th note = PPQ/4 ticks)
       const stepDurationMs = tickDurationMs * (TICKS_PER_QUARTER / 4);
 
-      // Timing offset: convert % of step to ms.
-      // To support negative offsets (early notes) we add a lookahead so all
-      // scheduled times stay positive for setTimeout.
-      const maxOffsetPercent = 20; // matches TIMING_LEVELS max
+      const maxOffsetPercent = 20;
       const lookaheadMs = (maxOffsetPercent / 100) * stepDurationMs;
       const timingOffsetMs = extras?.timingOffsetPercent
         ? (extras.timingOffsetPercent / 100) * stepDurationMs
         : 0;
-      // Delay = lookahead + offset. 0% → plays at lookahead, -20% → plays at 0, +20% → plays at 2×lookahead
       const noteDelayMs = lookaheadMs + timingOffsetMs;
 
-      // Flam: main note on the beat, grace note(s) a 32nd note later
       const flamCount = extras?.flamCount ?? 0;
       const thirtySecondMs = stepDurationMs / 2;
 
@@ -141,17 +176,13 @@ function App() {
 
       if (flamCount > 0) {
         const flamVelocity = Math.round(velocity * 0.6);
-        // Main note plays at its delayed time
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
-        // Grace note(s) follow a 32nd note later — retrigger cuts off main note naturally
         for (let f = 0; f < flamCount; f++) {
           const flamTime = noteDelayMs + (f + 1) * thirtySecondMs;
           scheduleNote(() => playNote(note, flamVelocity, midiChannel), flamTime);
         }
-        // Note-off is handled by the tick-based noteOffCallback
       } else {
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
-        // Note-off is handled by the tick-based noteOffCallback
       }
     },
     [playNote]
@@ -164,35 +195,32 @@ function App() {
     [stopNote]
   );
 
-  const isPlaying = useSequencerStore((s) => s.isPlaying);
-  const isExternalPlayback = useSequencerStore((s) => s.isExternalPlayback);
-  const bpm = useSequencerStore((s) => s.bpm);
+  // Read transport state from renderStore
+  const isPlaying = getIsPlaying();
+  const isExternalPlayback = getIsExternalPlayback();
+  const bpm = getBpm();
 
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
 
   const handlePlayNote = useCallback(
     (note: number, channel: number, lengthTicks?: number) => {
-      // Use channel + 1 for MIDI channel (1-8)
       playNote(note, 100, channel + 1);
-      // Calculate duration from tick length (default to 1 sixteenth note = PPQ/4 ticks)
       const ticks = lengthTicks ?? (TICKS_PER_QUARTER / 4);
-      const tickDurationMs = 60000 / (bpm * TICKS_PER_QUARTER);
-      const duration = Math.max(50, ticks * tickDurationMs - 10); // Subtract 10ms for note separation
+      const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
+      const duration = Math.max(50, ticks * tickDurationMs - 10);
       setTimeout(() => stopNote(note, channel + 1), duration);
     },
-    [playNote, stopNote, bpm]
+    [playNote, stopNote]
   );
 
-  // Wire up step trigger and note-off callbacks (for both TS and WASM engines)
+  // Wire up step trigger and note-off callbacks
   useEffect(() => {
     actions.setStepTriggerCallback(handleStepTrigger);
     actions.setNoteOffCallback(handleNoteOff);
-    // Also wire WASM engine callbacks to the same handlers
     if (wasmEngineRef.current) {
       wasmEngineRef.current.onStepTrigger = handleStepTrigger;
       wasmEngineRef.current.onNoteOff = handleNoteOff;
-      // Wire new platform callbacks
       wasmEngineRef.current.onCycleScale = (direction: number) => {
         actions.cycleScale(direction > 0 ? "up" : "down");
       };
@@ -200,15 +228,18 @@ function App() {
         actions.cycleScaleRoot(direction > 0 ? "up" : "down");
       };
       wasmEngineRef.current.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
-        // row is scale-relative; convert to MIDI
-        const store = useSequencerStore.getState();
-        const isDrum = store.channelTypes[channel] === 'drum';
+        // row is scale-relative; convert to MIDI using WASM state
+        const engine = wasmEngineRef.current!;
+        const isDrum = engine.getChannelType(channel) === 1;
         let midiNote: number;
         if (isDrum) {
           midiNote = Math.max(0, Math.min(127, row));
         } else {
-          const pattern = SCALES[store.scaleId]?.pattern ?? SCALES.major.pattern;
-          const mapping = buildScaleMapping(store.scaleRoot, pattern);
+          const scaleRoot = engine.getScaleRoot();
+          const scaleIdIdx = engine.getScaleIdIdx();
+          const scaleId = SCALE_ORDER[scaleIdIdx] ?? 'major';
+          const scalePattern = SCALES[scaleId]?.pattern ?? SCALES.major.pattern;
+          const mapping = buildScaleMapping(scaleRoot, scalePattern);
           midiNote = noteToMidi(row, mapping);
         }
         if (midiNote >= 0) {
@@ -247,7 +278,6 @@ function App() {
   }, []);
 
   const handleStop = useCallback(() => {
-    // Cancel all pending scheduled notes
     for (const id of pendingTimeouts.current) {
       clearTimeout(id);
     }

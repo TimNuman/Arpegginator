@@ -1,10 +1,9 @@
 import type { NoteEvent, PatternData, VelocityLoopMode, Subdivision } from '../types/event';
 import { SUBDIVISION_TICKS } from '../types/event';
-import { DEFAULT_PATTERN_TICKS } from '../store/sequencerStore';
 import type { StepTriggerExtras } from '../actions/playbackActions';
 import { registerWasmActiveNote } from '../actions/playbackActions';
 import { buildScaleMapping, SCALES, SCALE_ORDER } from '../types/scales';
-import { getSequencerStore, type SequencerState } from '../store/sequencerStore';
+import { markDirty } from '../store/renderStore';
 
 // ============ Emscripten Module Types ============
 
@@ -105,7 +104,9 @@ export class WasmEngine {
   private _setZoom!: (tpc: number) => void;
   private _setSelectedEvent!: (idx: number) => void;
   private _setRowOffset!: (ch: number, offset: number) => void;
+  private _getRowOffset!: (ch: number) => number;
   private _setColOffset!: (offset: number) => void;
+  private _getColOffset!: () => number;
   private _setBpm!: (bpm: number) => void;
   private _setIsPlaying!: (playing: number) => void;
   private _setCtrlHeld!: (held: number) => void;
@@ -121,6 +122,27 @@ export class WasmEngine {
   private _getSelectedEvent!: () => number;
   private _getBpm!: () => number;
   private _getIsPlaying!: () => number;
+
+  // Selected event getters (OLED)
+  private _getSelRow!: () => number;
+  private _getSelLength!: () => number;
+  private _getSelRepeatAmount!: () => number;
+  private _getSelRepeatSpace!: () => number;
+  private _getSelChordStackSize!: () => number;
+  private _getSelChordShapeIndex!: () => number;
+  private _getSelChordInversion!: () => number;
+  private _getSelSubModeLoopMode!: (sm: number) => number;
+  private _getSelSubModeArrayLength!: (sm: number) => number;
+
+  // Current pattern/loop getters
+  private _getCurrentLoopStart!: () => number;
+  private _getCurrentLoopLength!: () => number;
+  private _getCurrentPatternLengthTicks!: () => number;
+  private _getCurrentTick!: () => number;
+  private _getCurrentPattern!: (ch: number) => number;
+  private _getChannelType!: (ch: number) => number;
+  private _getScaleRoot!: () => number;
+  private _getScaleIdIdx!: () => number;
 
   // Grid output
   private _getButtonValuesBuffer!: () => number;
@@ -206,7 +228,9 @@ export class WasmEngine {
     this._setZoom = cw('engine_set_zoom', null, ['number']) as unknown as (m: number) => void;
     this._setSelectedEvent = cw('engine_set_selected_event', null, ['number']) as unknown as (m: number) => void;
     this._setRowOffset = cw('engine_set_row_offset', null, ['number', 'number']) as unknown as (ch: number, o: number) => void;
+    this._getRowOffset = cw('engine_get_row_offset', 'number', ['number']);
     this._setColOffset = cw('engine_set_col_offset', null, ['number']) as unknown as (o: number) => void;
+    this._getColOffset = cw('engine_get_col_offset', 'number', []);
     this._setBpm = cw('engine_set_bpm', null, ['number']) as unknown as (b: number) => void;
     this._setIsPlaying = cw('engine_set_is_playing', null, ['number']) as unknown as (p: number) => void;
     this._setCtrlHeld = cw('engine_set_ctrl_held', null, ['number']) as unknown as (h: number) => void;
@@ -222,6 +246,27 @@ export class WasmEngine {
     this._getSelectedEvent = cw('engine_get_selected_event', 'number', []);
     this._getBpm = cw('engine_get_bpm', 'number', []);
     this._getIsPlaying = cw('engine_get_is_playing', 'number', []);
+
+    // Selected event getters (OLED)
+    this._getSelRow = cw('engine_get_sel_row', 'number', []);
+    this._getSelLength = cw('engine_get_sel_length', 'number', []);
+    this._getSelRepeatAmount = cw('engine_get_sel_repeat_amount', 'number', []);
+    this._getSelRepeatSpace = cw('engine_get_sel_repeat_space', 'number', []);
+    this._getSelChordStackSize = cw('engine_get_sel_chord_stack_size', 'number', []);
+    this._getSelChordShapeIndex = cw('engine_get_sel_chord_shape_index', 'number', []);
+    this._getSelChordInversion = cw('engine_get_sel_chord_inversion', 'number', []);
+    this._getSelSubModeLoopMode = cw('engine_get_sel_sub_mode_loop_mode', 'number', ['number']);
+    this._getSelSubModeArrayLength = cw('engine_get_sel_sub_mode_array_length', 'number', ['number']);
+
+    // Current pattern/loop getters
+    this._getCurrentLoopStart = cw('engine_get_current_loop_start', 'number', []);
+    this._getCurrentLoopLength = cw('engine_get_current_loop_length', 'number', []);
+    this._getCurrentPatternLengthTicks = cw('engine_get_current_pattern_length_ticks', 'number', []);
+    this._getCurrentTick = cw('engine_get_current_tick', 'number', []);
+    this._getCurrentPattern = cw('engine_get_current_pattern', 'number', ['number']);
+    this._getChannelType = cw('engine_get_channel_type', 'number', ['number']);
+    this._getScaleRoot = cw('engine_get_scale_root', 'number', []);
+    this._getScaleIdIdx = cw('engine_get_scale_id_idx', 'number', []);
 
     // Grid output
     this._getButtonValuesBuffer = cw('engine_get_button_values_buffer', 'number', []);
@@ -282,8 +327,7 @@ export class WasmEngine {
     mod._callbacks = {
       stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, evIdx: number) => {
         // Register active note for grid highlighting
-        const store = getSequencerStore();
-        const patIdx = store.currentPatterns[ch];
+        const patIdx = this._getCurrentPattern(ch);
         const eventId = this.getEventId(ch, patIdx, evIdx);
         if (eventId) {
           registerWasmActiveNote(ch, eventId, tick, len, note);
@@ -299,17 +343,17 @@ export class WasmEngine {
       noteOff: (ch: number, note: number) => {
         this.onNoteOff?.(ch, note);
       },
-      setCurrentTick: (tick: number) => {
-        getSequencerStore()._setCurrentTick(tick);
+      setCurrentTick: (_tick: number) => {
+        // WASM updates tick internally; just trigger re-render
+        markDirty();
       },
-      setCurrentPatterns: (patterns: number[]) => {
-        getSequencerStore()._setCurrentPatterns(patterns);
+      setCurrentPatterns: (_patterns: number[]) => {
+        // WASM updates current_patterns internally; just trigger re-render
+        markDirty();
       },
-      clearQueuedPattern: (ch: number) => {
-        const store = getSequencerStore();
-        const queued = [...store.queuedPatterns];
-        queued[ch] = null;
-        store._setQueuedPatterns(queued);
+      clearQueuedPattern: (_ch: number) => {
+        // WASM updates queued_patterns internally; just trigger re-render
+        markDirty();
       },
       previewValue: (sm: number, ch: number, evIdx: number, tick: number, val: number) => {
         if (!this.onPreviewValue) return;
@@ -359,69 +403,11 @@ export class WasmEngine {
 
   // ============ Sync Operations ============
 
-  syncAll(store: SequencerState): void {
-    // Sync all patterns
-    for (let ch = 0; ch < 8; ch++) {
-      for (let pat = 0; pat < 8; pat++) {
-        this.syncPattern(ch, pat, store.patterns[ch][pat]);
-      }
-    }
-    this.syncPlaybackState(store);
-    this.syncUiState(store);
-  }
-
   /**
-   * Sync only non-pattern state (loops, mute/solo, scale, etc.) for playback start.
-   * Use this instead of syncAll when WASM already owns the pattern data.
+   * Seed the RNG for playback. Call before starting playback.
    */
-  syncPlaybackState(store: SequencerState): void {
-    this.syncLoops(store);
-    this.syncMuteSolo(store);
-    this.syncScale(store);
-    this.syncCurrentPatterns(store);
-    this.syncQueuedPatterns(store);
-    this.syncChannelTypes(store);
+  seedRng(): void {
     this._setRngSeed(Math.floor(Math.random() * 0xFFFFFFFF) + 1);
-  }
-
-  /**
-   * Sync UI state (row offsets, col offset, zoom, mode, BPM, etc.) from Zustand to WASM.
-   * Call this after syncAll on initial load or when UI state may have drifted.
-   */
-  syncUiState(store: SequencerState): void {
-    const view = store.view;
-    // Row offsets
-    for (let ch = 0; ch < 8; ch++) {
-      this._setRowOffset(ch, view.rowOffsets[ch]);
-    }
-    // Col offset
-    this._setColOffset(view.colOffset);
-    // Zoom (subdivision name → ticks per col)
-    this._setZoom(SUBDIVISION_TICKS[view.zoom]);
-    // UI mode
-    const uiModeMap: Record<string, number> = { pattern: 0, channel: 1, loop: 2, modify: 3 };
-    this._setUiMode(uiModeMap[view.uiMode] ?? 0);
-    // Modify sub-mode
-    const smMap: Record<string, number> = { velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4 };
-    this._setModifySubMode(smMap[view.modifySubMode] ?? 0);
-    // Current channel
-    this._setCurrentChannel(store.currentChannel);
-    // BPM
-    this._setBpm(store.bpm);
-    // Is playing
-    this._setIsPlaying(store.isPlaying ? 1 : 0);
-    // Scale root and ID
-    this._setScaleRoot(store.scaleRoot);
-    const scaleIdx = SCALE_ORDER.indexOf(store.scaleId);
-    this._setScaleIdIdx(scaleIdx >= 0 ? scaleIdx : 0);
-    // Selected event
-    if (view.selectedNoteId) {
-      const patIdx = store.currentPatterns[store.currentChannel];
-      const idx = this.getEventIndex(store.currentChannel, patIdx, view.selectedNoteId);
-      this._setSelectedEvent(idx);
-    } else {
-      this._setSelectedEvent(-1);
-    }
   }
 
   syncPattern(ch: number, pat: number, patternData: PatternData): void {
@@ -450,20 +436,18 @@ export class WasmEngine {
   }
 
   /**
-   * Read the current channel's current pattern from WASM memory back into the Zustand store.
-   * Call this after any WASM input that may have edited pattern data.
+   * Read the current channel's current pattern from WASM memory.
    */
-  readCurrentPatternToStore(): void {
-    const store = getSequencerStore();
-    const ch = store.currentChannel;
-    const pat = store.currentPatterns[ch];
-    this.readPatternToStore(ch, pat);
+  readCurrentPatternData(): PatternData {
+    const ch = this._getCurrentChannel();
+    const pat = this._getCurrentPattern(ch);
+    return this.readPatternData(ch, pat);
   }
 
   /**
-   * Read a specific pattern from WASM memory into the Zustand store.
+   * Read a specific pattern from WASM memory and return it.
    */
-  readPatternToStore(ch: number, pat: number): void {
+  readPatternData(ch: number, pat: number): PatternData {
     const mod = this.module!;
     const bufferPtr = this._getEventBuffer(ch, pat);
     const eventCount = this._getEventCount(ch, pat);
@@ -530,13 +514,9 @@ export class WasmEngine {
       }
     }
 
-    const patternData: PatternData = {
-      events,
-      lengthTicks,
-    };
-
-    getSequencerStore()._setPatternData(ch, pat, patternData);
+    return { events, lengthTicks };
   }
+
 
   private writeNoteEvent(
     view: DataView,
@@ -582,70 +562,71 @@ export class WasmEngine {
     view.setUint16(ptr + this.fieldOffsets[10], eventIndex, true);
   }
 
-  syncLoops(store: SequencerState): void {
-    const mod = this.module!;
-    const ptr = this._getLoopsBuffer();
-    const view = new DataView(mod.HEAPU8.buffer);
-    // PatternLoop_C is {int32_t start, int32_t length} = 8 bytes
-    for (let ch = 0; ch < 8; ch++) {
-      for (let pat = 0; pat < 8; pat++) {
-        const loop = store.patternLoops[ch][pat];
-        const offset = (ch * 8 + pat) * 8;
-        view.setInt32(ptr + offset, loop.start, true);
-        view.setInt32(ptr + offset + 4, loop.length, true);
-      }
-    }
-  }
+  // Loops live in WASM — use readLoop/writeLoop for individual access
 
-  syncMuteSolo(store: SequencerState): void {
+  syncMuteSolo(muted: boolean[], soloed: boolean[]): void {
     const mod = this.module!;
     const mutedPtr = this._getMutedBuffer();
     const soloedPtr = this._getSoloedBuffer();
     for (let ch = 0; ch < 8; ch++) {
-      mod.HEAPU8[mutedPtr + ch] = store.mutedChannels[ch] ? 1 : 0;
-      mod.HEAPU8[soloedPtr + ch] = store.soloedChannels[ch] ? 1 : 0;
+      mod.HEAPU8[mutedPtr + ch] = muted[ch] ? 1 : 0;
+      mod.HEAPU8[soloedPtr + ch] = soloed[ch] ? 1 : 0;
     }
   }
 
-  syncScale(store: SequencerState): void {
+  /** Read mute/solo state from WASM memory. */
+  readMuteSolo(): { muted: boolean[]; soloed: boolean[] } {
     const mod = this.module!;
-    const pattern = SCALES[store.scaleId]?.pattern ?? SCALES.major.pattern;
-    const mapping = buildScaleMapping(store.scaleRoot, pattern);
+    const mutedPtr = this._getMutedBuffer();
+    const soloedPtr = this._getSoloedBuffer();
+    const muted: boolean[] = [];
+    const soloed: boolean[] = [];
+    for (let ch = 0; ch < 8; ch++) {
+      muted.push(mod.HEAPU8[mutedPtr + ch] !== 0);
+      soloed.push(mod.HEAPU8[soloedPtr + ch] !== 0);
+    }
+    return { muted, soloed };
+  }
+
+  /** Write mute/solo state to WASM memory. */
+  writeMuteSolo(muted: boolean[], soloed: boolean[]): void {
+    this.syncMuteSolo(muted, soloed);
+  }
+
+  /** Read a single loop (start, length) from WASM memory. */
+  readLoop(ch: number, pat: number): { start: number; length: number } {
+    const mod = this.module!;
+    const ptr = this._getLoopsBuffer();
+    const view = new DataView(mod.HEAPU8.buffer);
+    const offset = (ch * 8 + pat) * 8;
+    return {
+      start: view.getInt32(ptr + offset, true),
+      length: view.getInt32(ptr + offset + 4, true),
+    };
+  }
+
+  /** Write a single loop to WASM memory. */
+  writeLoop(ch: number, pat: number, start: number, length: number): void {
+    const mod = this.module!;
+    const ptr = this._getLoopsBuffer();
+    const view = new DataView(mod.HEAPU8.buffer);
+    const offset = (ch * 8 + pat) * 8;
+    view.setInt32(ptr + offset, start, true);
+    view.setInt32(ptr + offset + 4, length, true);
+  }
+
+  /**
+   * Sync scale mapping to WASM. Call after scale root/id changes.
+   */
+  syncScale(scaleRoot: number, scaleId: string): void {
+    const mod = this.module!;
+    const pattern = SCALES[scaleId]?.pattern ?? SCALES.major.pattern;
+    const mapping = buildScaleMapping(scaleRoot, pattern);
     const ptr = this._getScaleBuffer();
     for (let i = 0; i < mapping.notes.length; i++) {
       mod.HEAPU8[ptr + i] = mapping.notes[i];
     }
     this._setScaleInfo(mapping.notes.length, mapping.zeroIndex);
-  }
-
-  syncCurrentPatterns(store: SequencerState): void {
-    const mod = this.module!;
-    const ptr = this._getCurrentPatternsBuffer();
-    for (let ch = 0; ch < 8; ch++) {
-      mod.HEAPU8[ptr + ch] = store.currentPatterns[ch];
-    }
-  }
-
-  syncQueuedPatterns(store: SequencerState): void {
-    const mod = this.module!;
-    const ptr = this._getQueuedPatternsBuffer();
-    for (let ch = 0; ch < 8; ch++) {
-      // int8_t: -1 = no queue
-      mod.HEAPU8[ptr + ch] = store.queuedPatterns[ch] ?? 0xFF; // 0xFF = -1 as uint8
-    }
-    // Actually need to write as signed int8
-    const view = new DataView(mod.HEAPU8.buffer);
-    for (let ch = 0; ch < 8; ch++) {
-      view.setInt8(ptr + ch, store.queuedPatterns[ch] ?? -1);
-    }
-  }
-
-  syncChannelTypes(store: SequencerState): void {
-    const mod = this.module!;
-    const ptr = this._getChannelTypesBuffer();
-    for (let ch = 0; ch < 8; ch++) {
-      mod.HEAPU8[ptr + ch] = store.channelTypes[ch] === 'drum' ? 1 : 0;
-    }
   }
 
   // ============ Event Index Lookup ============
@@ -662,8 +643,7 @@ export class WasmEngine {
    * Get the current continue counter for a sub-mode/channel/event from the C engine.
    */
   getContinueCounter(subModeName: string, channel: number, eventId: string): number {
-    const store = getSequencerStore();
-    const patIdx = store.currentPatterns[channel];
+    const patIdx = this._getCurrentPattern(channel);
     const eventIndex = this.getEventIndex(channel, patIdx, eventId);
     if (eventIndex < 0) return 0;
     const smId = SUB_MODE_NAME_TO_ID[subModeName];
@@ -737,7 +717,9 @@ export class WasmEngine {
   setZoom(ticksPerCol: number): void { this._setZoom(ticksPerCol); }
   setSelectedEvent(idx: number): void { this._setSelectedEvent(idx); }
   setRowOffset(ch: number, offset: number): void { this._setRowOffset(ch, offset); }
+  getRowOffset(ch: number): number { return this._getRowOffset(ch); }
   setColOffset(offset: number): void { this._setColOffset(offset); }
+  getColOffset(): number { return this._getColOffset(); }
   setBpm(bpm: number): void { this._setBpm(bpm); }
   setIsPlaying(playing: boolean): void { this._setIsPlaying(playing ? 1 : 0); }
   setCtrlHeld(held: boolean): void { this._setCtrlHeld(held ? 1 : 0); }
@@ -752,6 +734,47 @@ export class WasmEngine {
   getSelectedEvent(): number { return this._getSelectedEvent(); }
   getBpm(): number { return this._getBpm(); }
   getIsPlaying(): boolean { return this._getIsPlaying() !== 0; }
+
+  // Selected event getters (OLED display)
+  getSelRow(): number { return this._getSelRow(); }
+  getSelLength(): number { return this._getSelLength(); }
+  getSelRepeatAmount(): number { return this._getSelRepeatAmount(); }
+  getSelRepeatSpace(): number { return this._getSelRepeatSpace(); }
+  getSelChordStackSize(): number { return this._getSelChordStackSize(); }
+  getSelChordShapeIndex(): number { return this._getSelChordShapeIndex(); }
+  getSelChordInversion(): number { return this._getSelChordInversion(); }
+  getSelSubModeLoopMode(sm: number): number { return this._getSelSubModeLoopMode(sm); }
+  getSelSubModeArrayLength(sm: number): number { return this._getSelSubModeArrayLength(sm); }
+
+  // Current pattern/loop getters
+  getCurrentLoopStart(): number { return this._getCurrentLoopStart(); }
+  getCurrentLoopLength(): number { return this._getCurrentLoopLength(); }
+  getCurrentPatternLengthTicks(): number { return this._getCurrentPatternLengthTicks(); }
+  getCurrentTick(): number { return this._getCurrentTick(); }
+  getCurrentPattern(ch: number): number { return this._getCurrentPattern(ch); }
+  getChannelType(ch: number): number { return this._getChannelType(ch); }
+  getScaleRoot(): number { return this._getScaleRoot(); }
+  getScaleIdIdx(): number { return this._getScaleIdIdx(); }
+
+  /** Write channel types to WASM memory. 0 = melodic, 1 = drum. */
+  writeChannelTypes(types: number[]): void {
+    const mod = this.module!;
+    const ptr = this._getChannelTypesBuffer();
+    for (let ch = 0; ch < 8; ch++) {
+      mod.HEAPU8[ptr + ch] = types[ch] ?? 0;
+    }
+  }
+
+  /** Read current patterns from WASM memory. */
+  readCurrentPatterns(): number[] {
+    const mod = this.module!;
+    const ptr = this._getCurrentPatternsBuffer();
+    const patterns: number[] = [];
+    for (let ch = 0; ch < 8; ch++) {
+      patterns.push(mod.HEAPU8[ptr + ch]);
+    }
+    return patterns;
+  }
 
   // ============ Input Handling ============
 

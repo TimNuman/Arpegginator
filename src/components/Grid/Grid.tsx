@@ -1,93 +1,122 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import { css } from "@emotion/react";
 import { Box } from "@mui/material";
 import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
 import { CHANNEL_COLORS } from "./ChannelColors";
-import {
-  useSequencerStore,
-  VISIBLE_ROWS,
-  VISIBLE_COLS,
-  type UiMode,
-} from "../../store/sequencerStore";
-import {
-  useCurrentLoop,
-  useCurrentPattern,
-  usePatternData,
-  useZoom,
-} from "../../store/selectors";
+import { VISIBLE_ROWS, VISIBLE_COLS } from "../../store/sequencerStore";
+import { useRenderVersion, getIsPlaying } from "../../store/renderStore";
 import * as actions from "../../actions";
 import {
-  findEventById,
-  getEventSubModeLoopMode,
-  getEventSubModeArrayLength,
   SUBDIVISION_TICKS,
   TICKS_PER_QUARTER,
   type ModifySubMode,
+  type Subdivision,
 } from "../../types/event";
-import { SCALES, NOTE_NAMES, buildScaleMapping, noteToMidi } from "../../types/scales";
+import {
+  SCALES,
+  NOTE_NAMES,
+  SCALE_ORDER,
+  buildScaleMapping,
+  noteToMidi,
+} from "../../types/scales";
 import { getDrumName, DRUM_TOTAL_ROWS, DRUM_MIN_ROW } from "../../types/drums";
+import { markDirty } from "../../store/renderStore";
 import type { WasmEngine } from "../../engine/WasmEngine";
 
 const noop = () => {};
 
-// Keyboard to grid position mapping (same as before)
+// Keyboard to grid position mapping
 const KEY_MAP: Record<string, { row: number; col: number }> = {
-  "1": { row: 4, col: 0 }, "2": { row: 4, col: 1 }, "3": { row: 4, col: 2 }, "4": { row: 4, col: 3 },
-  "5": { row: 4, col: 4 }, "6": { row: 4, col: 5 }, "7": { row: 4, col: 6 }, "8": { row: 4, col: 7 },
-  q: { row: 5, col: 0 }, w: { row: 5, col: 1 }, e: { row: 5, col: 2 }, r: { row: 5, col: 3 },
-  t: { row: 5, col: 4 }, y: { row: 5, col: 5 }, u: { row: 5, col: 6 }, i: { row: 5, col: 7 },
-  a: { row: 6, col: 0 }, s: { row: 6, col: 1 }, d: { row: 6, col: 2 }, f: { row: 6, col: 3 },
-  g: { row: 6, col: 4 }, h: { row: 6, col: 5 }, j: { row: 6, col: 6 }, k: { row: 6, col: 7 },
-  z: { row: 7, col: 0 }, x: { row: 7, col: 1 }, c: { row: 7, col: 2 }, v: { row: 7, col: 3 },
-  b: { row: 7, col: 4 }, n: { row: 7, col: 5 }, m: { row: 7, col: 6 }, ",": { row: 7, col: 7 },
+  "1": { row: 4, col: 0 },
+  "2": { row: 4, col: 1 },
+  "3": { row: 4, col: 2 },
+  "4": { row: 4, col: 3 },
+  "5": { row: 4, col: 4 },
+  "6": { row: 4, col: 5 },
+  "7": { row: 4, col: 6 },
+  "8": { row: 4, col: 7 },
+  q: { row: 5, col: 0 },
+  w: { row: 5, col: 1 },
+  e: { row: 5, col: 2 },
+  r: { row: 5, col: 3 },
+  t: { row: 5, col: 4 },
+  y: { row: 5, col: 5 },
+  u: { row: 5, col: 6 },
+  i: { row: 5, col: 7 },
+  a: { row: 6, col: 0 },
+  s: { row: 6, col: 1 },
+  d: { row: 6, col: 2 },
+  f: { row: 6, col: 3 },
+  g: { row: 6, col: 4 },
+  h: { row: 6, col: 5 },
+  j: { row: 6, col: 6 },
+  k: { row: 6, col: 7 },
+  z: { row: 7, col: 0 },
+  x: { row: 7, col: 1 },
+  c: { row: 7, col: 2 },
+  v: { row: 7, col: 3 },
+  b: { row: 7, col: 4 },
+  n: { row: 7, col: 5 },
+  m: { row: 7, col: 6 },
+  ",": { row: 7, col: 7 },
 };
 
 // Modifier flag encoding (must match engine_input.h)
-const MOD_CTRL  = 1;
+const MOD_CTRL = 1;
 const MOD_SHIFT = 2;
-const MOD_META  = 4;
-const MOD_ALT   = 8;
+const MOD_META = 4;
+const MOD_ALT = 8;
 
 // Direction constants (must match engine_input.h)
-const DIR_UP    = 0;
-const DIR_DOWN  = 1;
-const DIR_LEFT  = 2;
+const DIR_UP = 0;
+const DIR_DOWN = 1;
+const DIR_LEFT = 2;
 const DIR_RIGHT = 3;
 
 // Action IDs (must match engine_input.h)
-const ACTION_DESELECT      = 1;
-const ACTION_ZOOM_IN       = 2;
-const ACTION_ZOOM_OUT      = 3;
-const ACTION_DELETE_NOTE    = 4;
-const ACTION_CLEAR_PATTERN  = 5;
+const ACTION_DESELECT = 1;
+const ACTION_ZOOM_IN = 2;
+const ACTION_ZOOM_OUT = 3;
+const ACTION_DELETE_NOTE = 4;
+const ACTION_CLEAR_PATTERN = 5;
 
-// UI mode IDs (must match engine_core.h)
-const UI_MODE_PATTERN = 0;
-const UI_MODE_CHANNEL = 1;
-const UI_MODE_LOOP    = 2;
-const UI_MODE_MODIFY  = 3;
+// UI mode names (index = C enum value)
+const UI_MODE_NAMES = ["pattern", "channel", "loop", "modify"] as const;
+type UiMode = (typeof UI_MODE_NAMES)[number];
 
-const UI_MODE_MAP: Record<UiMode, number> = {
-  pattern: UI_MODE_PATTERN,
-  channel: UI_MODE_CHANNEL,
-  loop: UI_MODE_LOOP,
-  modify: UI_MODE_MODIFY,
-};
+// Sub-mode names (index = C enum value)
+const SUB_MODE_NAMES: ModifySubMode[] = [
+  "velocity",
+  "hit",
+  "timing",
+  "flam",
+  "modulate",
+];
 
-const UI_MODE_NAMES: UiMode[] = ["pattern", "channel", "loop", "modify"];
-
-// Sub-mode IDs (must match engine_core.h)
-const SUB_MODE_MAP: Record<ModifySubMode, number> = {
-  velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4,
-};
-
-const SUB_MODE_NAMES: ModifySubMode[] = ["velocity", "hit", "timing", "flam", "modulate"];
+// Subdivision names indexed by ticks-per-col (reverse lookup)
+const TICKS_TO_SUBDIVISION: Record<number, Subdivision> = {};
+for (const [name, tpc] of Object.entries(SUBDIVISION_TICKS)) {
+  TICKS_TO_SUBDIVISION[tpc] = name as Subdivision;
+}
 
 // Convert MIDI note number to note name
 const midiNoteToName = (midiNote: number): string => {
-  const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const noteNames = [
+    "C",
+    "C#",
+    "D",
+    "D#",
+    "E",
+    "F",
+    "F#",
+    "G",
+    "G#",
+    "A",
+    "A#",
+    "B",
+  ];
   const octave = Math.floor(midiNote / 12) - 1;
   const noteName = noteNames[midiNote % 12];
   return `${noteName}${octave}`;
@@ -111,19 +140,24 @@ const tickToBeatDisplay = (tick: number): string => {
 
 // Convert uint32 packed 0xRRGGBB to "#RRGGBB" hex string
 function uint32ToHex(val: number): string {
-  const r = (val >> 16) & 0xFF;
-  const g = (val >> 8) & 0xFF;
-  const b = val & 0xFF;
+  const r = (val >> 16) & 0xff;
+  const g = (val >> 8) & 0xff;
+  const b = val & 0xff;
   return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
 // Encode modifier keys into bit flags
-function encodeModifiers(state: { ctrl: boolean; shift: boolean; meta: boolean; alt: boolean }): number {
+function encodeModifiers(state: {
+  ctrl: boolean;
+  shift: boolean;
+  meta: boolean;
+  alt: boolean;
+}): number {
   let flags = 0;
-  if (state.ctrl)  flags |= MOD_CTRL;
+  if (state.ctrl) flags |= MOD_CTRL;
   if (state.shift) flags |= MOD_SHIFT;
-  if (state.meta)  flags |= MOD_META;
-  if (state.alt)   flags |= MOD_ALT;
+  if (state.meta) flags |= MOD_META;
+  if (state.alt) flags |= MOD_ALT;
   return flags;
 }
 
@@ -135,6 +169,9 @@ const SUB_MODE_CONFIG: Record<ModifySubMode, { label: string }> = {
   flam: { label: "FLAM" },
   modulate: { label: "MOD" },
 };
+
+// Loop mode names (index = C enum value)
+const LOOP_MODE_NAMES = ["reset", "continue", "fill"] as const;
 
 // ============ Styles ============
 
@@ -359,33 +396,39 @@ interface GridProps {
 }
 
 export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
+  // Subscribe to render version — triggers re-render when markDirty() is called
+  const renderVersion = useRenderVersion();
 
-  // Store subscriptions (minimal — just what we need for OLED, strips, and syncing)
-  const currentChannel = useSequencerStore((s) => s.currentChannel);
-  const currentTick = useSequencerStore((s) => s.currentTick);
-  const isPlaying = useSequencerStore((s) => s.isPlaying);
-  const selectedNoteId = useSequencerStore((s) => s.view.selectedNoteId);
-  const rowOffsets = useSequencerStore((s) => s.view.rowOffsets);
-  const colOffset = useSequencerStore((s) => s.view.colOffset);
-  const uiMode = useSequencerStore((s) => s.view.uiMode);
-  const modifySubMode = useSequencerStore((s) => s.view.modifySubMode);
-  const scaleRoot = useSequencerStore((s) => s.scaleRoot);
-  const scaleId = useSequencerStore((s) => s.scaleId);
-  const channelType = useSequencerStore((s) => s.channelTypes[s.currentChannel]);
-  const isDrumChannel = channelType === "drum";
-  const currentPattern = useCurrentPattern();
-  const currentLoop = useCurrentLoop();
-  const patternData = usePatternData();
-  const zoom = useZoom();
+  // ============ Read ALL state from WASM (single source of truth) ============
+  const currentChannel = wasmEngine.getCurrentChannel();
+  const currentTick = wasmEngine.getCurrentTick();
+  const isPlaying = getIsPlaying(); // JS owns transport
+  const selectedEventIdx = wasmEngine.getSelectedEvent();
+  const hasSelection = selectedEventIdx >= 0;
+  const uiModeIdx = wasmEngine.getUiMode();
+  const uiMode = UI_MODE_NAMES[uiModeIdx] ?? "pattern";
+  const modifySubModeIdx = wasmEngine.getModifySubMode();
+  const modifySubMode = SUB_MODE_NAMES[modifySubModeIdx] ?? "velocity";
+  const ticksPerCol = wasmEngine.getZoom();
+  const zoom = TICKS_TO_SUBDIVISION[ticksPerCol] ?? "1/16";
+  const scaleRoot = wasmEngine.getScaleRoot();
+  const scaleIdIdx = wasmEngine.getScaleIdIdx();
+  const scaleId = SCALE_ORDER[scaleIdIdx] ?? "major";
+  const isDrumChannel = wasmEngine.getChannelType(currentChannel) === 1;
+  const currentPattern = wasmEngine.getCurrentPattern(currentChannel);
+  const loopStart = wasmEngine.getCurrentLoopStart();
+  const loopLength = wasmEngine.getCurrentLoopLength();
+  const loopEndTick = loopStart + loopLength;
+  const patternLengthTicks = wasmEngine.getCurrentPatternLengthTicks();
+  const rowOffset = wasmEngine.getRowOffset(currentChannel);
+  const colOffset = wasmEngine.getColOffset();
 
   const channelColor = CHANNEL_COLORS[currentChannel];
-  const rowOffset = rowOffsets[currentChannel];
 
   // Tick-based layout
-  const ticksPerCol = SUBDIVISION_TICKS[zoom];
-  const totalCols = Math.ceil(patternData.lengthTicks / ticksPerCol);
+  const totalCols = Math.ceil(patternLengthTicks / ticksPerCol);
 
-  // Scale mapping for OLED display and row calculations
+  // Scale mapping for display
   const scalePattern = useMemo(
     () => SCALES[scaleId]?.pattern ?? SCALES.major.pattern,
     [scaleId],
@@ -399,90 +442,33 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
   const minRow = isDrumChannel ? DRUM_MIN_ROW : scaleMapping.minRow;
   const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
-  const startArrayIndex = maxRowOffset > 0
-    ? Math.round((1 - rowOffsets[currentChannel]) * maxRowOffset)
-    : 0;
+  const startArrayIndex =
+    maxRowOffset > 0 ? Math.round((1 - rowOffset) * maxRowOffset) : 0;
   const startRow = startArrayIndex + minRow;
   const endRow = startRow + VISIBLE_ROWS - 1;
-  const startCol = maxColOffset > 0
-    ? Math.round(colOffset * maxColOffset)
-    : 0;
+  const startCol = maxColOffset > 0 ? Math.round(colOffset * maxColOffset) : 0;
   const startTick = startCol * ticksPerCol;
-
-  // Looped tick for OLED display
-  const loopEndTick = currentLoop.start + currentLoop.length;
 
   const buttonSize = 44;
   const gridHeight = VISIBLE_ROWS * buttonSize;
 
-  // ============ Sync WASM UI State from Store ============
-  // Keep WASM engine UI state in sync whenever the Zustand store changes
-  useEffect(() => {
-    wasmEngine.setUiMode(UI_MODE_MAP[uiMode]);
-  }, [wasmEngine, uiMode]);
-
-  useEffect(() => {
-    wasmEngine.setModifySubMode(SUB_MODE_MAP[modifySubMode]);
-  }, [wasmEngine, modifySubMode]);
-
-  useEffect(() => {
-    wasmEngine.setCurrentChannel(currentChannel);
-  }, [wasmEngine, currentChannel]);
-
-  useEffect(() => {
-    wasmEngine.setZoom(ticksPerCol);
-  }, [wasmEngine, ticksPerCol]);
-
-  useEffect(() => {
-    // Convert selectedNoteId (UUID) to WASM event index
-    if (selectedNoteId) {
-      const store = useSequencerStore.getState();
-      const patIdx = store.currentPatterns[store.currentChannel];
-      const idx = wasmEngine.getEventIndex(store.currentChannel, patIdx, selectedNoteId);
-      wasmEngine.setSelectedEvent(idx);
-    } else {
-      wasmEngine.setSelectedEvent(-1);
-    }
-  }, [wasmEngine, selectedNoteId]);
-
-  useEffect(() => {
-    for (let ch = 0; ch < 8; ch++) {
-      wasmEngine.setRowOffset(ch, rowOffsets[ch]);
-    }
-  }, [wasmEngine, rowOffsets]);
-
-  useEffect(() => {
-    wasmEngine.setColOffset(colOffset);
-  }, [wasmEngine, colOffset]);
-
-  useEffect(() => {
-    wasmEngine.setIsPlaying(isPlaying);
-  }, [wasmEngine, isPlaying]);
-
-  useEffect(() => {
-    wasmEngine.setScaleRoot(scaleRoot);
-  }, [wasmEngine, scaleRoot]);
-
-  // Set channel colors once
-  useEffect(() => {
-    for (let ch = 0; ch < 8; ch++) {
-      const hex = CHANNEL_COLORS[ch];
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      wasmEngine.setChannelColor(ch, (r << 16) | (g << 8) | b);
-    }
-  }, [wasmEngine]);
-
-  // ============ Keyboard → WASM ============
+  // ============ Keyboard -> WASM ============
   const keyboardRef = useRef<KeyboardState>({
     pressedKeys: new Set(),
-    ctrl: false, shift: false, meta: false, alt: false,
+    ctrl: false,
+    shift: false,
+    meta: false,
+    alt: false,
   });
 
   const handleKeyDown = useCallback(
-    (key: string, code: string, event: KeyboardEvent, state: KeyboardState): boolean => {
-      // Spacebar: toggle play/stop via JS actions (not WASM — JS manages transport)
+    (
+      key: string,
+      code: string,
+      event: KeyboardEvent,
+      state: KeyboardState,
+    ): boolean => {
+      // Spacebar: toggle play/stop via JS actions (JS manages transport)
       if (key === " " || code === "Space") {
         actions.togglePlay();
         return true;
@@ -491,30 +477,30 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
       // Backspace: deselect / reset playhead
       if (key === "backspace") {
         wasmEngine.keyAction(ACTION_DESELECT);
-        syncWasmStateBack(wasmEngine);
+        markDirty();
         return true;
       }
 
       // Delete
       if (key === "delete" || code === "Delete") {
         wasmEngine.keyAction(ACTION_DELETE_NOTE);
-        syncWasmStateBack(wasmEngine);
+        markDirty();
         return true;
       }
 
       // Zoom: [ = zoom out, ] = zoom in
       if (key === "[") {
         wasmEngine.keyAction(ACTION_ZOOM_OUT);
-        syncWasmStateBack(wasmEngine);
+        markDirty();
         return true;
       }
       if (key === "]") {
         wasmEngine.keyAction(ACTION_ZOOM_IN);
-        syncWasmStateBack(wasmEngine);
+        markDirty();
         return true;
       }
 
-      // Arrow keys → WASM
+      // Arrow keys -> WASM
       const arrowMap: Record<string, number> = {
         ArrowUp: DIR_UP,
         ArrowDown: DIR_DOWN,
@@ -524,7 +510,7 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
       if (code in arrowMap) {
         const mods = encodeModifiers(state);
         wasmEngine.arrowPress(arrowMap[code], mods);
-        syncWasmStateBack(wasmEngine);
+        markDirty();
         return true;
       }
 
@@ -534,7 +520,7 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
         if (gridPos) {
           const mods = encodeModifiers(state);
           wasmEngine.buttonPress(gridPos.row, gridPos.col, mods);
-          syncWasmStateBack(wasmEngine);
+          markDirty();
           return true;
         }
       }
@@ -574,23 +560,15 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
     }
 
     return { buttonValues: buffers.buttonValues, colorOverrides: hexColors };
-  }, [
-    wasmEngine,
-    // Re-compute when any relevant state changes
-    uiMode, modifySubMode, currentChannel, currentTick, isPlaying,
-    selectedNoteId, rowOffsets, colOffset, ticksPerCol,
-    currentLoop.start, currentLoop.length,
-    patternData.events, patternData.lengthTicks,
-    scaleRoot, scaleId, isDrumChannel,
-    keyboard.ctrl,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wasmEngine, renderVersion, keyboard.ctrl]);
 
-  // ============ Button Press → WASM ============
+  // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(
     (visibleRow: number, visibleCol: number) => {
       const mods = encodeModifiers(keyboardRef.current);
       wasmEngine.buttonPress(visibleRow, visibleCol, mods);
-      syncWasmStateBack(wasmEngine);
+      markDirty();
     },
     [wasmEngine],
   );
@@ -599,66 +577,10 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
     (visibleRow: number, visibleCol: number) => {
       const mods = encodeModifiers(keyboardRef.current);
       wasmEngine.buttonPress(visibleRow, visibleCol, mods);
-      syncWasmStateBack(wasmEngine);
+      markDirty();
     },
     [wasmEngine],
   );
-
-  // ============ Sync WASM state changes back to Zustand ============
-  // After any WASM input, read back state that may have changed
-  function syncWasmStateBack(engine: WasmEngine): void {
-    const store = useSequencerStore.getState();
-
-    // UI mode
-    const wasmUiMode = engine.getUiMode();
-    if (UI_MODE_NAMES[wasmUiMode] !== store.view.uiMode) {
-      store._setView({ uiMode: UI_MODE_NAMES[wasmUiMode] });
-    }
-
-    // Modify sub-mode
-    const wasmSubMode = engine.getModifySubMode();
-    if (SUB_MODE_NAMES[wasmSubMode] !== store.view.modifySubMode) {
-      store._setView({ modifySubMode: SUB_MODE_NAMES[wasmSubMode] });
-    }
-
-    // Current channel
-    const wasmChannel = engine.getCurrentChannel();
-    if (wasmChannel !== store.currentChannel) {
-      store._setCurrentChannel(wasmChannel);
-    }
-
-    // Zoom (ticks per col → subdivision name)
-    const wasmZoom = engine.getZoom();
-    const currentTicksPerCol = SUBDIVISION_TICKS[store.view.zoom];
-    if (wasmZoom !== currentTicksPerCol) {
-      // Find matching subdivision
-      for (const [name, tpc] of Object.entries(SUBDIVISION_TICKS)) {
-        if (tpc === wasmZoom) {
-          store._setView({ zoom: name as typeof store.view.zoom });
-          break;
-        }
-      }
-    }
-
-    // Selected event — convert WASM index back to UUID
-    const wasmSelected = engine.getSelectedEvent();
-    if (wasmSelected < 0) {
-      if (store.view.selectedNoteId !== null) {
-        store._setView({ selectedNoteId: null });
-      }
-    } else {
-      const patIdx = store.currentPatterns[store.currentChannel];
-      const eventId = engine.getEventId(store.currentChannel, patIdx, wasmSelected);
-      if (eventId && eventId !== store.view.selectedNoteId) {
-        store._setView({ selectedNoteId: eventId });
-      }
-    }
-
-    // Note: Playing state is managed by JS (actions.togglePlay), not synced from WASM
-
-    // Sync pattern data from WASM → Zustand (for OLED display + syncAll correctness)
-    engine.readCurrentPatternToStore();
-  }
 
   // ============ Playhead Follow Mode ============
   const manualScrollOverride = useRef(false);
@@ -674,29 +596,35 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
   prevIsPlaying.current = isPlaying;
 
   // Auto-scroll to follow playhead while playing
-  if (isPlaying && currentTick >= 0 && !manualScrollOverride.current && uiMode !== "loop") {
+  if (
+    isPlaying &&
+    currentTick >= 0 &&
+    !manualScrollOverride.current &&
+    uiMode !== "loop"
+  ) {
     const loopedTick =
-      currentLoop.start +
-      ((((currentTick - currentLoop.start) % currentLoop.length) +
-        currentLoop.length) %
-        currentLoop.length);
-    const loopStartCol = Math.floor(currentLoop.start / ticksPerCol);
-    const loopLengthCols = Math.ceil(currentLoop.length / ticksPerCol);
+      loopStart +
+      ((((currentTick - loopStart) % loopLength) + loopLength) % loopLength);
+    const loopStartCol = Math.floor(loopStart / ticksPerCol);
+    const loopLengthCols = Math.ceil(loopLength / ticksPerCol);
     const loopEndCol = Math.ceil(loopEndTick / ticksPerCol);
 
     if (loopLengthCols > VISIBLE_COLS) {
       const FOLLOW_COL = 4;
-      const loopedCol = Math.floor((loopedTick - currentLoop.start) / ticksPerCol) + loopStartCol;
+      const loopedCol =
+        Math.floor((loopedTick - loopStart) / ticksPerCol) + loopStartCol;
       let targetStartCol = loopedCol - FOLLOW_COL;
       targetStartCol = Math.max(targetStartCol, loopStartCol);
       const maxLoopStartCol = loopEndCol - VISIBLE_COLS;
       targetStartCol = Math.min(targetStartCol, maxLoopStartCol);
       targetStartCol = Math.max(0, Math.min(maxColOffset, targetStartCol));
-      const newColOffset = maxColOffset > 0
-        ? Math.max(0, Math.min(1, targetStartCol / maxColOffset))
-        : 0;
+      const newColOffset =
+        maxColOffset > 0
+          ? Math.max(0, Math.min(1, targetStartCol / maxColOffset))
+          : 0;
       if (Math.abs(newColOffset - colOffset) > 0.001) {
-        actions.setColOffset(newColOffset);
+        wasmEngine.setColOffset(newColOffset);
+        markDirty();
       }
     }
   }
@@ -704,9 +632,10 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
   // ============ Scroll Handlers ============
   const handleRowOffsetChange = useCallback(
     (offset: number) => {
-      actions.setRowOffset(currentChannel, offset);
+      wasmEngine.setRowOffset(currentChannel, offset);
+      markDirty();
     },
-    [currentChannel],
+    [wasmEngine, currentChannel],
   );
 
   const handleColOffsetChange = useCallback(
@@ -714,17 +643,18 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
       if (isPlaying) {
         manualScrollOverride.current = true;
       }
-      actions.setColOffset(offset);
+      wasmEngine.setColOffset(offset);
+      markDirty();
     },
-    [isPlaying],
+    [wasmEngine, isPlaying],
   );
 
   const handleScrub = useCallback(
     (value: number) => {
-      const scrubTick = Math.round(currentLoop.start + value * (currentLoop.length - 1));
+      const scrubTick = Math.round(loopStart + value * (loopLength - 1));
       actions.scrubToTick(scrubTick);
     },
-    [currentLoop.start, currentLoop.length],
+    [loopStart, loopLength],
   );
 
   const handleScrubEnd = useCallback(() => {
@@ -736,7 +666,7 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
     (dir: number) => {
       const mods = encodeModifiers(keyboardRef.current);
       wasmEngine.arrowPress(dir, mods);
-      syncWasmStateBack(wasmEngine);
+      markDirty();
     },
     [wasmEngine],
   );
@@ -745,47 +675,55 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
   type OledValuePart = { text: string; highlight?: boolean };
   type OledRow = { label: string; valueParts: OledValuePart[] };
 
-  const selectedEvent = useMemo(
-    () => selectedNoteId ? findEventById(patternData.events, selectedNoteId) ?? null : null,
-    [selectedNoteId, patternData.events],
-  );
-
   const getOledContent = useCallback((): { rows: OledRow[] } => {
-    if (uiMode === "pattern" && selectedEvent) {
+    if (uiMode === "pattern" && hasSelection) {
+      const selRow = wasmEngine.getSelRow();
+      const selLength = wasmEngine.getSelLength();
+      const repeatAmount = wasmEngine.getSelRepeatAmount();
+      const repeatSpace = wasmEngine.getSelRepeatSpace();
+      const chordSize = wasmEngine.getSelChordStackSize();
+      const chordShape = wasmEngine.getSelChordShapeIndex();
+      const chordInv = wasmEngine.getSelChordInversion();
+
       const noteName = isDrumChannel
-        ? getDrumName(selectedEvent.row)
-        : (() => { const m = noteToMidi(selectedEvent.row, scaleMapping); return m >= 0 ? midiNoteToName(m) : "??"; })();
-      const lengthDisplay = ticksToDisplay(selectedEvent.length, ticksPerCol);
-      const repeatAmount = selectedEvent.repeatAmount;
-      const repeatSpaceDisplay = ticksToDisplay(selectedEvent.repeatSpace, ticksPerCol);
-      const speed = selectedEvent.speed ?? "1/16";
-      const highlightSpeed = keyboard.alt && !keyboard.shift;
+        ? getDrumName(selRow)
+        : (() => {
+            const m = noteToMidi(selRow, scaleMapping);
+            return m >= 0 ? midiNoteToName(m) : "??";
+          })();
+      const lengthDisplay = ticksToDisplay(selLength, ticksPerCol);
+      const repeatSpaceDisplay = ticksToDisplay(repeatSpace, ticksPerCol);
       const highlightLength = keyboard.shift && !keyboard.alt && !keyboard.meta;
       const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
       const highlightChord = keyboard.meta;
-      const chordSize = selectedEvent.chordStackSize;
-      const chordShape = selectedEvent.chordShapeIndex;
-      const chordInv = selectedEvent.chordInversion;
       const showChord = keyboard.meta || chordSize > 1;
 
       return {
         rows: [
           {
             label: "NOTE",
-            valueParts: [
-              { text: noteName },
-              { text: `  ` },
-              { text: speed, highlight: highlightSpeed },
-            ],
+            valueParts: [{ text: noteName }, { text: `  ` }, { text: zoom }],
           },
           showChord
             ? {
                 label: "CHORD",
                 valueParts: [
-                  { text: `${chordSize}`, highlight: highlightChord && !keyboard.shift },
-                  { text: chordSize > 1 ? ` S${chordShape + 1}` : "", highlight: highlightChord && keyboard.shift },
-                  { text: chordInv !== 0 ? ` I${chordInv > 0 ? "+" : ""}${chordInv}` : "", highlight: keyboard.shift && !keyboard.meta },
+                  {
+                    text: `${chordSize}`,
+                    highlight: highlightChord && !keyboard.shift,
+                  },
+                  {
+                    text: chordSize > 1 ? ` S${chordShape + 1}` : "",
+                    highlight: highlightChord && keyboard.shift,
+                  },
+                  {
+                    text:
+                      chordInv !== 0
+                        ? ` I${chordInv > 0 ? "+" : ""}${chordInv}`
+                        : "",
+                    highlight: keyboard.shift && !keyboard.meta,
+                  },
                 ],
               }
             : {
@@ -808,27 +746,46 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
 
     if (uiMode === "modify") {
       const subModeLabel = SUB_MODE_CONFIG[modifySubMode].label;
-      if (selectedEvent) {
+      if (hasSelection) {
+        const selRow = wasmEngine.getSelRow();
         const noteName = isDrumChannel
-          ? getDrumName(selectedEvent.row)
-          : (() => { const m = noteToMidi(selectedEvent.row, scaleMapping); return m >= 0 ? midiNoteToName(m) : "??"; })();
-        const loopMode = getEventSubModeLoopMode(selectedEvent, modifySubMode);
-        const loopModeLabel = loopMode === "reset" ? "RST" : loopMode === "continue" ? "CNT" : "FIL";
-        const arrLen = getEventSubModeArrayLength(selectedEvent, modifySubMode);
+          ? getDrumName(selRow)
+          : (() => {
+              const m = noteToMidi(selRow, scaleMapping);
+              return m >= 0 ? midiNoteToName(m) : "??";
+            })();
+        const loopModeVal = wasmEngine.getSelSubModeLoopMode(modifySubModeIdx);
+        const loopMode = LOOP_MODE_NAMES[loopModeVal] ?? "reset";
+        const loopModeLabel =
+          loopMode === "reset"
+            ? "RST"
+            : loopMode === "continue"
+              ? "CNT"
+              : "FIL";
+        const arrLen = wasmEngine.getSelSubModeArrayLength(modifySubModeIdx);
         return {
           rows: [
             { label: "NOTE", valueParts: [{ text: noteName }] },
-            { label: "SUB", valueParts: [{ text: subModeLabel, highlight: true }] },
-            { label: "LOOP", valueParts: [
-              { text: loopModeLabel, highlight: loopMode === "continue" },
-              { text: ` L${arrLen}` },
-            ] },
+            {
+              label: "SUB",
+              valueParts: [{ text: subModeLabel, highlight: true }],
+            },
+            {
+              label: "LOOP",
+              valueParts: [
+                { text: loopModeLabel, highlight: loopMode === "continue" },
+                { text: ` L${arrLen}` },
+              ],
+            },
           ],
         };
       }
       return {
         rows: [
-          { label: "SUB", valueParts: [{ text: subModeLabel, highlight: true }] },
+          {
+            label: "SUB",
+            valueParts: [{ text: subModeLabel, highlight: true }],
+          },
           { label: "", valueParts: [{ text: "SELECT" }] },
           { label: "", valueParts: [{ text: "A NOTE" }] },
         ],
@@ -839,7 +796,10 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
       return {
         rows: [
           { label: "MODE", valueParts: [{ text: "CHANNEL" }] },
-          { label: "SELECT", valueParts: [{ text: `CH ${currentChannel + 1}` }] },
+          {
+            label: "SELECT",
+            valueParts: [{ text: `CH ${currentChannel + 1}` }],
+          },
           { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
         ],
       };
@@ -851,8 +811,18 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
       return {
         rows: [
           { label: "MODE", valueParts: [{ text: "LOOP" }] },
-          { label: "START", valueParts: [{ text: tickToBeatDisplay(currentLoop.start), highlight: highlightStart }] },
-          { label: "END", valueParts: [{ text: tickToBeatDisplay(loopEndTick), highlight: highlightEnd }] },
+          {
+            label: "START",
+            valueParts: [
+              { text: tickToBeatDisplay(loopStart), highlight: highlightStart },
+            ],
+          },
+          {
+            label: "END",
+            valueParts: [
+              { text: tickToBeatDisplay(loopEndTick), highlight: highlightEnd },
+            ],
+          },
         ],
       };
     }
@@ -883,7 +853,11 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
         },
         {
           label: "LOOP",
-          valueParts: [{ text: `${tickToBeatDisplay(currentLoop.start)}-${tickToBeatDisplay(loopEndTick)}` }],
+          valueParts: [
+            {
+              text: `${tickToBeatDisplay(loopStart)}-${tickToBeatDisplay(loopEndTick)}`,
+            },
+          ],
         },
         isDrumChannel
           ? { label: "TYPE", valueParts: [{ text: "DRUMS" }] }
@@ -898,9 +872,24 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
       ],
     };
   }, [
-    uiMode, modifySubMode, selectedEvent, keyboard,
-    currentChannel, currentPattern, currentLoop, loopEndTick,
-    ticksPerCol, zoom, scaleRoot, scaleId, scaleMapping, isDrumChannel,
+    uiMode,
+    modifySubMode,
+    modifySubModeIdx,
+    hasSelection,
+    keyboard,
+    currentChannel,
+    currentPattern,
+    loopStart,
+    loopLength,
+    loopEndTick,
+    ticksPerCol,
+    zoom,
+    scaleRoot,
+    scaleId,
+    scaleMapping,
+    isDrumChannel,
+    wasmEngine,
+    selectedEventIdx,
   ]);
 
   const oledContent = getOledContent();
@@ -932,9 +921,30 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
-            <Box css={[modifierKeyStyles, keyboard.ctrl && modifierKeyActiveStyles]}>ctrl</Box>
-            <Box css={[modifierKeyStyles, keyboard.shift && modifierKeyActiveStyles]}>shift</Box>
-            <Box css={[modifierKeyStyles, keyboard.meta && modifierKeyActiveStyles]}>cmd</Box>
+            <Box
+              css={[
+                modifierKeyStyles,
+                keyboard.ctrl && modifierKeyActiveStyles,
+              ]}
+            >
+              ctrl
+            </Box>
+            <Box
+              css={[
+                modifierKeyStyles,
+                keyboard.shift && modifierKeyActiveStyles,
+              ]}
+            >
+              shift
+            </Box>
+            <Box
+              css={[
+                modifierKeyStyles,
+                keyboard.meta && modifierKeyActiveStyles,
+              ]}
+            >
+              cmd
+            </Box>
           </Box>
           <TouchStrip
             orientation="horizontal"
@@ -951,20 +961,33 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
         </Box>
         <Box css={debugStyles}>
           <span>
-            Notes: {isDrumChannel
+            Notes:{" "}
+            {isDrumChannel
               ? `${getDrumName(startRow)} - ${getDrumName(endRow)}`
-              : `${(() => { const m = noteToMidi(startRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : startRow; })()} - ${(() => { const m = noteToMidi(endRow, scaleMapping); return m >= 0 ? midiNoteToName(m) : endRow; })()}`
-            }
+              : `${(() => {
+                  const m = noteToMidi(startRow, scaleMapping);
+                  return m >= 0 ? midiNoteToName(m) : startRow;
+                })()} - ${(() => {
+                  const m = noteToMidi(endRow, scaleMapping);
+                  return m >= 0 ? midiNoteToName(m) : endRow;
+                })()}`}
           </span>
           <span>Zoom: {zoom}</span>
           <span>
-            Beats: {tickToBeatDisplay(startTick)} - {tickToBeatDisplay(startTick + VISIBLE_COLS * ticksPerCol)}
+            Beats: {tickToBeatDisplay(startTick)} -{" "}
+            {tickToBeatDisplay(startTick + VISIBLE_COLS * ticksPerCol)}
           </span>
         </Box>
       </Box>
       {/* OLED Screen and controls */}
       <Box css={oledContainerStyles}>
-        <Box css={css`display: flex; flex-direction: column; align-items: center;`}>
+        <Box
+          css={css`
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          `}
+        >
           <Box css={oledScreenStyles}>
             {oledContent.rows.map((row, index) => (
               <Box key={index} css={oledRowStyles}>
@@ -973,7 +996,9 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
                   {row.valueParts.map((part, partIndex) => (
                     <span
                       key={partIndex}
-                      css={part.highlight ? oledHighlightStyles : oledValueStyles}
+                      css={
+                        part.highlight ? oledHighlightStyles : oledValueStyles
+                      }
                     >
                       {part.text}
                     </span>
@@ -987,12 +1012,29 @@ export const Grid = memo(({ onPlayNote, wasmEngine }: GridProps) => {
           </Box>
           <Box css={arrowButtonContainerStyles}>
             <Box css={arrowButtonRowStyles}>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_UP)}>▲</Box>
+              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_UP)}>
+                &#x25B2;
+              </Box>
             </Box>
             <Box css={arrowButtonRowStyles}>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_LEFT)}>◀</Box>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_DOWN)}>▼</Box>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_RIGHT)}>▶</Box>
+              <Box
+                css={arrowButtonStyles}
+                onClick={() => handleArrow(DIR_LEFT)}
+              >
+                &#x25C0;
+              </Box>
+              <Box
+                css={arrowButtonStyles}
+                onClick={() => handleArrow(DIR_DOWN)}
+              >
+                &#x25BC;
+              </Box>
+              <Box
+                css={arrowButtonStyles}
+                onClick={() => handleArrow(DIR_RIGHT)}
+              >
+                &#x25B6;
+              </Box>
             </Box>
           </Box>
         </Box>

@@ -2,6 +2,9 @@
 #include "engine_platform.h"
 #include <string.h>
 
+#define DEFAULT_PATTERN_TICKS  (TICKS_PER_QUARTER * 4 * 4)  // 4 bars of 4/4 = 7680
+#define DEFAULT_LOOP_TICKS     (TICKS_PER_QUARTER * 4)       // 1 bar = 1920
+
 // ============ Helpers ============
 
 static inline int32_t mod_positive(int32_t a, int32_t b) {
@@ -370,6 +373,16 @@ void engine_core_init(EngineState* s) {
     // Clear display state
     memset(s->patterns_have_notes, 0, sizeof(s->patterns_have_notes));
     memset(s->channels_playing_now, 0, sizeof(s->channels_playing_now));
+
+    // Initialize all pattern lengths and loops to defaults
+    for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+        for (int pat = 0; pat < NUM_PATTERNS; pat++) {
+            s->patterns[ch][pat].length_ticks = DEFAULT_PATTERN_TICKS;
+            s->loops[ch][pat].start = 0;
+            s->loops[ch][pat].length = DEFAULT_LOOP_TICKS;
+        }
+        s->queued_patterns[ch] = -1;
+    }
 
     // Generate chord shapes
     engine_generate_chord_shapes(s);

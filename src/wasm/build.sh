@@ -45,7 +45,9 @@ EXPORTED_FUNCTIONS='[
     "_engine_set_zoom",
     "_engine_set_selected_event",
     "_engine_set_row_offset",
+    "_engine_get_row_offset",
     "_engine_set_col_offset",
+    "_engine_get_col_offset",
     "_engine_set_bpm",
     "_engine_set_is_playing",
     "_engine_set_ctrl_held",
@@ -84,7 +86,24 @@ EXPORTED_FUNCTIONS='[
     "_engine_clear_pattern_export",
     "_engine_button_press_export",
     "_engine_arrow_press_export",
-    "_engine_key_action_export"
+    "_engine_key_action_export",
+    "_engine_get_sel_row",
+    "_engine_get_sel_length",
+    "_engine_get_sel_repeat_amount",
+    "_engine_get_sel_repeat_space",
+    "_engine_get_sel_chord_stack_size",
+    "_engine_get_sel_chord_shape_index",
+    "_engine_get_sel_chord_inversion",
+    "_engine_get_sel_sub_mode_loop_mode",
+    "_engine_get_sel_sub_mode_array_length",
+    "_engine_get_current_loop_start",
+    "_engine_get_current_loop_length",
+    "_engine_get_current_pattern_length_ticks",
+    "_engine_get_current_tick",
+    "_engine_get_current_pattern",
+    "_engine_get_channel_type",
+    "_engine_get_scale_root",
+    "_engine_get_scale_id_idx"
 ]'
 # Remove whitespace from JSON
 EXPORTED_FUNCTIONS=$(echo "$EXPORTED_FUNCTIONS" | tr -d '[:space:]')

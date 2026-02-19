@@ -279,8 +279,18 @@ void engine_set_row_offset(uint8_t ch, float offset) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+float engine_get_row_offset(uint8_t ch) {
+    return (ch < NUM_CHANNELS) ? g_state.row_offsets[ch] : 0.0f;
+}
+
+EMSCRIPTEN_KEEPALIVE
 void engine_set_col_offset(float offset) {
     g_state.col_offset = offset;
+}
+
+EMSCRIPTEN_KEEPALIVE
+float engine_get_col_offset(void) {
+    return g_state.col_offset;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -490,5 +500,119 @@ void engine_arrow_press_export(uint8_t direction, uint8_t modifiers) {
 EMSCRIPTEN_KEEPALIVE
 void engine_key_action_export(uint8_t action_id) {
     engine_key_action(&g_state, action_id);
+}
+
+// ============ Selected Event Getters (for OLED display) ============
+
+static const NoteEvent_C* _get_selected_event(void) {
+    if (g_state.selected_event_idx < 0) return NULL;
+    uint8_t ch = g_state.current_channel;
+    uint8_t pat = g_state.current_patterns[ch];
+    if ((uint16_t)g_state.selected_event_idx >= g_state.patterns[ch][pat].event_count) return NULL;
+    return &g_state.patterns[ch][pat].events[g_state.selected_event_idx];
+}
+
+EMSCRIPTEN_KEEPALIVE
+int16_t engine_get_sel_row(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->row : -9999;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_sel_length(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->length : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t engine_get_sel_repeat_amount(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->repeat_amount : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_sel_repeat_space(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->repeat_space : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_sel_chord_stack_size(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->chord_stack_size : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int8_t engine_get_sel_chord_shape_index(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->chord_shape_index : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int8_t engine_get_sel_chord_inversion(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->chord_inversion : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_sel_sub_mode_loop_mode(uint8_t sm) {
+    const NoteEvent_C* ev = _get_selected_event();
+    if (!ev || sm >= 5) return 0;
+    return ev->sub_modes[sm].loop_mode;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_sel_sub_mode_array_length(uint8_t sm) {
+    const NoteEvent_C* ev = _get_selected_event();
+    if (!ev || sm >= 5) return 0;
+    return ev->sub_modes[sm].length;
+}
+
+// ============ Current Pattern/Loop Convenience Getters ============
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_current_loop_start(void) {
+    uint8_t ch = g_state.current_channel;
+    uint8_t pat = g_state.current_patterns[ch];
+    return g_state.loops[ch][pat].start;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_current_loop_length(void) {
+    uint8_t ch = g_state.current_channel;
+    uint8_t pat = g_state.current_patterns[ch];
+    return g_state.loops[ch][pat].length;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_current_pattern_length_ticks(void) {
+    uint8_t ch = g_state.current_channel;
+    uint8_t pat = g_state.current_patterns[ch];
+    return g_state.patterns[ch][pat].length_ticks;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_current_tick(void) {
+    return g_state.current_tick;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_current_pattern(uint8_t ch) {
+    return (ch < NUM_CHANNELS) ? g_state.current_patterns[ch] : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_channel_type(uint8_t ch) {
+    return (ch < NUM_CHANNELS) ? g_state.channel_types[ch] : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_scale_root(void) {
+    return g_state.scale_root;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_scale_id_idx(void) {
+    return g_state.scale_id_idx;
 }
 
