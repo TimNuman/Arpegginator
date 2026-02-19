@@ -30,12 +30,6 @@ const SUB_MODE_FIELDS: Array<{
   { arrayField: 'modulate', loopModeField: 'modulateLoopMode' },
 ];
 
-const LOOP_MODE_MAP: Record<VelocityLoopMode, number> = {
-  reset: 0,
-  continue: 1,
-  fill: 2,
-};
-
 // C enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4
 const SUB_MODE_NAME_TO_ID: Record<string, number> = {
   velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4,
@@ -157,22 +151,7 @@ export class WasmEngine {
   private _keyAction!: (actionId: number) => void;
 
   // Edit operations
-  private _toggleEvent!: (row: number, tick: number, lengthTicks: number) => number;
-  private _removeEvent!: (eventIdx: number) => void;
-  private _moveEvent!: (eventIdx: number, newRow: number, newPos: number) => void;
-  private _setEventLength!: (eventIdx: number, length: number) => void;
-  private _placeEvent!: (eventIdx: number) => void;
-  private _setEventRepeatAmount!: (eventIdx: number, amount: number) => void;
-  private _setEventRepeatSpace!: (eventIdx: number, space: number) => void;
-  private _setSubModeValue!: (eventIdx: number, sm: number, repeatIdx: number, value: number) => void;
-  private _setSubModeLength!: (eventIdx: number, sm: number, length: number) => void;
-  private _toggleSubModeLoopMode!: (eventIdx: number, sm: number) => void;
-  private _adjustChordStack!: (eventIdx: number, direction: number) => void;
-  private _cycleChordShape!: (eventIdx: number, direction: number) => void;
-  private _cycleChordInversion!: (eventIdx: number, direction: number) => void;
-  private _copyPattern!: (targetPattern: number) => void;
   private _clearPattern!: () => void;
-  private _allocEventId!: () => number;
 
   // Event index mapping: [ch][pat] → Map<UUID, index>
   private eventIndexMaps: Map<string, number>[][] = [];
@@ -281,22 +260,7 @@ export class WasmEngine {
     this._keyAction = cw('engine_key_action_export', null, ['number']) as unknown as (a: number) => void;
 
     // Edit operations
-    this._toggleEvent = cw('engine_toggle_event_export', 'number', ['number', 'number', 'number']);
-    this._removeEvent = cw('engine_remove_event_export', null, ['number']) as unknown as (i: number) => void;
-    this._moveEvent = cw('engine_move_event_export', null, ['number', 'number', 'number']) as unknown as (i: number, r: number, p: number) => void;
-    this._setEventLength = cw('engine_set_event_length_export', null, ['number', 'number']) as unknown as (i: number, l: number) => void;
-    this._placeEvent = cw('engine_place_event_export', null, ['number']) as unknown as (i: number) => void;
-    this._setEventRepeatAmount = cw('engine_set_event_repeat_amount_export', null, ['number', 'number']) as unknown as (i: number, a: number) => void;
-    this._setEventRepeatSpace = cw('engine_set_event_repeat_space_export', null, ['number', 'number']) as unknown as (i: number, s: number) => void;
-    this._setSubModeValue = cw('engine_set_sub_mode_value_export', null, ['number', 'number', 'number', 'number']) as unknown as (i: number, sm: number, ri: number, v: number) => void;
-    this._setSubModeLength = cw('engine_set_sub_mode_length_export', null, ['number', 'number', 'number']) as unknown as (i: number, sm: number, l: number) => void;
-    this._toggleSubModeLoopMode = cw('engine_toggle_sub_mode_loop_mode_export', null, ['number', 'number']) as unknown as (i: number, sm: number) => void;
-    this._adjustChordStack = cw('engine_adjust_chord_stack_export', null, ['number', 'number']) as unknown as (i: number, d: number) => void;
-    this._cycleChordShape = cw('engine_cycle_chord_shape_export', null, ['number', 'number']) as unknown as (i: number, d: number) => void;
-    this._cycleChordInversion = cw('engine_cycle_chord_inversion_export', null, ['number', 'number']) as unknown as (i: number, d: number) => void;
-    this._copyPattern = cw('engine_copy_pattern_export', null, ['number']) as unknown as (t: number) => void;
     this._clearPattern = cw('engine_clear_pattern_export', null, []) as unknown as () => void;
-    this._allocEventId = cw('engine_alloc_event_id_export', 'number', []);
 
     // Query struct layout from C
     this.noteEventSize = this._getNoteEventSize();
@@ -410,40 +374,6 @@ export class WasmEngine {
     this._setRngSeed(Math.floor(Math.random() * 0xFFFFFFFF) + 1);
   }
 
-  syncPattern(ch: number, pat: number, patternData: PatternData): void {
-    const mod = this.module!;
-    const bufferPtr = this._getEventBuffer(ch, pat);
-    const eventCount = Math.min(patternData.events.length, 128);
-
-    // Rebuild index map
-    const idxMap = new Map<string, number>();
-    const idToIdx = new Map<string, string>();
-    for (let i = 0; i < eventCount; i++) {
-      idxMap.set(patternData.events[i].id, i);
-      idToIdx.set(String(i), patternData.events[i].id);
-    }
-    this.eventIndexMaps[ch][pat] = idxMap;
-    this.eventIndexToId[ch][pat] = idToIdx;
-
-    // Write each NoteEvent_C into WASM memory
-    const view = new DataView(mod.HEAPU8.buffer);
-    for (let i = 0; i < eventCount; i++) {
-      this.writeNoteEvent(view, bufferPtr, i, patternData.events[i], i);
-    }
-
-    this._setEventCount(ch, pat, eventCount);
-    this._setPatternLength(ch, pat, patternData.lengthTicks);
-  }
-
-  /**
-   * Read the current channel's current pattern from WASM memory.
-   */
-  readCurrentPatternData(): PatternData {
-    const ch = this._getCurrentChannel();
-    const pat = this._getCurrentPattern(ch);
-    return this.readPatternData(ch, pat);
-  }
-
   /**
    * Read a specific pattern from WASM memory and return it.
    */
@@ -517,50 +447,6 @@ export class WasmEngine {
     return { events, lengthTicks };
   }
 
-
-  private writeNoteEvent(
-    view: DataView,
-    basePtr: number,
-    slot: number,
-    event: NoteEvent,
-    eventIndex: number,
-  ): void {
-    const ptr = basePtr + slot * this.noteEventSize;
-
-    // Field offsets (queried from C):
-    // 0=row, 1=position, 2=length, 3=enabled, 4=repeat_amount,
-    // 5=repeat_space, 6=sub_modes, 7=chord_stack_size,
-    // 8=chord_shape_index, 9=chord_inversion, 10=event_index
-    view.setInt16(ptr + this.fieldOffsets[0], event.row, true);
-    view.setInt32(ptr + this.fieldOffsets[1], event.position, true);
-    view.setInt32(ptr + this.fieldOffsets[2], event.length, true);
-    view.setUint8(ptr + this.fieldOffsets[3], event.enabled ? 1 : 0);
-    view.setUint16(ptr + this.fieldOffsets[4], event.repeatAmount, true);
-    view.setInt32(ptr + this.fieldOffsets[5], event.repeatSpace, true);
-
-    // Write 5 sub-mode arrays
-    const subModesBase = ptr + this.fieldOffsets[6];
-    for (let sm = 0; sm < 5; sm++) {
-      const arrBase = subModesBase + sm * this.subModeArraySize;
-      const { arrayField, loopModeField } = SUB_MODE_FIELDS[sm];
-      const arr = event[arrayField] as number[];
-      const loopMode = event[loopModeField] as VelocityLoopMode;
-      const len = Math.min(arr.length, 32);
-
-      for (let j = 0; j < len; j++) {
-        view.setInt16(arrBase + j * 2, arr[j], true);
-      }
-      // length field is at offset 64 (32 × int16)
-      view.setUint8(arrBase + 64, len);
-      // loop_mode field at offset 65
-      view.setUint8(arrBase + 65, LOOP_MODE_MAP[loopMode]);
-    }
-
-    view.setUint8(ptr + this.fieldOffsets[7], event.chordStackSize);
-    view.setInt8(ptr + this.fieldOffsets[8], event.chordShapeIndex);
-    view.setInt8(ptr + this.fieldOffsets[9], event.chordInversion);
-    view.setUint16(ptr + this.fieldOffsets[10], eventIndex, true);
-  }
 
   // Loops live in WASM — use readLoop/writeLoop for individual access
 
@@ -793,25 +679,7 @@ export class WasmEngine {
     this._keyAction(actionId);
   }
 
-  // ============ Edit Operations (direct access) ============
+  // ============ Edit Operations ============
 
-  toggleEvent(row: number, tick: number, lengthTicks: number): number {
-    return this._toggleEvent(row, tick, lengthTicks);
-  }
-
-  removeEvent(eventIdx: number): void { this._removeEvent(eventIdx); }
-  moveEvent(eventIdx: number, newRow: number, newPos: number): void { this._moveEvent(eventIdx, newRow, newPos); }
-  setEventLength(eventIdx: number, length: number): void { this._setEventLength(eventIdx, length); }
-  placeEvent(eventIdx: number): void { this._placeEvent(eventIdx); }
-  setEventRepeatAmount(eventIdx: number, amount: number): void { this._setEventRepeatAmount(eventIdx, amount); }
-  setEventRepeatSpace(eventIdx: number, space: number): void { this._setEventRepeatSpace(eventIdx, space); }
-  setSubModeValue(eventIdx: number, sm: number, repeatIdx: number, value: number): void { this._setSubModeValue(eventIdx, sm, repeatIdx, value); }
-  setSubModeLength(eventIdx: number, sm: number, length: number): void { this._setSubModeLength(eventIdx, sm, length); }
-  toggleSubModeLoopMode(eventIdx: number, sm: number): void { this._toggleSubModeLoopMode(eventIdx, sm); }
-  adjustChordStack(eventIdx: number, direction: number): void { this._adjustChordStack(eventIdx, direction); }
-  cycleChordShape(eventIdx: number, direction: number): void { this._cycleChordShape(eventIdx, direction); }
-  cycleChordInversion(eventIdx: number, direction: number): void { this._cycleChordInversion(eventIdx, direction); }
-  copyPatternTo(targetPattern: number): void { this._copyPattern(targetPattern); }
   clearPattern(): void { this._clearPattern(); }
-  allocEventId(): number { return this._allocEventId(); }
 }

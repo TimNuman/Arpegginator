@@ -1,4 +1,3 @@
-import { getChordOffsets } from './chords';
 
 // ============ Tick-Based Event Model ============
 
@@ -113,22 +112,6 @@ export interface PatternData {
 /** Maps tick position → list of NoteEvents starting at that tick (including expanded repeats) */
 export type TickLookupMap = Map<number, { event: NoteEvent; repeatIndex: number }[]>;
 
-// ============ RenderedNoteT ============
-
-/** A rendered note instance for display purposes (tick-based) */
-export interface RenderedNoteT {
-  id: string;                    // Unique ID for this rendered instance
-  row: number;                   // Display row (scale-relative index, after modulation offset)
-  position: number;              // Tick position of this instance
-  length: number;                // Length in ticks
-  sourceId: string;              // NoteEvent.id of the parent
-  sourceRow: number;             // Original scale-relative index of the parent NoteEvent
-  sourcePosition: number;        // Tick position of the parent NoteEvent
-  isRepeat: boolean;             // True if this is a repeat (not the original)
-  repeatIndex: number;           // Which repeat (0 = original)
-  chordOffset: number;           // Scale-degree offset from base (0 = root of chord)
-}
-
 // ============ Factory Functions ============
 
 /** Create a new NoteEvent with default sub-mode values */
@@ -204,10 +187,6 @@ export const getEventSubModeArray = (event: NoteEvent, subMode: ModifySubMode): 
   return event[arrayField] as number[];
 };
 
-export const getEventSubModeArrayLength = (event: NoteEvent, subMode: ModifySubMode): number => {
-  return getEventSubModeArray(event, subMode).length;
-};
-
 /** Get value at a specific repeat index (loops the array) */
 export const getEventSubModeValueAtRepeat = (event: NoteEvent, subMode: ModifySubMode, repeatIndex: number): number => {
   const arr = getEventSubModeArray(event, subMode);
@@ -252,119 +231,4 @@ export const buildTickLookup = (
   return map;
 };
 
-// ============ Render Events to Array ============
-
-/**
- * Render all enabled NoteEvents to a flat array of RenderedNoteT instances.
- * Expands repeats and applies modulation offsets (in scale steps).
- */
-export const renderEventsToArray = (
-  events: NoteEvent[],
-  patternLengthTicks: number,
-  minRow: number = -128,
-  maxRow: number = 128,
-): RenderedNoteT[] => {
-  const rendered: RenderedNoteT[] = [];
-
-  for (const event of events) {
-    if (!event.enabled) continue;
-
-    const offsets = getChordOffsets(event.chordStackSize, event.chordShapeIndex, event.chordInversion);
-
-    for (let r = 0; r < event.repeatAmount; r++) {
-      const tick = event.position + r * event.repeatSpace;
-      if (tick >= patternLengthTicks) break;
-
-      const modOffset = getEventSubModeValueAtRepeat(event, "modulate", r);
-
-      for (const chordOff of offsets) {
-        const displayRow = Math.max(minRow, Math.min(maxRow, event.row + modOffset + chordOff));
-
-        rendered.push({
-          id: `${event.id}:${r}:${chordOff}`,
-          row: displayRow,
-          position: tick,
-          length: event.length,
-          sourceId: event.id,
-          sourceRow: event.row,
-          sourcePosition: event.position,
-          isRepeat: r > 0,
-          repeatIndex: r,
-          chordOffset: chordOff,
-        });
-      }
-    }
-  }
-
-  return rendered;
-};
-
-// ============ Find Event at Tick ============
-
-/**
- * Find a rendered note at a given (row, tick) position.
- * A note covers [position, position + length).
- * ticksPerCol determines the column width for snap tolerance.
- */
-export const findEventAtTick = (
-  rendered: RenderedNoteT[],
-  row: number,
-  tick: number,
-): RenderedNoteT | null => {
-  for (const note of rendered) {
-    if (note.row === row && tick >= note.position && tick < note.position + note.length) {
-      return note;
-    }
-  }
-  return null;
-};
-
-/**
- * Find all rendered notes on a given row that overlap a tick range [tickStart, tickEnd).
- * Used when zoomed out so a single column covers multiple subdivisions.
- */
-export const findEventsInRange = (
-  rendered: RenderedNoteT[],
-  row: number,
-  tickStart: number,
-  tickEnd: number,
-): RenderedNoteT[] => {
-  const result: RenderedNoteT[] = [];
-  for (const note of rendered) {
-    if (note.row === row && note.position < tickEnd && note.position + note.length > tickStart) {
-      result.push(note);
-    }
-  }
-  return result;
-};
-
-// ============ Grid Coordinate Helpers ============
-
-/** Snap a tick position to the nearest subdivision boundary */
-export const snapToGrid = (tick: number, subdivision: Subdivision): number => {
-  const gridSize = SUBDIVISION_TICKS[subdivision];
-  return Math.round(tick / gridSize) * gridSize;
-};
-
-/** Convert a tick position to a visible column index */
-export const tickToCol = (tick: number, startTick: number, ticksPerCol: number): number => {
-  return Math.floor((tick - startTick) / ticksPerCol);
-};
-
-/** Convert a visible column index to a tick position */
-export const colToTick = (col: number, startTick: number, ticksPerCol: number): number => {
-  return startTick + col * ticksPerCol;
-};
-
-// ============ Event Lookup Helpers ============
-
-/** Find a NoteEvent by ID in an event list */
-export const findEventById = (events: NoteEvent[], id: string): NoteEvent | undefined => {
-  return events.find(e => e.id === id);
-};
-
-/** Find a NoteEvent at a specific (row, position) in the source events (not rendered) */
-export const findEventAtPosition = (events: NoteEvent[], row: number, position: number): NoteEvent | undefined => {
-  return events.find(e => e.row === row && e.position === position);
-};
 

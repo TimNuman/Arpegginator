@@ -18,7 +18,11 @@ function generateShapes(size: number, maxGap: number = 2): number[][] {
   const maxSpan = maxGap * (size - 1);
 
   // Generate all ascending combos [0, ...] of length `size` up to maxSpan
-  function recurse(current: number[], lastVal: number, remaining: number): void {
+  function recurse(
+    current: number[],
+    lastVal: number,
+    remaining: number,
+  ): void {
     if (remaining === 0) {
       results.push(current);
       return;
@@ -75,7 +79,7 @@ export function getShapeCount(stackSize: number): number {
 export function invertShape(shape: number[], inversion: number): number[] {
   if (inversion === 0 || shape.length <= 1) return shape;
 
-  let current = [...shape];
+  const current = [...shape];
 
   if (inversion > 0) {
     // Upward inversions: shift bottom note up by octaveSize
@@ -93,14 +97,18 @@ export function invertShape(shape: number[], inversion: number): number[] {
 
   // Normalize so minimum is 0
   const min = Math.min(...current);
-  return current.map(v => v - min);
+  return current.map((v) => v - min);
 }
 
 /**
  * Get the chord offsets for a given stack size, shape index, and inversion.
  * Shape index wraps around the available shapes.
  */
-export function getChordOffsets(stackSize: number, shapeIndex: number, inversion: number = 0): number[] {
+export function getChordOffsets(
+  stackSize: number,
+  shapeIndex: number,
+  inversion: number = 0,
+): number[] {
   const shapes = getShapesForSize(stackSize);
   const idx = ((shapeIndex % shapes.length) + shapes.length) % shapes.length;
   const shape = shapes[idx];
