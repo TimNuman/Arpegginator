@@ -75,7 +75,7 @@ static int16_t get_sub_mode_value_fill(const NoteEvent_C* ev, uint8_t sm, uint16
 // ============ Rendered notes expansion ============
 
 // Get chord offsets for a note event (from pre-computed shapes table)
-static uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out) {
+uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out) {
     uint8_t stack = ev->chord_stack_size;
     if (stack <= 1) {
         offsets[0] = 0;

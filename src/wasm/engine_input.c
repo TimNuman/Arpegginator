@@ -99,6 +99,54 @@ static int16_t find_event_overlapping(const EngineState* s, int16_t row, int32_t
     return -1;
 }
 
+// Find event whose chord tone occupies (row, tick).
+// Checks all chord offsets for each event/repeat combination.
+static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t tick) {
+    uint8_t ch = s->current_channel;
+    uint8_t pat = s->current_patterns[ch];
+    const PatternData_C* pd = &s->patterns[ch][pat];
+
+    for (uint16_t i = 0; i < pd->event_count; i++) {
+        const NoteEvent_C* ev = &pd->events[i];
+        if (!ev->enabled) continue;
+        if (ev->chord_stack_size <= 1) continue;  // no chord, skip
+
+        int8_t offsets[MAX_CHORD_SIZE];
+        uint8_t chord_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+
+        // Check if any chord offset matches the row
+        uint8_t row_match = 0;
+        for (uint8_t c = 0; c < chord_count; c++) {
+            if (ev->row + offsets[c] == row) { row_match = 1; break; }
+        }
+        if (!row_match) continue;
+
+        // Check if tick falls within any repeat
+        for (uint16_t r = 0; r < ev->repeat_amount; r++) {
+            int32_t pos = ev->position + (int32_t)r * ev->repeat_space;
+            int32_t end = pos + ev->length;
+            if (tick >= pos && tick < end) {
+                return (int16_t)i;
+            }
+        }
+    }
+    return -1;
+}
+
+// Play preview for an event — plays all chord tones if it has a chord, otherwise single note.
+static void play_event_preview(const EngineState* s, const NoteEvent_C* ev, int32_t length_ticks) {
+    uint8_t ch = s->current_channel;
+    if (ev->chord_stack_size <= 1) {
+        platform_play_preview_note(ch, ev->row, length_ticks);
+        return;
+    }
+    int8_t offsets[MAX_CHORD_SIZE];
+    uint8_t count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+    for (uint8_t c = 0; c < count; c++) {
+        platform_play_preview_note(ch, ev->row + offsets[c], length_ticks);
+    }
+}
+
 // ============ Camera Follow ============
 
 static void follow_note(EngineState* s, int16_t row, int32_t tick) {
@@ -170,7 +218,7 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
                 sel->position = start;
             }
             sel->length = new_len;
-            platform_play_preview_note(s->current_channel, row, tpc);
+            play_event_preview(s, sel, tpc);
             return;
         }
     }
@@ -189,7 +237,7 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
             }
             s->selected_event_idx = idx;
         }
-        platform_play_preview_note(s->current_channel, row, tpc);
+        play_event_preview(s, &pat->events[idx], tpc);
         return;
     }
 
@@ -200,7 +248,18 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
             engine_place_event(s, (uint16_t)s->selected_event_idx);
         }
         s->selected_event_idx = overlap_idx;
-        platform_play_preview_note(s->current_channel, row, tpc);
+        play_event_preview(s, &pat->events[overlap_idx], tpc);
+        return;
+    }
+
+    // Click on chord tone: select the parent event
+    int16_t chord_idx = find_event_by_chord(s, row, tick);
+    if (chord_idx >= 0) {
+        if (s->selected_event_idx >= 0) {
+            engine_place_event(s, (uint16_t)s->selected_event_idx);
+        }
+        s->selected_event_idx = chord_idx;
+        play_event_preview(s, &pat->events[chord_idx], tpc);
         return;
     }
 
@@ -400,6 +459,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     if ((mods & MOD_META) && (mods & MOD_SHIFT)) {
         if (dir == DIR_UP || dir == DIR_DOWN) {
             engine_cycle_chord_shape(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            play_event_preview(s, ev, tpc);
             return;
         }
     }
@@ -408,6 +468,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     if ((mods & MOD_META) && !(mods & MOD_SHIFT)) {
         if (dir == DIR_UP || dir == DIR_DOWN) {
             engine_adjust_chord_stack(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            play_event_preview(s, ev, tpc);
             return;
         }
     }
@@ -416,6 +477,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     if ((mods & MOD_SHIFT) && !(mods & MOD_META) && !(mods & MOD_ALT)) {
         if (ev->chord_stack_size > 1 && (dir == DIR_UP || dir == DIR_DOWN)) {
             engine_cycle_chord_inversion(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            play_event_preview(s, ev, tpc);
             return;
         }
     }
@@ -462,7 +524,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
                 len = i32_min(max_len, len + tpc);
             }
             engine_set_event_length(s, (uint16_t)s->selected_event_idx, len);
-            platform_play_preview_note(s->current_channel, ev->row, len);
+            play_event_preview(s, ev, len);
             return;
         }
     }
@@ -489,7 +551,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
         if (new_row != ev->row || new_pos != ev->position) {
             engine_move_event(s, (uint16_t)s->selected_event_idx, new_row, new_pos);
             follow_note(s, new_row, new_pos);
-            platform_play_preview_note(s->current_channel, new_row, tpc);
+            play_event_preview(s, ev, tpc);
         }
     }
 }

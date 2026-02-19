@@ -60,4 +60,8 @@ uint8_t engine_generate_levels(const SubModeRenderConfig* config, int16_t* out, 
 // Get default scroll for offset-style levels (centered on zero crossing)
 float engine_get_default_modify_scroll(const int16_t* levels, uint8_t count, uint8_t render_style);
 
+// Get chord offsets for a note event (from pre-computed shapes table).
+// Returns the number of chord notes (1 if no chord). Writes offsets to `offsets`.
+uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out);
+
 #endif // ENGINE_UI_H
