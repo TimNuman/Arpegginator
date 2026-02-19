@@ -195,11 +195,13 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
     int32_t tpc = s->zoom;
     PatternData_C* pat = &s->patterns[s->current_channel][s->current_patterns[s->current_channel]];
 
-    // Meta+click: toggle enabled (disable note)
+    // Meta+click: disable note (only turn off, never re-enable)
     if (mods & MOD_META) {
         int16_t idx = engine_find_event_at(s, row, tick);
-        if (idx >= 0) {
-            pat->events[idx].enabled = !pat->events[idx].enabled;
+        if (idx < 0) idx = find_event_overlapping(s, row, tick);
+        if (idx < 0) idx = find_event_by_chord(s, row, tick);
+        if (idx >= 0 && pat->events[idx].enabled) {
+            pat->events[idx].enabled = 0;
             if (s->selected_event_idx == idx) {
                 s->selected_event_idx = -1;
             }
@@ -226,6 +228,16 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
     // Click on existing event at exact position
     int16_t idx = engine_find_event_at(s, row, tick);
     if (idx >= 0) {
+        // Re-enable disabled event
+        if (!pat->events[idx].enabled) {
+            pat->events[idx].enabled = 1;
+            if (s->selected_event_idx >= 0) {
+                engine_place_event(s, (uint16_t)s->selected_event_idx);
+            }
+            s->selected_event_idx = idx;
+            play_event_preview(s, &pat->events[idx], tpc);
+            return;
+        }
         if (s->selected_event_idx == idx) {
             // Deselect (and place)
             engine_place_event(s, (uint16_t)idx);
