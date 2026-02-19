@@ -291,21 +291,33 @@ static void handle_modify_press(EngineState* s, uint8_t vis_row, uint8_t vis_col
     uint8_t sm = s->modify_sub_mode;
     const SubModeRenderConfig* config = engine_get_sub_mode_config(sm);
 
-    // Generate levels to get the value at this row
+    // Generate all levels
     int16_t levels[128];
     uint8_t level_count = engine_generate_levels(config, levels, 128);
     if (level_count == 0) return;
 
-    // For now use simple mapping: vis_row -> level index
-    // (In full implementation, need modify scroll state)
     int16_t value;
     if (mods & MOD_META) {
         // Meta+click: reset to default (0)
         value = 0;
-    } else if (vis_row < level_count) {
-        value = levels[vis_row];
     } else {
-        return;
+        // Compute visible levels with scroll (same as render_modify_mode)
+        int16_t visible[VISIBLE_ROWS];
+        if (level_count <= VISIBLE_ROWS) {
+            for (uint8_t i = 0; i < level_count; i++)
+                visible[i] = levels[i];
+            for (uint8_t i = level_count; i < VISIBLE_ROWS; i++)
+                visible[i] = 0;
+        } else {
+            float scroll = engine_get_default_modify_scroll(levels, level_count, config->render_style);
+            uint8_t max_scroll = level_count - VISIBLE_ROWS;
+            uint8_t scroll_idx = (uint8_t)(scroll * max_scroll);
+            for (uint8_t i = 0; i < VISIBLE_ROWS; i++)
+                visible[i] = levels[scroll_idx + i];
+        }
+
+        if (vis_row >= VISIBLE_ROWS) return;
+        value = visible[vis_row];
     }
 
     engine_set_sub_mode_value(s, (uint16_t)s->selected_event_idx, sm, vis_col, value);
