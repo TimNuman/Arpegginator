@@ -9,6 +9,7 @@ import { useSequencerStore } from './store/sequencerStore';
 import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
 import { TICKS_PER_QUARTER } from './types/event';
+import { buildScaleMapping, SCALES, noteToMidi } from './types/scales';
 
 
 const darkTheme = createTheme({
@@ -61,6 +62,12 @@ function App() {
   useEffect(() => {
     const engine = new WasmEngine();
     engine.load().then(() => {
+      // Full init (resets UI state, generates chord shapes, etc.)
+      engine.fullInit();
+      // Sync all initial state from Zustand → WASM (patterns, loops, scale, etc.)
+      const store = useSequencerStore.getState();
+      engine.syncAll(store);
+
       wasmEngineRef.current = engine;
       setWasmReady(true);
       actions.setWasmEngine(engine);
@@ -164,6 +171,19 @@ function App() {
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
 
+  const handlePlayNote = useCallback(
+    (note: number, channel: number, lengthTicks?: number) => {
+      // Use channel + 1 for MIDI channel (1-8)
+      playNote(note, 100, channel + 1);
+      // Calculate duration from tick length (default to 1 sixteenth note = PPQ/4 ticks)
+      const ticks = lengthTicks ?? (TICKS_PER_QUARTER / 4);
+      const tickDurationMs = 60000 / (bpm * TICKS_PER_QUARTER);
+      const duration = Math.max(50, ticks * tickDurationMs - 10); // Subtract 10ms for note separation
+      setTimeout(() => stopNote(note, channel + 1), duration);
+    },
+    [playNote, stopNote, bpm]
+  );
+
   // Wire up step trigger and note-off callbacks (for both TS and WASM engines)
   useEffect(() => {
     actions.setStepTriggerCallback(handleStepTrigger);
@@ -172,6 +192,29 @@ function App() {
     if (wasmEngineRef.current) {
       wasmEngineRef.current.onStepTrigger = handleStepTrigger;
       wasmEngineRef.current.onNoteOff = handleNoteOff;
+      // Wire new platform callbacks
+      wasmEngineRef.current.onCycleScale = (direction: number) => {
+        actions.cycleScale(direction > 0 ? "up" : "down");
+      };
+      wasmEngineRef.current.onCycleScaleRoot = (direction: number) => {
+        actions.cycleScaleRoot(direction > 0 ? "up" : "down");
+      };
+      wasmEngineRef.current.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
+        // row is scale-relative; convert to MIDI
+        const store = useSequencerStore.getState();
+        const isDrum = store.channelTypes[channel] === 'drum';
+        let midiNote: number;
+        if (isDrum) {
+          midiNote = Math.max(0, Math.min(127, row));
+        } else {
+          const pattern = SCALES[store.scaleId]?.pattern ?? SCALES.major.pattern;
+          const mapping = buildScaleMapping(store.scaleRoot, pattern);
+          midiNote = noteToMidi(row, mapping);
+        }
+        if (midiNote >= 0) {
+          handlePlayNote(midiNote, channel, lengthTicks > 0 ? lengthTicks : undefined);
+        }
+      };
     }
     return () => {
       actions.setStepTriggerCallback(null);
@@ -179,9 +222,12 @@ function App() {
       if (wasmEngineRef.current) {
         wasmEngineRef.current.onStepTrigger = null;
         wasmEngineRef.current.onNoteOff = null;
+        wasmEngineRef.current.onCycleScale = null;
+        wasmEngineRef.current.onCycleScaleRoot = null;
+        wasmEngineRef.current.onPlayPreviewNote = null;
       }
     };
-  }, [handleStepTrigger, handleNoteOff, wasmReady]);
+  }, [handleStepTrigger, handleNoteOff, handlePlayNote, wasmReady]);
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;
@@ -195,19 +241,6 @@ function App() {
   };
   externalTickRef.current = actions.externalTick;
   setBpmRef.current = actions.setBpm;
-
-  const handlePlayNote = useCallback(
-    (note: number, channel: number, lengthTicks?: number) => {
-      // Use channel + 1 for MIDI channel (1-8)
-      playNote(note, 100, channel + 1);
-      // Calculate duration from tick length (default to 1 sixteenth note = PPQ/4 ticks)
-      const ticks = lengthTicks ?? (TICKS_PER_QUARTER / 4);
-      const tickDurationMs = 60000 / (bpm * TICKS_PER_QUARTER);
-      const duration = Math.max(50, ticks * tickDurationMs - 10); // Subtract 10ms for note separation
-      setTimeout(() => stopNote(note, channel + 1), duration);
-    },
-    [playNote, stopNote, bpm]
-  );
 
   const handlePlay = useCallback(() => {
     actions.play();
@@ -255,7 +288,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        <Grid onPlayNote={handlePlayNote} />
+        {wasmEngineRef.current && <Grid onPlayNote={handlePlayNote} wasmEngine={wasmEngineRef.current} />}
       </Box>
     </ThemeProvider>
   );

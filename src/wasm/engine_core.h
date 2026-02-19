@@ -16,11 +16,56 @@
 #define MAX_ACTIVE_NOTES    256
 #define DIATONIC_OCTAVE     7
 
+// Grid display dimensions
+#define VISIBLE_ROWS        8
+#define VISIBLE_COLS        16
+
+// Ticks per quarter note (matches JS TICKS_PER_QUARTER)
+#define TICKS_PER_QUARTER   480
+
+// ============ Button Value Constants ============
+// Lower 4 bits: base color level (0-8)
+// Upper bits: flags (combinable via |)
+
+#define BTN_OFF             0
+#define BTN_COLOR_25        1
+#define BTN_COLOR_50        2
+#define BTN_COLOR_75        3
+#define BTN_COLOR_100       4
+#define BTN_WHITE_25        5
+#define BTN_WHITE_50        6
+#define BTN_WHITE_75        7
+#define BTN_WHITE_100       8
+
+// Flag bits (combinable with base value)
+#define FLAG_PLAYHEAD             16
+#define FLAG_C_NOTE               32
+#define FLAG_LOOP_BOUNDARY        64
+#define FLAG_BEAT_MARKER          128
+#define FLAG_SELECTED             256
+#define FLAG_CONTINUATION         512
+#define FLAG_PLAYING              1024
+#define FLAG_LOOP_BOUNDARY_PULSING 2048
+#define FLAG_DIMMED               4096
+#define FLAG_IN_SCALE             8192
+
 // ============ Enums ============
 
 typedef enum { LOOP_RESET = 0, LOOP_CONTINUE = 1, LOOP_FILL = 2 } LoopMode;
 typedef enum { CH_MELODIC = 0, CH_DRUM = 1 } ChannelType;
 typedef enum { SM_VELOCITY = 0, SM_HIT = 1, SM_TIMING = 2, SM_FLAM = 3, SM_MODULATE = 4 } SubModeId;
+
+// UI modes
+typedef enum { UI_PATTERN = 0, UI_CHANNEL = 1, UI_LOOP = 2, UI_MODIFY = 3 } UiMode;
+
+// Zoom levels (subdivisions as tick counts)
+typedef enum {
+    ZOOM_1_4  = 480,   // quarter note
+    ZOOM_1_8  = 240,   // eighth note
+    ZOOM_1_16 = 120,   // sixteenth note (default)
+    ZOOM_1_32 = 60,    // thirty-second note
+    ZOOM_1_64 = 30     // sixty-fourth note
+} ZoomLevel;
 
 // ============ Data Structures ============
 
@@ -67,51 +112,93 @@ typedef struct {
 } ActiveNote;
 
 typedef struct {
-    // Pattern data
+    // ============ Pattern data ============
     PatternData_C patterns[NUM_CHANNELS][NUM_PATTERNS];
     PatternLoop_C loops[NUM_CHANNELS][NUM_PATTERNS];
 
-    // Current state
+    // ============ Channel state ============
     uint8_t     current_patterns[NUM_CHANNELS];
     int8_t      queued_patterns[NUM_CHANNELS];  // -1 = no queue
     uint8_t     muted[NUM_CHANNELS];
     uint8_t     soloed[NUM_CHANNELS];
     uint8_t     channel_types[NUM_CHANNELS];    // ChannelType
 
-    // Scale mapping
+    // ============ Scale mapping ============
     uint8_t     scale_notes[MAX_SCALE_NOTES];   // MIDI note values
     uint16_t    scale_count;
     uint16_t    scale_zero_index;
+    uint8_t     scale_root;                     // 0-11 (C=0)
+    uint8_t     scale_id_idx;                   // index into scale table
 
-    // Chord shapes: [stack_size 0-5][shape_index][note_index]
+    // ============ Chord shapes ============
+    // [stack_size 0-5][shape_index][note_index]
     int8_t      chord_shapes[MAX_CHORD_SIZE + 1][MAX_CHORD_SHAPES][MAX_CHORD_SIZE];
     uint8_t     chord_shape_counts[MAX_CHORD_SIZE + 1];
 
-    // Tick state
+    // ============ Playback state ============
     int32_t     current_tick;
+    uint8_t     is_playing;
+    float       bpm;
 
-    // Active notes pool
+    // ============ Active notes pool ============
     ActiveNote  active_notes[MAX_ACTIVE_NOTES];
 
-    // Continue counters: [sub_mode][channel][event_index]
+    // ============ Continue counters ============
+    // [sub_mode][channel][event_index]
     uint16_t    continue_counters[NUM_SUB_MODES][NUM_CHANNELS][MAX_EVENTS];
-
-    // Continue counter snapshots (for preview computation)
     uint16_t    counter_snapshots[NUM_SUB_MODES][NUM_CHANNELS][MAX_EVENTS];
 
-    // RNG state (xorshift32)
+    // ============ RNG state (xorshift32) ============
     uint32_t    rng_state;
+
+    // ============ UI State ============
+    uint8_t     ui_mode;            // UiMode
+    uint8_t     modify_sub_mode;    // SubModeId (active in modify mode)
+    uint8_t     current_channel;
+    int32_t     zoom;               // ZoomLevel (ticks per grid cell)
+    int16_t     selected_event_idx; // -1 = none, else index into current pattern's events
+    float       row_offsets[NUM_CHANNELS]; // per-channel vertical scroll (0.0-1.0)
+    float       col_offset;         // horizontal scroll (0.0-1.0)
+
+    // Modifier key state (set from JS each frame before compute_grid)
+    uint8_t     ctrl_held;
+
+    // Channel display colors (RGB packed as 0xRRGGBB, set once from JS)
+    uint32_t    channel_colors[NUM_CHANNELS];
+
+    // ============ Grid Output Buffers ============
+    // Filled by engine_compute_grid(), read by JS each frame
+    uint16_t    button_values[VISIBLE_ROWS][VISIBLE_COLS];
+    uint32_t    color_overrides[VISIBLE_ROWS][VISIBLE_COLS]; // 0 = use channel color, else 0xRRGGBB
+
+    // ============ Derived Display State ============
+    // Updated on pattern changes — does pattern[ch][pat] have any events?
+    uint8_t     patterns_have_notes[NUM_CHANNELS][NUM_PATTERNS];
+    // Updated each tick — is channel actively producing notes right now?
+    uint8_t     channels_playing_now[NUM_CHANNELS];
+
+    // ============ Event ID Counter ============
+    uint16_t    next_event_id;
 } EngineState;
 
 // ============ Core Functions ============
 
 void engine_core_init(EngineState* s);
+void engine_core_play_init(EngineState* s);
 void engine_core_tick(EngineState* s);
 void engine_core_stop(EngineState* s);
 
 // ============ Chord Shape Generation ============
 
 void engine_generate_chord_shapes(EngineState* s);
+
+// ============ Utility ============
+
+/** Allocate a new event ID (monotonically increasing). */
+uint16_t engine_alloc_event_id(EngineState* s);
+
+/** Update patterns_have_notes for a specific channel/pattern. */
+void engine_update_has_notes(EngineState* s, uint8_t ch, uint8_t pat);
 
 // ============ Version ============
 

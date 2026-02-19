@@ -1,5 +1,8 @@
 #include <emscripten.h>
 #include "engine_core.h"
+#include "engine_ui.h"
+#include "engine_edit.h"
+#include "engine_input.h"
 #include "engine_platform.h"
 
 // ============ Global Engine State ============
@@ -48,6 +51,24 @@ EM_JS(void, js_preview_value, (int sm, int ch, int evIdx, int tick, int val), {
     }
 });
 
+EM_JS(void, js_play_preview_note, (int ch, int row, int length_ticks), {
+    if (Module._callbacks && Module._callbacks.playPreviewNote) {
+        Module._callbacks.playPreviewNote(ch, row, length_ticks);
+    }
+});
+
+EM_JS(void, js_cycle_scale, (int direction), {
+    if (Module._callbacks && Module._callbacks.cycleScale) {
+        Module._callbacks.cycleScale(direction);
+    }
+});
+
+EM_JS(void, js_cycle_scale_root, (int direction), {
+    if (Module._callbacks && Module._callbacks.cycleScaleRoot) {
+        Module._callbacks.cycleScaleRoot(direction);
+    }
+});
+
 // ============ Platform Callback Implementations ============
 
 void platform_step_trigger(
@@ -83,11 +104,28 @@ void platform_preview_value(
     js_preview_value(sub_mode, channel, event_index, tick, value);
 }
 
+void platform_play_preview_note(uint8_t channel, int16_t row, int32_t length_ticks) {
+    js_play_preview_note(channel, row, length_ticks);
+}
+
+void platform_cycle_scale(int8_t direction) {
+    js_cycle_scale(direction);
+}
+
+void platform_cycle_scale_root(int8_t direction) {
+    js_cycle_scale_root(direction);
+}
+
 // ============ Exported Functions ============
 
 EMSCRIPTEN_KEEPALIVE
 void engine_init(void) {
     engine_core_init(&g_state);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_play_init(void) {
+    engine_core_play_init(&g_state);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -206,5 +244,251 @@ EMSCRIPTEN_KEEPALIVE
 uint16_t engine_get_continue_counter(uint8_t sub_mode, uint8_t channel, uint16_t event_index) {
     if (sub_mode >= NUM_SUB_MODES || channel >= NUM_CHANNELS || event_index >= MAX_EVENTS) return 0;
     return g_state.continue_counters[sub_mode][channel][event_index];
+}
+
+// ============ UI State Setters ============
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_ui_mode(uint8_t mode) {
+    g_state.ui_mode = mode;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_modify_sub_mode(uint8_t sm) {
+    g_state.modify_sub_mode = sm;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_current_channel(uint8_t ch) {
+    g_state.current_channel = ch;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_zoom(int32_t ticks_per_col) {
+    g_state.zoom = ticks_per_col;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_selected_event(int16_t idx) {
+    g_state.selected_event_idx = idx;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_row_offset(uint8_t ch, float offset) {
+    if (ch < NUM_CHANNELS) g_state.row_offsets[ch] = offset;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_col_offset(float offset) {
+    g_state.col_offset = offset;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_bpm(float bpm) {
+    g_state.bpm = bpm;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_is_playing(uint8_t playing) {
+    g_state.is_playing = playing;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_ctrl_held(uint8_t held) {
+    g_state.ctrl_held = held;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_channel_color(uint8_t ch, uint32_t rgb) {
+    if (ch < NUM_CHANNELS) g_state.channel_colors[ch] = rgb;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_scale_root(uint8_t root) {
+    g_state.scale_root = root;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_scale_id_idx(uint8_t idx) {
+    g_state.scale_id_idx = idx;
+}
+
+// ============ UI State Getters ============
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_ui_mode(void) {
+    return g_state.ui_mode;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_modify_sub_mode(void) {
+    return g_state.modify_sub_mode;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_current_channel(void) {
+    return g_state.current_channel;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_zoom(void) {
+    return g_state.zoom;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int16_t engine_get_selected_event(void) {
+    return g_state.selected_event_idx;
+}
+
+EMSCRIPTEN_KEEPALIVE
+float engine_get_bpm(void) {
+    return g_state.bpm;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_is_playing(void) {
+    return g_state.is_playing;
+}
+
+// ============ Grid Output Buffer Accessors ============
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t* engine_get_button_values_buffer(void) {
+    return &g_state.button_values[0][0];
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t* engine_get_color_overrides_buffer(void) {
+    return &g_state.color_overrides[0][0];
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t* engine_get_patterns_have_notes_buffer(void) {
+    return &g_state.patterns_have_notes[0][0];
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t* engine_get_channels_playing_now_buffer(void) {
+    return g_state.channels_playing_now;
+}
+
+// ============ Event ID Allocation ============
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t engine_alloc_event_id_export(void) {
+    return engine_alloc_event_id(&g_state);
+}
+
+// ============ Grid Rendering ============
+
+EMSCRIPTEN_KEEPALIVE
+void engine_compute_grid_export(void) {
+    engine_compute_grid(&g_state);
+}
+
+// ============ Pattern Data Getters ============
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t engine_get_event_count(uint8_t ch, uint8_t pat) {
+    return g_state.patterns[ch][pat].event_count;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_pattern_length(uint8_t ch, uint8_t pat) {
+    return g_state.patterns[ch][pat].length_ticks;
+}
+
+// ============ Event Editing Exports ============
+
+EMSCRIPTEN_KEEPALIVE
+int16_t engine_toggle_event_export(int16_t row, int32_t tick, int32_t length_ticks) {
+    return engine_toggle_event(&g_state, row, tick, length_ticks);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_remove_event_export(uint16_t event_idx) {
+    engine_remove_event(&g_state, event_idx);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_move_event_export(uint16_t event_idx, int16_t new_row, int32_t new_position) {
+    engine_move_event(&g_state, event_idx, new_row, new_position);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_event_length_export(uint16_t event_idx, int32_t length) {
+    engine_set_event_length(&g_state, event_idx, length);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_place_event_export(uint16_t event_idx) {
+    engine_place_event(&g_state, event_idx);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_event_repeat_amount_export(uint16_t event_idx, uint16_t amount) {
+    engine_set_event_repeat_amount(&g_state, event_idx, amount);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_event_repeat_space_export(uint16_t event_idx, int32_t space) {
+    engine_set_event_repeat_space(&g_state, event_idx, space);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_sub_mode_value_export(uint16_t event_idx, uint8_t sub_mode, uint16_t repeat_idx, int16_t value) {
+    engine_set_sub_mode_value(&g_state, event_idx, sub_mode, repeat_idx, value);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_set_sub_mode_length_export(uint16_t event_idx, uint8_t sub_mode, uint8_t new_length) {
+    engine_set_sub_mode_length(&g_state, event_idx, sub_mode, new_length);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_toggle_sub_mode_loop_mode_export(uint16_t event_idx, uint8_t sub_mode) {
+    engine_toggle_sub_mode_loop_mode(&g_state, event_idx, sub_mode);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_adjust_chord_stack_export(uint16_t event_idx, int8_t direction) {
+    engine_adjust_chord_stack(&g_state, event_idx, direction);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_cycle_chord_shape_export(uint16_t event_idx, int8_t direction) {
+    engine_cycle_chord_shape(&g_state, event_idx, direction);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_cycle_chord_inversion_export(uint16_t event_idx, int8_t direction) {
+    engine_cycle_chord_inversion(&g_state, event_idx, direction);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_copy_pattern_export(uint8_t target_pattern) {
+    engine_copy_pattern(&g_state, target_pattern);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_clear_pattern_export(void) {
+    engine_clear_pattern(&g_state);
+}
+
+// ============ Input Handling Exports ============
+
+EMSCRIPTEN_KEEPALIVE
+void engine_button_press_export(uint8_t row, uint8_t col, uint8_t modifiers) {
+    engine_button_press(&g_state, row, col, modifiers);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_arrow_press_export(uint8_t direction, uint8_t modifiers) {
+    engine_arrow_press(&g_state, direction, modifiers);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_key_action_export(uint8_t action_id) {
+    engine_key_action(&g_state, action_id);
 }
 

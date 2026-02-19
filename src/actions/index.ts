@@ -39,6 +39,7 @@ export {
   getSubModePreview,
   setNoteOffCallback,
   setWasmEngine,
+  getWasmEngine,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 

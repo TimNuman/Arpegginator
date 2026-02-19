@@ -1,7 +1,9 @@
-import type { NoteEvent, PatternData, VelocityLoopMode } from '../types/event';
+import type { NoteEvent, PatternData, VelocityLoopMode, Subdivision } from '../types/event';
+import { SUBDIVISION_TICKS } from '../types/event';
+import { DEFAULT_PATTERN_TICKS } from '../store/sequencerStore';
 import type { StepTriggerExtras } from '../actions/playbackActions';
 import { registerWasmActiveNote } from '../actions/playbackActions';
-import { buildScaleMapping, SCALES } from '../types/scales';
+import { buildScaleMapping, SCALES, SCALE_ORDER } from '../types/scales';
 import { getSequencerStore, type SequencerState } from '../store/sequencerStore';
 
 // ============ Emscripten Module Types ============
@@ -71,6 +73,7 @@ export class WasmEngine {
 
   // Core functions
   private _engineInit!: () => void;
+  private _enginePlayInit!: () => void;
   private _engineTick!: () => void;
   private _engineStop!: () => void;
   private _getVersion!: () => number;
@@ -92,6 +95,62 @@ export class WasmEngine {
   private _getFieldOffset!: (fieldId: number) => number;
   private _getSubModeArraySize!: () => number;
   private _getContinueCounter!: (subMode: number, channel: number, eventIndex: number) => number;
+  private _getEventCount!: (ch: number, pat: number) => number;
+  private _getPatternLength!: (ch: number, pat: number) => number;
+
+  // UI state setters
+  private _setUiMode!: (mode: number) => void;
+  private _setModifySubMode!: (sm: number) => void;
+  private _setCurrentChannel!: (ch: number) => void;
+  private _setZoom!: (tpc: number) => void;
+  private _setSelectedEvent!: (idx: number) => void;
+  private _setRowOffset!: (ch: number, offset: number) => void;
+  private _setColOffset!: (offset: number) => void;
+  private _setBpm!: (bpm: number) => void;
+  private _setIsPlaying!: (playing: number) => void;
+  private _setCtrlHeld!: (held: number) => void;
+  private _setChannelColor!: (ch: number, rgb: number) => void;
+  private _setScaleRoot!: (root: number) => void;
+  private _setScaleIdIdx!: (idx: number) => void;
+
+  // UI state getters
+  private _getUiMode!: () => number;
+  private _getModifySubMode!: () => number;
+  private _getCurrentChannel!: () => number;
+  private _getZoom!: () => number;
+  private _getSelectedEvent!: () => number;
+  private _getBpm!: () => number;
+  private _getIsPlaying!: () => number;
+
+  // Grid output
+  private _getButtonValuesBuffer!: () => number;
+  private _getColorOverridesBuffer!: () => number;
+  private _getPatternsHaveNotesBuffer!: () => number;
+  private _getChannelsPlayingNowBuffer!: () => number;
+  private _computeGrid!: () => void;
+
+  // Input handling
+  private _buttonPress!: (row: number, col: number, modifiers: number) => void;
+  private _arrowPress!: (direction: number, modifiers: number) => void;
+  private _keyAction!: (actionId: number) => void;
+
+  // Edit operations
+  private _toggleEvent!: (row: number, tick: number, lengthTicks: number) => number;
+  private _removeEvent!: (eventIdx: number) => void;
+  private _moveEvent!: (eventIdx: number, newRow: number, newPos: number) => void;
+  private _setEventLength!: (eventIdx: number, length: number) => void;
+  private _placeEvent!: (eventIdx: number) => void;
+  private _setEventRepeatAmount!: (eventIdx: number, amount: number) => void;
+  private _setEventRepeatSpace!: (eventIdx: number, space: number) => void;
+  private _setSubModeValue!: (eventIdx: number, sm: number, repeatIdx: number, value: number) => void;
+  private _setSubModeLength!: (eventIdx: number, sm: number, length: number) => void;
+  private _toggleSubModeLoopMode!: (eventIdx: number, sm: number) => void;
+  private _adjustChordStack!: (eventIdx: number, direction: number) => void;
+  private _cycleChordShape!: (eventIdx: number, direction: number) => void;
+  private _cycleChordInversion!: (eventIdx: number, direction: number) => void;
+  private _copyPattern!: (targetPattern: number) => void;
+  private _clearPattern!: () => void;
+  private _allocEventId!: () => number;
 
   // Event index mapping: [ch][pat] → Map<UUID, index>
   private eventIndexMaps: Map<string, number>[][] = [];
@@ -100,6 +159,9 @@ export class WasmEngine {
   onStepTrigger: ((channel: number, midiNote: number, tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
   onPreviewValue: ((subMode: string, channel: number, eventIndex: number, tick: number, value: number) => void) | null = null;
+  onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
+  onCycleScale: ((direction: number) => void) | null = null;
+  onCycleScaleRoot: ((direction: number) => void) | null = null;
   // Map eventIndex back to UUID for preview
   private eventIndexToId: Map<string, string>[][] = [];
 
@@ -114,6 +176,7 @@ export class WasmEngine {
       this.module!.cwrap(name, ret, args);
 
     this._engineInit = cw('engine_init', null, []) as unknown as () => void;
+    this._enginePlayInit = cw('engine_play_init', null, []) as unknown as () => void;
     this._engineTick = cw('engine_tick', null, []) as unknown as () => void;
     this._engineStop = cw('engine_stop', null, []) as unknown as () => void;
     this._getVersion = cw('engine_get_version', 'number', []);
@@ -133,6 +196,62 @@ export class WasmEngine {
     this._getFieldOffset = cw('engine_get_field_offset', 'number', ['number']);
     this._getSubModeArraySize = cw('engine_get_sub_mode_array_size', 'number', []);
     this._getContinueCounter = cw('engine_get_continue_counter', 'number', ['number', 'number', 'number']);
+    this._getEventCount = cw('engine_get_event_count', 'number', ['number', 'number']);
+    this._getPatternLength = cw('engine_get_pattern_length', 'number', ['number', 'number']);
+
+    // UI state setters
+    this._setUiMode = cw('engine_set_ui_mode', null, ['number']) as unknown as (m: number) => void;
+    this._setModifySubMode = cw('engine_set_modify_sub_mode', null, ['number']) as unknown as (m: number) => void;
+    this._setCurrentChannel = cw('engine_set_current_channel', null, ['number']) as unknown as (m: number) => void;
+    this._setZoom = cw('engine_set_zoom', null, ['number']) as unknown as (m: number) => void;
+    this._setSelectedEvent = cw('engine_set_selected_event', null, ['number']) as unknown as (m: number) => void;
+    this._setRowOffset = cw('engine_set_row_offset', null, ['number', 'number']) as unknown as (ch: number, o: number) => void;
+    this._setColOffset = cw('engine_set_col_offset', null, ['number']) as unknown as (o: number) => void;
+    this._setBpm = cw('engine_set_bpm', null, ['number']) as unknown as (b: number) => void;
+    this._setIsPlaying = cw('engine_set_is_playing', null, ['number']) as unknown as (p: number) => void;
+    this._setCtrlHeld = cw('engine_set_ctrl_held', null, ['number']) as unknown as (h: number) => void;
+    this._setChannelColor = cw('engine_set_channel_color', null, ['number', 'number']) as unknown as (ch: number, rgb: number) => void;
+    this._setScaleRoot = cw('engine_set_scale_root', null, ['number']) as unknown as (r: number) => void;
+    this._setScaleIdIdx = cw('engine_set_scale_id_idx', null, ['number']) as unknown as (i: number) => void;
+
+    // UI state getters
+    this._getUiMode = cw('engine_get_ui_mode', 'number', []);
+    this._getModifySubMode = cw('engine_get_modify_sub_mode', 'number', []);
+    this._getCurrentChannel = cw('engine_get_current_channel', 'number', []);
+    this._getZoom = cw('engine_get_zoom', 'number', []);
+    this._getSelectedEvent = cw('engine_get_selected_event', 'number', []);
+    this._getBpm = cw('engine_get_bpm', 'number', []);
+    this._getIsPlaying = cw('engine_get_is_playing', 'number', []);
+
+    // Grid output
+    this._getButtonValuesBuffer = cw('engine_get_button_values_buffer', 'number', []);
+    this._getColorOverridesBuffer = cw('engine_get_color_overrides_buffer', 'number', []);
+    this._getPatternsHaveNotesBuffer = cw('engine_get_patterns_have_notes_buffer', 'number', []);
+    this._getChannelsPlayingNowBuffer = cw('engine_get_channels_playing_now_buffer', 'number', []);
+    this._computeGrid = cw('engine_compute_grid_export', null, []) as unknown as () => void;
+
+    // Input handling
+    this._buttonPress = cw('engine_button_press_export', null, ['number', 'number', 'number']) as unknown as (r: number, c: number, m: number) => void;
+    this._arrowPress = cw('engine_arrow_press_export', null, ['number', 'number']) as unknown as (d: number, m: number) => void;
+    this._keyAction = cw('engine_key_action_export', null, ['number']) as unknown as (a: number) => void;
+
+    // Edit operations
+    this._toggleEvent = cw('engine_toggle_event_export', 'number', ['number', 'number', 'number']);
+    this._removeEvent = cw('engine_remove_event_export', null, ['number']) as unknown as (i: number) => void;
+    this._moveEvent = cw('engine_move_event_export', null, ['number', 'number', 'number']) as unknown as (i: number, r: number, p: number) => void;
+    this._setEventLength = cw('engine_set_event_length_export', null, ['number', 'number']) as unknown as (i: number, l: number) => void;
+    this._placeEvent = cw('engine_place_event_export', null, ['number']) as unknown as (i: number) => void;
+    this._setEventRepeatAmount = cw('engine_set_event_repeat_amount_export', null, ['number', 'number']) as unknown as (i: number, a: number) => void;
+    this._setEventRepeatSpace = cw('engine_set_event_repeat_space_export', null, ['number', 'number']) as unknown as (i: number, s: number) => void;
+    this._setSubModeValue = cw('engine_set_sub_mode_value_export', null, ['number', 'number', 'number', 'number']) as unknown as (i: number, sm: number, ri: number, v: number) => void;
+    this._setSubModeLength = cw('engine_set_sub_mode_length_export', null, ['number', 'number', 'number']) as unknown as (i: number, sm: number, l: number) => void;
+    this._toggleSubModeLoopMode = cw('engine_toggle_sub_mode_loop_mode_export', null, ['number', 'number']) as unknown as (i: number, sm: number) => void;
+    this._adjustChordStack = cw('engine_adjust_chord_stack_export', null, ['number', 'number']) as unknown as (i: number, d: number) => void;
+    this._cycleChordShape = cw('engine_cycle_chord_shape_export', null, ['number', 'number']) as unknown as (i: number, d: number) => void;
+    this._cycleChordInversion = cw('engine_cycle_chord_inversion_export', null, ['number', 'number']) as unknown as (i: number, d: number) => void;
+    this._copyPattern = cw('engine_copy_pattern_export', null, ['number']) as unknown as (t: number) => void;
+    this._clearPattern = cw('engine_clear_pattern_export', null, []) as unknown as () => void;
+    this._allocEventId = cw('engine_alloc_event_id_export', 'number', []);
 
     // Query struct layout from C
     this.noteEventSize = this._getNoteEventSize();
@@ -198,6 +317,15 @@ export class WasmEngine {
         const subModeName = SUB_MODE_NAMES[sm];
         this.onPreviewValue(subModeName, ch, evIdx, tick, val);
       },
+      playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
+        this.onPlayPreviewNote?.(ch, row, lengthTicks);
+      },
+      cycleScale: (direction: number) => {
+        this.onCycleScale?.(direction);
+      },
+      cycleScaleRoot: (direction: number) => {
+        this.onCycleScaleRoot?.(direction);
+      },
     };
   }
 
@@ -211,8 +339,14 @@ export class WasmEngine {
 
   // ============ Core Operations ============
 
-  init(): void {
+  /** Full init — resets everything including UI state. Call once on load. */
+  fullInit(): void {
     this._engineInit();
+  }
+
+  /** Playback init — resets only playback state (active notes, counters, tick). */
+  init(): void {
+    this._enginePlayInit();
   }
 
   tick(): void {
@@ -232,6 +366,15 @@ export class WasmEngine {
         this.syncPattern(ch, pat, store.patterns[ch][pat]);
       }
     }
+    this.syncPlaybackState(store);
+    this.syncUiState(store);
+  }
+
+  /**
+   * Sync only non-pattern state (loops, mute/solo, scale, etc.) for playback start.
+   * Use this instead of syncAll when WASM already owns the pattern data.
+   */
+  syncPlaybackState(store: SequencerState): void {
     this.syncLoops(store);
     this.syncMuteSolo(store);
     this.syncScale(store);
@@ -239,6 +382,46 @@ export class WasmEngine {
     this.syncQueuedPatterns(store);
     this.syncChannelTypes(store);
     this._setRngSeed(Math.floor(Math.random() * 0xFFFFFFFF) + 1);
+  }
+
+  /**
+   * Sync UI state (row offsets, col offset, zoom, mode, BPM, etc.) from Zustand to WASM.
+   * Call this after syncAll on initial load or when UI state may have drifted.
+   */
+  syncUiState(store: SequencerState): void {
+    const view = store.view;
+    // Row offsets
+    for (let ch = 0; ch < 8; ch++) {
+      this._setRowOffset(ch, view.rowOffsets[ch]);
+    }
+    // Col offset
+    this._setColOffset(view.colOffset);
+    // Zoom (subdivision name → ticks per col)
+    this._setZoom(SUBDIVISION_TICKS[view.zoom]);
+    // UI mode
+    const uiModeMap: Record<string, number> = { pattern: 0, channel: 1, loop: 2, modify: 3 };
+    this._setUiMode(uiModeMap[view.uiMode] ?? 0);
+    // Modify sub-mode
+    const smMap: Record<string, number> = { velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4 };
+    this._setModifySubMode(smMap[view.modifySubMode] ?? 0);
+    // Current channel
+    this._setCurrentChannel(store.currentChannel);
+    // BPM
+    this._setBpm(store.bpm);
+    // Is playing
+    this._setIsPlaying(store.isPlaying ? 1 : 0);
+    // Scale root and ID
+    this._setScaleRoot(store.scaleRoot);
+    const scaleIdx = SCALE_ORDER.indexOf(store.scaleId);
+    this._setScaleIdIdx(scaleIdx >= 0 ? scaleIdx : 0);
+    // Selected event
+    if (view.selectedNoteId) {
+      const patIdx = store.currentPatterns[store.currentChannel];
+      const idx = this.getEventIndex(store.currentChannel, patIdx, view.selectedNoteId);
+      this._setSelectedEvent(idx);
+    } else {
+      this._setSelectedEvent(-1);
+    }
   }
 
   syncPattern(ch: number, pat: number, patternData: PatternData): void {
@@ -264,6 +447,95 @@ export class WasmEngine {
 
     this._setEventCount(ch, pat, eventCount);
     this._setPatternLength(ch, pat, patternData.lengthTicks);
+  }
+
+  /**
+   * Read the current channel's current pattern from WASM memory back into the Zustand store.
+   * Call this after any WASM input that may have edited pattern data.
+   */
+  readCurrentPatternToStore(): void {
+    const store = getSequencerStore();
+    const ch = store.currentChannel;
+    const pat = store.currentPatterns[ch];
+    this.readPatternToStore(ch, pat);
+  }
+
+  /**
+   * Read a specific pattern from WASM memory into the Zustand store.
+   */
+  readPatternToStore(ch: number, pat: number): void {
+    const mod = this.module!;
+    const bufferPtr = this._getEventBuffer(ch, pat);
+    const eventCount = this._getEventCount(ch, pat);
+    const lengthTicks = this._getPatternLength(ch, pat);
+    const view = new DataView(mod.HEAPU8.buffer);
+
+    const events: NoteEvent[] = [];
+    const LOOP_MODE_REVERSE: VelocityLoopMode[] = ['reset', 'continue', 'fill'];
+
+    for (let i = 0; i < eventCount; i++) {
+      const ptr = bufferPtr + i * this.noteEventSize;
+
+      // Read sub-mode arrays
+      const subModesBase = ptr + this.fieldOffsets[6];
+      const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
+      for (let sm = 0; sm < 5; sm++) {
+        const arrBase = subModesBase + sm * this.subModeArraySize;
+        const len = mod.HEAPU8[arrBase + 64];
+        const values: number[] = [];
+        for (let j = 0; j < len; j++) {
+          values.push(view.getInt16(arrBase + j * 2, true));
+        }
+        const loopModeVal = mod.HEAPU8[arrBase + 65];
+        subModeArrays.push({
+          values,
+          loopMode: LOOP_MODE_REVERSE[loopModeVal] ?? 'reset',
+        });
+      }
+
+      const eventIndex = view.getUint16(ptr + this.fieldOffsets[10], true);
+      // Look up UUID from event index
+      const eventId = this.eventIndexToId[ch]?.[pat]?.get(String(eventIndex));
+
+      const event: NoteEvent = {
+        id: eventId ?? `wasm-${eventIndex}`,
+        row: view.getInt16(ptr + this.fieldOffsets[0], true),
+        position: view.getInt32(ptr + this.fieldOffsets[1], true),
+        length: view.getInt32(ptr + this.fieldOffsets[2], true),
+        enabled: mod.HEAPU8[ptr + this.fieldOffsets[3]] !== 0,
+        repeatAmount: view.getUint16(ptr + this.fieldOffsets[4], true),
+        repeatSpace: view.getInt32(ptr + this.fieldOffsets[5], true),
+        velocity: subModeArrays[0].values,
+        velocityLoopMode: subModeArrays[0].loopMode,
+        chance: subModeArrays[1].values,
+        chanceLoopMode: subModeArrays[1].loopMode,
+        timingOffset: subModeArrays[2].values,
+        timingLoopMode: subModeArrays[2].loopMode,
+        flamChance: subModeArrays[3].values,
+        flamLoopMode: subModeArrays[3].loopMode,
+        modulate: subModeArrays[4].values,
+        modulateLoopMode: subModeArrays[4].loopMode,
+        chordStackSize: mod.HEAPU8[ptr + this.fieldOffsets[7]],
+        chordShapeIndex: view.getInt8(ptr + this.fieldOffsets[8]),
+        chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),
+      };
+
+      events.push(event);
+
+      // Update index maps for new events
+      if (!eventId) {
+        const newId = `wasm-${eventIndex}`;
+        this.eventIndexMaps[ch][pat].set(newId, i);
+        this.eventIndexToId[ch][pat].set(String(eventIndex), newId);
+      }
+    }
+
+    const patternData: PatternData = {
+      events,
+      lengthTicks,
+    };
+
+    getSequencerStore()._setPatternData(ch, pat, patternData);
   }
 
   private writeNoteEvent(
@@ -398,4 +670,125 @@ export class WasmEngine {
     if (smId === undefined) return 0;
     return this._getContinueCounter(smId, channel, eventIndex);
   }
+
+  // ============ Grid Rendering ============
+
+  computeGrid(): void {
+    this._computeGrid();
+  }
+
+  /** Read which patterns have notes (8×8 boolean grid). */
+  readPatternsHaveNotes(): boolean[][] {
+    const mod = this.module!;
+    const ptr = this._getPatternsHaveNotesBuffer();
+    const result: boolean[][] = [];
+    for (let ch = 0; ch < 8; ch++) {
+      const row: boolean[] = [];
+      for (let pat = 0; pat < 8; pat++) {
+        row.push(mod.HEAPU8[ptr + ch * 8 + pat] !== 0);
+      }
+      result.push(row);
+    }
+    return result;
+  }
+
+  /** Read which channels are currently playing. */
+  readChannelsPlayingNow(): boolean[] {
+    const mod = this.module!;
+    const ptr = this._getChannelsPlayingNowBuffer();
+    const result: boolean[] = [];
+    for (let ch = 0; ch < 8; ch++) {
+      result.push(mod.HEAPU8[ptr + ch] !== 0);
+    }
+    return result;
+  }
+
+  /**
+   * Read the grid output buffers from WASM memory.
+   * Returns button_values[8][16] as uint16 and color_overrides[8][16] as uint32.
+   */
+  readGridBuffers(): { buttonValues: number[][]; colorOverrides: number[][] } {
+    const mod = this.module!;
+    const bvPtr = this._getButtonValuesBuffer();
+    const coPtr = this._getColorOverridesBuffer();
+    const bvView = new Uint16Array(mod.HEAPU8.buffer, bvPtr, 8 * 16);
+    const coView = new Uint32Array(mod.HEAPU8.buffer, coPtr, 8 * 16);
+
+    const buttonValues: number[][] = [];
+    const colorOverrides: number[][] = [];
+    for (let r = 0; r < 8; r++) {
+      const bvRow: number[] = [];
+      const coRow: number[] = [];
+      for (let c = 0; c < 16; c++) {
+        bvRow.push(bvView[r * 16 + c]);
+        coRow.push(coView[r * 16 + c]);
+      }
+      buttonValues.push(bvRow);
+      colorOverrides.push(coRow);
+    }
+    return { buttonValues, colorOverrides };
+  }
+
+  // ============ UI State ============
+
+  setUiMode(mode: number): void { this._setUiMode(mode); }
+  setModifySubMode(sm: number): void { this._setModifySubMode(sm); }
+  setCurrentChannel(ch: number): void { this._setCurrentChannel(ch); }
+  setZoom(ticksPerCol: number): void { this._setZoom(ticksPerCol); }
+  setSelectedEvent(idx: number): void { this._setSelectedEvent(idx); }
+  setRowOffset(ch: number, offset: number): void { this._setRowOffset(ch, offset); }
+  setColOffset(offset: number): void { this._setColOffset(offset); }
+  setBpm(bpm: number): void { this._setBpm(bpm); }
+  setIsPlaying(playing: boolean): void { this._setIsPlaying(playing ? 1 : 0); }
+  setCtrlHeld(held: boolean): void { this._setCtrlHeld(held ? 1 : 0); }
+  setChannelColor(ch: number, rgb: number): void { this._setChannelColor(ch, rgb); }
+  setScaleRoot(root: number): void { this._setScaleRoot(root); }
+  setScaleIdIdx(idx: number): void { this._setScaleIdIdx(idx); }
+
+  getUiMode(): number { return this._getUiMode(); }
+  getModifySubMode(): number { return this._getModifySubMode(); }
+  getCurrentChannel(): number { return this._getCurrentChannel(); }
+  getZoom(): number { return this._getZoom(); }
+  getSelectedEvent(): number { return this._getSelectedEvent(); }
+  getBpm(): number { return this._getBpm(); }
+  getIsPlaying(): boolean { return this._getIsPlaying() !== 0; }
+
+  // ============ Input Handling ============
+
+  /** Press a grid button. row/col: 0-indexed visible coords. */
+  buttonPress(row: number, col: number, modifiers: number): void {
+    this._buttonPress(row, col, modifiers);
+  }
+
+  /** Press an arrow key. direction: 0=up, 1=down, 2=left, 3=right. */
+  arrowPress(direction: number, modifiers: number): void {
+    this._arrowPress(direction, modifiers);
+  }
+
+  /** Execute a key action (spacebar, backspace, zoom, etc.). */
+  keyAction(actionId: number): void {
+    this._keyAction(actionId);
+  }
+
+  // ============ Edit Operations (direct access) ============
+
+  toggleEvent(row: number, tick: number, lengthTicks: number): number {
+    return this._toggleEvent(row, tick, lengthTicks);
+  }
+
+  removeEvent(eventIdx: number): void { this._removeEvent(eventIdx); }
+  moveEvent(eventIdx: number, newRow: number, newPos: number): void { this._moveEvent(eventIdx, newRow, newPos); }
+  setEventLength(eventIdx: number, length: number): void { this._setEventLength(eventIdx, length); }
+  placeEvent(eventIdx: number): void { this._placeEvent(eventIdx); }
+  setEventRepeatAmount(eventIdx: number, amount: number): void { this._setEventRepeatAmount(eventIdx, amount); }
+  setEventRepeatSpace(eventIdx: number, space: number): void { this._setEventRepeatSpace(eventIdx, space); }
+  setSubModeValue(eventIdx: number, sm: number, repeatIdx: number, value: number): void { this._setSubModeValue(eventIdx, sm, repeatIdx, value); }
+  setSubModeLength(eventIdx: number, sm: number, length: number): void { this._setSubModeLength(eventIdx, sm, length); }
+  toggleSubModeLoopMode(eventIdx: number, sm: number): void { this._toggleSubModeLoopMode(eventIdx, sm); }
+  adjustChordStack(eventIdx: number, direction: number): void { this._adjustChordStack(eventIdx, direction); }
+  cycleChordShape(eventIdx: number, direction: number): void { this._cycleChordShape(eventIdx, direction); }
+  cycleChordInversion(eventIdx: number, direction: number): void { this._cycleChordInversion(eventIdx, direction); }
+  copyPatternTo(targetPattern: number): void { this._copyPattern(targetPattern); }
+  clearPattern(): void { this._clearPattern(); }
+  allocEventId(): number { return this._allocEventId(); }
 }

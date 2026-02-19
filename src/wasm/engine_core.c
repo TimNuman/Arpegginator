@@ -329,8 +329,13 @@ void engine_generate_chord_shapes(EngineState* s) {
 
 // ============ Core Functions ============
 
+/**
+ * Full initialization — called once when the engine first loads.
+ * Resets everything: UI state, playback state, chord shapes, etc.
+ */
 void engine_core_init(EngineState* s) {
     s->current_tick = -1;
+    s->is_playing = 0;
 
     // Clear active notes
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
@@ -341,11 +346,54 @@ void engine_core_init(EngineState* s) {
     memset(s->continue_counters, 0, sizeof(s->continue_counters));
     memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
 
+    // Initialize UI state
+    s->ui_mode = UI_PATTERN;
+    s->modify_sub_mode = SM_VELOCITY;
+    s->current_channel = 0;
+    s->zoom = ZOOM_1_16;
+    s->selected_event_idx = -1;
+    s->col_offset = 0.0f;
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+        s->row_offsets[i] = 0.0f;
+    }
+
+    // Initialize BPM
+    if (s->bpm < 20.0f) s->bpm = 120.0f;
+
+    // Initialize event ID counter
+    if (s->next_event_id == 0) s->next_event_id = 1;
+
+    // Clear grid output buffers
+    memset(s->button_values, 0, sizeof(s->button_values));
+    memset(s->color_overrides, 0, sizeof(s->color_overrides));
+
+    // Clear display state
+    memset(s->patterns_have_notes, 0, sizeof(s->patterns_have_notes));
+    memset(s->channels_playing_now, 0, sizeof(s->channels_playing_now));
+
     // Generate chord shapes
     engine_generate_chord_shapes(s);
 
     // Default RNG seed
     if (s->rng_state == 0) s->rng_state = 12345;
+}
+
+/**
+ * Playback init — called when play starts.
+ * Only resets playback state (active notes, counters, tick).
+ * Does NOT touch UI state, patterns, or chord shapes.
+ */
+void engine_core_play_init(EngineState* s) {
+    s->current_tick = -1;
+
+    // Clear active notes
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+        s->active_notes[i].active = 0;
+    }
+
+    // Clear continue counters and snapshots
+    memset(s->continue_counters, 0, sizeof(s->continue_counters));
+    memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
 }
 
 void engine_core_stop(EngineState* s) {
@@ -496,5 +544,16 @@ void engine_core_tick(EngineState* s) {
 }
 
 int32_t engine_core_get_version(void) {
-    return 2000; // v2.0
+    return 3000; // v3.0 — WASM owns all state
+}
+
+// ============ Utility Functions ============
+
+uint16_t engine_alloc_event_id(EngineState* s) {
+    return s->next_event_id++;
+}
+
+void engine_update_has_notes(EngineState* s, uint8_t ch, uint8_t pat) {
+    if (ch >= NUM_CHANNELS || pat >= NUM_PATTERNS) return;
+    s->patterns_have_notes[ch][pat] = (s->patterns[ch][pat].event_count > 0) ? 1 : 0;
 }

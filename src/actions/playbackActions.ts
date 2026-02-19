@@ -47,6 +47,11 @@ function wasmReady(): boolean {
   return wasmEngine !== null && wasmEngine.isReady();
 }
 
+/** Get the WASM engine instance (null if not loaded). */
+export function getWasmEngine(): WasmEngine | null {
+  return wasmEngine;
+}
+
 // Playback loop state
 let playbackTimerId: ReturnType<typeof setTimeout> | null = null;
 let lastFrameTime: number = 0;
@@ -202,7 +207,8 @@ export function play(): void {
   subModePreview.clear();
 
   if (wasmReady()) {
-    wasmEngine!.syncAll(store);
+    // Sync non-pattern state only — WASM already owns pattern data
+    wasmEngine!.syncPlaybackState(store);
     wasmEngine!.init();
   }
 
@@ -391,7 +397,8 @@ export function playExternal(): void {
   subModePreview.clear();
 
   if (wasmReady()) {
-    wasmEngine!.syncAll(store);
+    // Sync non-pattern state only — WASM already owns pattern data
+    wasmEngine!.syncPlaybackState(store);
     wasmEngine!.init();
   }
 }
