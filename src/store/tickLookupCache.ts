@@ -51,7 +51,7 @@ export function invalidateLookup(channel: number, pattern: number): void {
   // Live sync to WASM engine if it's active and playing
   if (wasmSyncEngine?.isReady()) {
     const store = getSequencerStore();
-    if (store.isPlaying && store.engineType === 'wasm') {
+    if (store.isPlaying) {
       const patternData = store.patterns[channel]?.[pattern];
       if (patternData) {
         wasmSyncEngine.syncPattern(channel, pattern, patternData);
@@ -73,8 +73,7 @@ export function invalidateAll(): void {
 
 function isWasmPlaying(): boolean {
   if (!wasmSyncEngine?.isReady()) return false;
-  const store = getSequencerStore();
-  return store.isPlaying && store.engineType === 'wasm';
+  return getSequencerStore().isPlaying;
 }
 
 /** Sync mute/solo state to WASM during live playback. */

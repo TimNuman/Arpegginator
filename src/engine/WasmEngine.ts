@@ -35,6 +35,11 @@ const LOOP_MODE_MAP: Record<VelocityLoopMode, number> = {
   fill: 2,
 };
 
+// C enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4
+const SUB_MODE_NAME_TO_ID: Record<string, number> = {
+  velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4,
+};
+
 // C enum SubModeId names for preview callback
 const SUB_MODE_NAMES = ['velocity', 'hit', 'timing', 'flam', 'modulate'] as const;
 
@@ -86,6 +91,7 @@ export class WasmEngine {
   private _getNoteEventSize!: () => number;
   private _getFieldOffset!: (fieldId: number) => number;
   private _getSubModeArraySize!: () => number;
+  private _getContinueCounter!: (subMode: number, channel: number, eventIndex: number) => number;
 
   // Event index mapping: [ch][pat] → Map<UUID, index>
   private eventIndexMaps: Map<string, number>[][] = [];
@@ -126,6 +132,7 @@ export class WasmEngine {
     this._getNoteEventSize = cw('engine_get_note_event_size', 'number', []);
     this._getFieldOffset = cw('engine_get_field_offset', 'number', ['number']);
     this._getSubModeArraySize = cw('engine_get_sub_mode_array_size', 'number', []);
+    this._getContinueCounter = cw('engine_get_continue_counter', 'number', ['number', 'number', 'number']);
 
     // Query struct layout from C
     this.noteEventSize = this._getNoteEventSize();
@@ -377,5 +384,18 @@ export class WasmEngine {
 
   getEventId(ch: number, pat: number, eventIndex: number): string | undefined {
     return this.eventIndexToId[ch]?.[pat]?.get(String(eventIndex));
+  }
+
+  /**
+   * Get the current continue counter for a sub-mode/channel/event from the C engine.
+   */
+  getContinueCounter(subModeName: string, channel: number, eventId: string): number {
+    const store = getSequencerStore();
+    const patIdx = store.currentPatterns[channel];
+    const eventIndex = this.getEventIndex(channel, patIdx, eventId);
+    if (eventIndex < 0) return 0;
+    const smId = SUB_MODE_NAME_TO_ID[subModeName];
+    if (smId === undefined) return 0;
+    return this._getContinueCounter(smId, channel, eventIndex);
   }
 }

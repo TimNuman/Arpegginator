@@ -3,7 +3,6 @@ import { css, Global } from '@emotion/react';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
-import { EngineToggle } from './components/EngineToggle';
 import { WasmEngine } from './engine/WasmEngine';
 import { useMidi } from './hooks/useMidi';
 import { useSequencerStore } from './store/sequencerStore';
@@ -58,14 +57,12 @@ function App() {
   // WASM engine
   const wasmEngineRef = useRef<WasmEngine | null>(null);
   const [wasmReady, setWasmReady] = useState(false);
-  const [wasmVersion, setWasmVersion] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     const engine = new WasmEngine();
     engine.load().then(() => {
       wasmEngineRef.current = engine;
       setWasmReady(true);
-      setWasmVersion(engine.getVersion());
       actions.setWasmEngine(engine);
       console.log('WASM engine v' + engine.getVersion() + ' ready');
     }).catch((err) => {
@@ -258,7 +255,6 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        <EngineToggle wasmReady={wasmReady} wasmVersion={wasmVersion} />
         <Grid onPlayNote={handlePlayNote} />
       </Box>
     </ThemeProvider>

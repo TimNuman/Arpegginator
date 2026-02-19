@@ -36,7 +36,8 @@ EXPORTED_FUNCTIONS='[
     "_engine_set_rng_seed",
     "_engine_get_note_event_size",
     "_engine_get_field_offset",
-    "_engine_get_sub_mode_array_size"
+    "_engine_get_sub_mode_array_size",
+    "_engine_get_continue_counter"
 ]'
 # Remove whitespace from JSON
 EXPORTED_FUNCTIONS=$(echo "$EXPORTED_FUNCTIONS" | tr -d '[:space:]')

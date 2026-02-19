@@ -201,3 +201,10 @@ int32_t engine_get_sub_mode_array_size(void) {
     return (int32_t)sizeof(SubModeArray);
 }
 
+// Return the current continue counter for a sub-mode/channel/event
+EMSCRIPTEN_KEEPALIVE
+uint16_t engine_get_continue_counter(uint8_t sub_mode, uint8_t channel, uint16_t event_index) {
+    if (sub_mode >= NUM_SUB_MODES || channel >= NUM_CHANNELS || event_index >= MAX_EVENTS) return 0;
+    return g_state.continue_counters[sub_mode][channel][event_index];
+}
+
