@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from "react";
-import { css } from "@emotion/react";
 import { Box } from "@mui/material";
+import { rowStyles } from "./ButtonGrid.styles";
 
 // Inject pulsing keyframes once.
 // The animation runs on ALL grid cells always (so they share a single timeline).
@@ -164,11 +164,6 @@ const getBoxShadow = (value: number, channelColor: string): string => {
 
   return `0 0 ${glowSize}px ${bgColor}, inset 0 0 ${glowSize}px rgba(255, 255, 255, ${0.2 * intensity})`;
 };
-
-const rowStyles = css`
-  display: flex;
-  flex-direction: row;
-`;
 
 interface GridButtonCellProps {
   row: number;
