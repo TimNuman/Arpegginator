@@ -1,5 +1,5 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { invalidateLookup } from '../store/tickLookupCache';
+import { invalidateLookup, syncWasmScale } from '../store/tickLookupCache';
 import { SCALES, SCALE_ORDER, NOTE_NAMES, buildScaleMapping, midiToNoteSnapped, noteToMidi, type ScalePattern } from '../types/scales';
 
 /**
@@ -102,6 +102,7 @@ export function cycleScaleRoot(direction: "up" | "down"): void {
     : (oldRoot + 5) % 12;
   remapEventsFromMidi(newRoot, oldScaleId, oldRoot, oldScaleId);
   store._setScale(newRoot, oldScaleId);
+  syncWasmScale();
 }
 
 /**
@@ -118,6 +119,7 @@ export function cycleScale(direction: "up" | "down"): void {
     : (currentIndex + SCALE_ORDER.length - 1) % SCALE_ORDER.length;
 
   store._setScale(store.scaleRoot, SCALE_ORDER[nextIndex]);
+  syncWasmScale();
 }
 
 /**

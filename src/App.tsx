@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { css, Global } from '@emotion/react';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
+import { EngineToggle } from './components/EngineToggle';
+import { WasmEngine } from './engine/WasmEngine';
 import { useMidi } from './hooks/useMidi';
 import { useSequencerStore } from './store/sequencerStore';
 import * as actions from './actions';
@@ -53,6 +55,24 @@ const titleStyles = css`
 `;
 
 function App() {
+  // WASM engine
+  const wasmEngineRef = useRef<WasmEngine | null>(null);
+  const [wasmReady, setWasmReady] = useState(false);
+  const [wasmVersion, setWasmVersion] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    const engine = new WasmEngine();
+    engine.load().then(() => {
+      wasmEngineRef.current = engine;
+      setWasmReady(true);
+      setWasmVersion(engine.getVersion());
+      actions.setWasmEngine(engine);
+      console.log('WASM engine v' + engine.getVersion() + ' ready');
+    }).catch((err) => {
+      console.warn('WASM engine not available:', err);
+    });
+  }, []);
+
   // Use a ref for BPM so handleStepTrigger can access current value without re-creating
   const bpmRef = useRef(120);
   // Track pending note timeouts so we can cancel them on stop
@@ -147,15 +167,24 @@ function App() {
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
 
-  // Wire up step trigger and note-off callbacks
+  // Wire up step trigger and note-off callbacks (for both TS and WASM engines)
   useEffect(() => {
     actions.setStepTriggerCallback(handleStepTrigger);
     actions.setNoteOffCallback(handleNoteOff);
+    // Also wire WASM engine callbacks to the same handlers
+    if (wasmEngineRef.current) {
+      wasmEngineRef.current.onStepTrigger = handleStepTrigger;
+      wasmEngineRef.current.onNoteOff = handleNoteOff;
+    }
     return () => {
       actions.setStepTriggerCallback(null);
       actions.setNoteOffCallback(null);
+      if (wasmEngineRef.current) {
+        wasmEngineRef.current.onStepTrigger = null;
+        wasmEngineRef.current.onNoteOff = null;
+      }
     };
-  }, [handleStepTrigger, handleNoteOff]);
+  }, [handleStepTrigger, handleNoteOff, wasmReady]);
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;
@@ -229,6 +258,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
+        <EngineToggle wasmReady={wasmReady} wasmVersion={wasmVersion} />
         <Grid onPlayNote={handlePlayNote} />
       </Box>
     </ThemeProvider>

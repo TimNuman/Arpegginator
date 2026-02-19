@@ -60,6 +60,9 @@ export interface SequencerState {
   scaleRoot: number;  // Root note as semitone offset (0=C, 1=C#, ..., 11=B)
   scaleId: string;    // Key into SCALES record
 
+  // === Engine Selection ===
+  engineType: "typescript" | "wasm";
+
   // === View State ===
   view: ViewState;
 }
@@ -78,6 +81,7 @@ export interface SequencerActions {
   _setSoloedChannels: (soloed: boolean[]) => void;
   _setChannelTypes: (types: ChannelType[]) => void;
   _setScale: (root: number, scaleId: string) => void;
+  _setEngineType: (engineType: "typescript" | "wasm") => void;
   _setView: (view: Partial<ViewState>) => void;
 
   // === Event-Based Pattern Operations ===
@@ -160,6 +164,7 @@ export const useSequencerStore = create<SequencerStore>()(
     channelTypes: ["melodic", "melodic", "melodic", "melodic", "melodic", "melodic", "drum", "drum"] as ChannelType[],
     scaleRoot: 0,          // C
     scaleId: "major",      // C Major
+    engineType: "typescript" as const,
     view: createInitialView(),
 
     // Basic setters (direct state updates)
@@ -175,6 +180,7 @@ export const useSequencerStore = create<SequencerStore>()(
     _setSoloedChannels: (soloed) => set({ soloedChannels: soloed }),
     _setChannelTypes: (types) => set({ channelTypes: types }),
     _setScale: (root, scaleId) => set({ scaleRoot: root, scaleId }),
+    _setEngineType: (engineType) => set({ engineType }),
     _setView: (viewUpdate) =>
       set((state) => {
         Object.assign(state.view, viewUpdate);

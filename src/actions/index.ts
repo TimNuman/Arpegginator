@@ -34,9 +34,11 @@ export {
   stopExternal,
   getContinueCounter,
   isNoteActive,
+  registerWasmActiveNote,
   getHitChancePreview,
   getSubModePreview,
   setNoteOffCallback,
+  setWasmEngine,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 

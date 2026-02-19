@@ -1,4 +1,5 @@
 import { getSequencerStore } from '../store/sequencerStore';
+import { syncWasmMuteSolo, syncWasmQueuedPatterns, syncWasmCurrentPatterns } from '../store/tickLookupCache';
 
 /**
  * Set the current active channel
@@ -18,6 +19,7 @@ export function setChannelPattern(channel: number, pattern: number): void {
     const newQueued = [...store.queuedPatterns];
     newQueued[channel] = newQueued[channel] === pattern ? null : pattern;
     store._setQueuedPatterns(newQueued);
+    syncWasmQueuedPatterns();
   } else {
     // Switch immediately
     const newPatterns = [...store.currentPatterns];
@@ -28,6 +30,8 @@ export function setChannelPattern(channel: number, pattern: number): void {
     const newQueued = [...store.queuedPatterns];
     newQueued[channel] = null;
     store._setQueuedPatterns(newQueued);
+    syncWasmCurrentPatterns();
+    syncWasmQueuedPatterns();
   }
 }
 
@@ -47,6 +51,7 @@ export function toggleMute(channel: number): void {
     newSoloed[channel] = false;
     store._setSoloedChannels(newSoloed);
   }
+  syncWasmMuteSolo();
 }
 
 /**
@@ -66,4 +71,5 @@ export function toggleSolo(channel: number): void {
     newMuted[channel] = false;
     store._setMutedChannels(newMuted);
   }
+  syncWasmMuteSolo();
 }

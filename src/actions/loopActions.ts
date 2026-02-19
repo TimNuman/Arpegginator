@@ -1,4 +1,5 @@
 import { getSequencerStore } from '../store/sequencerStore';
+import { syncWasmLoops } from '../store/tickLookupCache';
 
 /**
  * Set loop boundaries for a pattern
@@ -18,4 +19,5 @@ export function setPatternLoop(
       : channelLoops
   );
   store._setPatternLoops(newLoops);
+  syncWasmLoops();
 }
