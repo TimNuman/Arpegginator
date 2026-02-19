@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "npm run build:wasm && tsc -b && vite build",
     "build:wasm": "bash src/wasm/build.sh",
+    "watch:wasm": "bash src/wasm/watch.sh",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
