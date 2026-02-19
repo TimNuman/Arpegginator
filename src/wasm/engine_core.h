@@ -13,6 +13,7 @@
 #define MAX_CHORD_SIZE      5
 #define MAX_CHORD_SHAPES    20
 #define MAX_SCALE_NOTES     128
+#define NUM_SCALES          32
 #define MAX_ACTIVE_NOTES    256
 #define DIATONIC_OCTAVE     7
 
@@ -199,6 +200,23 @@ uint16_t engine_alloc_event_id(EngineState* s);
 
 /** Update patterns_have_notes for a specific channel/pattern. */
 void engine_update_has_notes(EngineState* s, uint8_t ch, uint8_t pat);
+
+// ============ Scale Functions ============
+
+/** Rebuild scale_notes[] mapping from current scale_root and scale_id_idx. */
+void engine_rebuild_scale(EngineState* s);
+
+/** Cycle scale type: +1 = next, -1 = previous. */
+void engine_cycle_scale(EngineState* s, int8_t direction);
+
+/** Cycle scale root by circle of fifths: +1 = sharp, -1 = flat. */
+void engine_cycle_scale_root(EngineState* s, int8_t direction);
+
+/** Get display name for the current scale. */
+const char* engine_get_scale_name_str(const EngineState* s);
+
+/** Convert scale-relative row to MIDI note. Returns -1 if out of range. */
+int8_t note_to_midi(int16_t row, const EngineState* s);
 
 // ============ Version ============
 

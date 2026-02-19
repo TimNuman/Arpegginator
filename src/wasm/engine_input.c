@@ -445,9 +445,9 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
         // No selected note + Alt: cycle scale
         if ((mods & MOD_ALT) && !(mods & MOD_META) && !(mods & MOD_CTRL) && !(mods & MOD_SHIFT)) {
             if (dir == DIR_UP || dir == DIR_DOWN) {
-                platform_cycle_scale(dir == DIR_UP ? 1 : -1);
+                engine_cycle_scale(s, dir == DIR_UP ? 1 : -1);
             } else {
-                platform_cycle_scale_root(dir == DIR_RIGHT ? 1 : -1);
+                engine_cycle_scale_root(s, dir == DIR_RIGHT ? 1 : -1);
             }
         }
         return;

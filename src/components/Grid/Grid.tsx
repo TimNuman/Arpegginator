@@ -11,13 +11,7 @@ import {
   markDirty,
 } from "../../store/renderStore";
 import * as actions from "../../actions";
-import {
-  SCALES,
-  NOTE_NAMES,
-  SCALE_ORDER,
-  buildScaleMapping,
-  noteToMidi,
-} from "../../types/scales";
+import { NOTE_NAMES } from "../../types/scales";
 import { getDrumName, DRUM_TOTAL_ROWS, DRUM_MIN_ROW } from "../../types/drums";
 import type { WasmEngine } from "../../engine/WasmEngine";
 import {
@@ -91,8 +85,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const ticksPerCol = wasmEngine.getZoom();
   const zoom = TICKS_TO_SUBDIVISION[ticksPerCol] ?? "1/16";
   const scaleRoot = wasmEngine.getScaleRoot();
-  const scaleIdIdx = wasmEngine.getScaleIdIdx();
-  const scaleId = SCALE_ORDER[scaleIdIdx] ?? "major";
   const isDrumChannel = wasmEngine.getChannelType(currentChannel) === 1;
   const currentPattern = wasmEngine.getCurrentPattern(currentChannel);
   const loopStart = wasmEngine.getCurrentLoopStart();
@@ -107,18 +99,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // Tick-based layout
   const totalCols = Math.ceil(patternLengthTicks / ticksPerCol);
 
-  // Scale mapping for display
-  const scalePattern = useMemo(
-    () => SCALES[scaleId]?.pattern ?? SCALES.major.pattern,
-    [scaleId],
-  );
-  const scaleMapping = useMemo(
-    () => buildScaleMapping(scaleRoot, scalePattern),
-    [scaleRoot, scalePattern],
-  );
-
-  const totalRows = isDrumChannel ? DRUM_TOTAL_ROWS : scaleMapping.totalRows;
-  const minRow = isDrumChannel ? DRUM_MIN_ROW : scaleMapping.minRow;
+  const totalRows = isDrumChannel ? DRUM_TOTAL_ROWS : wasmEngine.getScaleCount();
+  const minRow = isDrumChannel ? DRUM_MIN_ROW : -wasmEngine.getScaleZeroIndex();
   const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
   const startArrayIndex =
@@ -367,7 +349,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const noteName = isDrumChannel
         ? getDrumName(selRow)
         : (() => {
-            const m = noteToMidi(selRow, scaleMapping);
+            const m = wasmEngine.noteToMidi(selRow);
             return m >= 0 ? midiNoteToName(m) : "??";
           })();
       const lengthDisplay = ticksToDisplay(selLength, ticksPerCol);
@@ -430,7 +412,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         const noteName = isDrumChannel
           ? getDrumName(selRow)
           : (() => {
-              const m = noteToMidi(selRow, scaleMapping);
+              const m = wasmEngine.noteToMidi(selRow);
               return m >= 0 ? midiNoteToName(m) : "??";
             })();
         const loopModeVal = wasmEngine.getSelSubModeLoopMode(modifySubModeIdx);
@@ -516,9 +498,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       };
     }
 
-    const scaleDef = SCALES[scaleId];
     const scaleRootName = NOTE_NAMES[scaleRoot];
-    const scaleName = scaleDef?.name ?? scaleId;
+    const scaleName = wasmEngine.getScaleName();
     const highlightKey = keyboard.alt;
 
     return {
@@ -564,8 +545,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     ticksPerCol,
     zoom,
     scaleRoot,
-    scaleId,
-    scaleMapping,
     isDrumChannel,
     wasmEngine,
     selectedEventIdx,
@@ -644,10 +623,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             {isDrumChannel
               ? `${getDrumName(startRow)} - ${getDrumName(endRow)}`
               : `${(() => {
-                  const m = noteToMidi(startRow, scaleMapping);
+                  const m = wasmEngine.noteToMidi(startRow);
                   return m >= 0 ? midiNoteToName(m) : startRow;
                 })()} - ${(() => {
-                  const m = noteToMidi(endRow, scaleMapping);
+                  const m = wasmEngine.noteToMidi(endRow);
                   return m >= 0 ? midiNoteToName(m) : endRow;
                 })()}`}
           </span>

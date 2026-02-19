@@ -19,9 +19,3 @@ export type { StepTriggerExtras } from './playbackActions';
 export {
   clearPattern,
 } from './patternActions';
-
-// Scale actions
-export {
-  cycleScaleRoot,
-  cycleScale,
-} from './scaleActions';

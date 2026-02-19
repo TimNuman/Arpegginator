@@ -8,7 +8,6 @@ import {
   getEventSubModeValueAtRepeatFill,
   TICKS_PER_QUARTER,
 } from '../types/event';
-import { SCALES, SCALE_ORDER, buildScaleMapping, noteToMidi, type ScaleMapping } from '../types/scales';
 import { getChordOffsets } from '../types/chords';
 import type { WasmEngine } from '../engine/WasmEngine';
 import {
@@ -128,17 +127,6 @@ function resolveSubModeValue(
   }
 }
 
-function getCurrentScaleMapping(): ScaleMapping {
-  if (!wasmReady()) {
-    return buildScaleMapping(0, SCALES.major.pattern);
-  }
-  const scaleRoot = wasmEngine!.getScaleRoot();
-  const scaleIdIdx = wasmEngine!.getScaleIdIdx();
-  const scaleId = SCALE_ORDER[scaleIdIdx] ?? "major";
-  const pattern = SCALES[scaleId]?.pattern ?? SCALES.major.pattern;
-  return buildScaleMapping(scaleRoot, pattern);
-}
-
 // ============ Public API ============
 
 export function setStepTriggerCallback(
@@ -236,7 +224,6 @@ let lastScrubTick = -1;
 export function scrubToTick(targetTick: number): void {
   if (!wasmReady()) return;
 
-  const mapping = getCurrentScaleMapping();
   const { muted: mutedChannels, soloed: soloedChannels } = wasmEngine!.readMuteSolo();
 
   markDirty();
@@ -307,7 +294,7 @@ export function scrubToTick(targetTick: number): void {
           const chordRow = effectiveRow + chordOffsets[ci];
           const midiNote = channelType === 1
             ? Math.max(0, Math.min(127, chordRow))
-            : noteToMidi(chordRow, mapping);
+            : wasmEngine!.noteToMidi(chordRow);
           if (midiNote < 0) continue;
 
           const activeKey = `${ch}:${event.id}:${repeatIndex}:${ci}`;

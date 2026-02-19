@@ -27,8 +27,11 @@ EXPORTED_FUNCTIONS='[
     "_engine_set_event_count",
     "_engine_set_pattern_length",
     "_engine_get_loops_buffer",
-    "_engine_get_scale_buffer",
-    "_engine_set_scale_info",
+    "_engine_note_to_midi_export",
+    "_engine_get_scale_name",
+    "_engine_get_scale_count",
+    "_engine_get_scale_zero_index",
+    "_engine_get_num_scales",
     "_engine_get_muted_buffer",
     "_engine_get_soloed_buffer",
     "_engine_get_channel_types_buffer",
@@ -52,8 +55,6 @@ EXPORTED_FUNCTIONS='[
     "_engine_set_is_playing",
     "_engine_set_ctrl_held",
     "_engine_set_channel_color",
-    "_engine_set_scale_root",
-    "_engine_set_scale_id_idx",
     "_engine_get_ui_mode",
     "_engine_get_modify_sub_mode",
     "_engine_get_current_channel",
@@ -111,7 +112,7 @@ EXPORTED_FUNCTIONS=$(echo "$EXPORTED_FUNCTIONS" | tr -d '[:space:]')
 emcc "$SCRIPT_DIR/engine_core.c" "$SCRIPT_DIR/engine_ui.c" "$SCRIPT_DIR/engine_edit.c" "$SCRIPT_DIR/engine_input.c" "$SCRIPT_DIR/engine_wasm.c" \
     -O2 \
     -I"$SCRIPT_DIR" \
-    -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8"]' \
+    -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","UTF8ToString"]' \
     -s EXPORTED_FUNCTIONS="$EXPORTED_FUNCTIONS" \
     -s MODULARIZE=1 \
     -s EXPORT_NAME='createWasmEngine' \

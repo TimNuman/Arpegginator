@@ -2,7 +2,6 @@ import type { NoteEvent, PatternData, VelocityLoopMode, Subdivision } from '../t
 import { SUBDIVISION_TICKS } from '../types/event';
 import type { StepTriggerExtras } from '../actions/playbackActions';
 import { registerWasmActiveNote } from '../actions/playbackActions';
-import { buildScaleMapping, SCALES, SCALE_ORDER } from '../types/scales';
 import { markDirty } from '../store/renderStore';
 
 // ============ Emscripten Module Types ============
@@ -76,8 +75,6 @@ export class WasmEngine {
   private _setEventCount!: (ch: number, pat: number, count: number) => void;
   private _setPatternLength!: (ch: number, pat: number, len: number) => void;
   private _getLoopsBuffer!: () => number;
-  private _getScaleBuffer!: () => number;
-  private _setScaleInfo!: (count: number, zeroIndex: number) => void;
   private _getMutedBuffer!: () => number;
   private _getSoloedBuffer!: () => number;
   private _getChannelTypesBuffer!: () => number;
@@ -105,8 +102,6 @@ export class WasmEngine {
   private _setIsPlaying!: (playing: number) => void;
   private _setCtrlHeld!: (held: number) => void;
   private _setChannelColor!: (ch: number, rgb: number) => void;
-  private _setScaleRoot!: (root: number) => void;
-  private _setScaleIdIdx!: (idx: number) => void;
 
   // UI state getters
   private _getUiMode!: () => number;
@@ -137,6 +132,10 @@ export class WasmEngine {
   private _getChannelType!: (ch: number) => number;
   private _getScaleRoot!: () => number;
   private _getScaleIdIdx!: () => number;
+  private _noteToMidi!: (row: number) => number;
+  private _getScaleName!: () => number;  // returns pointer
+  private _getScaleCount!: () => number;
+  private _getScaleZeroIndex!: () => number;
 
   // Grid output
   private _getButtonValuesBuffer!: () => number;
@@ -161,8 +160,6 @@ export class WasmEngine {
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
   onPreviewValue: ((subMode: string, channel: number, eventIndex: number, tick: number, value: number) => void) | null = null;
   onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
-  onCycleScale: ((direction: number) => void) | null = null;
-  onCycleScaleRoot: ((direction: number) => void) | null = null;
   // Map eventIndex back to UUID for preview
   private eventIndexToId: Map<string, string>[][] = [];
 
@@ -185,8 +182,6 @@ export class WasmEngine {
     this._setEventCount = cw('engine_set_event_count', null, ['number', 'number', 'number']) as unknown as (ch: number, pat: number, count: number) => void;
     this._setPatternLength = cw('engine_set_pattern_length', null, ['number', 'number', 'number']) as unknown as (ch: number, pat: number, len: number) => void;
     this._getLoopsBuffer = cw('engine_get_loops_buffer', 'number', []);
-    this._getScaleBuffer = cw('engine_get_scale_buffer', 'number', []);
-    this._setScaleInfo = cw('engine_set_scale_info', null, ['number', 'number']) as unknown as (count: number, zeroIndex: number) => void;
     this._getMutedBuffer = cw('engine_get_muted_buffer', 'number', []);
     this._getSoloedBuffer = cw('engine_get_soloed_buffer', 'number', []);
     this._getChannelTypesBuffer = cw('engine_get_channel_types_buffer', 'number', []);
@@ -214,8 +209,6 @@ export class WasmEngine {
     this._setIsPlaying = cw('engine_set_is_playing', null, ['number']) as unknown as (p: number) => void;
     this._setCtrlHeld = cw('engine_set_ctrl_held', null, ['number']) as unknown as (h: number) => void;
     this._setChannelColor = cw('engine_set_channel_color', null, ['number', 'number']) as unknown as (ch: number, rgb: number) => void;
-    this._setScaleRoot = cw('engine_set_scale_root', null, ['number']) as unknown as (r: number) => void;
-    this._setScaleIdIdx = cw('engine_set_scale_id_idx', null, ['number']) as unknown as (i: number) => void;
 
     // UI state getters
     this._getUiMode = cw('engine_get_ui_mode', 'number', []);
@@ -246,6 +239,10 @@ export class WasmEngine {
     this._getChannelType = cw('engine_get_channel_type', 'number', ['number']);
     this._getScaleRoot = cw('engine_get_scale_root', 'number', []);
     this._getScaleIdIdx = cw('engine_get_scale_id_idx', 'number', []);
+    this._noteToMidi = cw('engine_note_to_midi_export', 'number', ['number']);
+    this._getScaleName = cw('engine_get_scale_name', 'number', []);
+    this._getScaleCount = cw('engine_get_scale_count', 'number', []);
+    this._getScaleZeroIndex = cw('engine_get_scale_zero_index', 'number', []);
 
     // Grid output
     this._getButtonValuesBuffer = cw('engine_get_button_values_buffer', 'number', []);
@@ -327,12 +324,6 @@ export class WasmEngine {
       },
       playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
         this.onPlayPreviewNote?.(ch, row, lengthTicks);
-      },
-      cycleScale: (direction: number) => {
-        this.onCycleScale?.(direction);
-      },
-      cycleScaleRoot: (direction: number) => {
-        this.onCycleScaleRoot?.(direction);
       },
     };
   }
@@ -501,20 +492,6 @@ export class WasmEngine {
     view.setInt32(ptr + offset + 4, length, true);
   }
 
-  /**
-   * Sync scale mapping to WASM. Call after scale root/id changes.
-   */
-  syncScale(scaleRoot: number, scaleId: string): void {
-    const mod = this.module!;
-    const pattern = SCALES[scaleId]?.pattern ?? SCALES.major.pattern;
-    const mapping = buildScaleMapping(scaleRoot, pattern);
-    const ptr = this._getScaleBuffer();
-    for (let i = 0; i < mapping.notes.length; i++) {
-      mod.HEAPU8[ptr + i] = mapping.notes[i];
-    }
-    this._setScaleInfo(mapping.notes.length, mapping.zeroIndex);
-  }
-
   // ============ Event Index Lookup ============
 
   getEventIndex(ch: number, pat: number, eventId: string): number {
@@ -610,8 +587,6 @@ export class WasmEngine {
   setIsPlaying(playing: boolean): void { this._setIsPlaying(playing ? 1 : 0); }
   setCtrlHeld(held: boolean): void { this._setCtrlHeld(held ? 1 : 0); }
   setChannelColor(ch: number, rgb: number): void { this._setChannelColor(ch, rgb); }
-  setScaleRoot(root: number): void { this._setScaleRoot(root); }
-  setScaleIdIdx(idx: number): void { this._setScaleIdIdx(idx); }
 
   getUiMode(): number { return this._getUiMode(); }
   getModifySubMode(): number { return this._getModifySubMode(); }
@@ -641,6 +616,13 @@ export class WasmEngine {
   getChannelType(ch: number): number { return this._getChannelType(ch); }
   getScaleRoot(): number { return this._getScaleRoot(); }
   getScaleIdIdx(): number { return this._getScaleIdIdx(); }
+  noteToMidi(row: number): number { return this._noteToMidi(row); }
+  getScaleName(): string {
+    const ptr = this._getScaleName();
+    return (this.module as unknown as { UTF8ToString: (ptr: number) => string }).UTF8ToString(ptr);
+  }
+  getScaleCount(): number { return this._getScaleCount(); }
+  getScaleZeroIndex(): number { return this._getScaleZeroIndex(); }
 
   /** Write channel types to WASM memory. 0 = melodic, 1 = drum. */
   writeChannelTypes(types: number[]): void {

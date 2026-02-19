@@ -29,10 +29,120 @@ static uint32_t engine_random(EngineState* s) {
     return x;
 }
 
-static int8_t note_to_midi(int16_t row, const EngineState* s) {
+int8_t note_to_midi(int16_t row, const EngineState* s) {
     int32_t idx = (int32_t)s->scale_zero_index + (int32_t)row;
     if (idx < 0 || idx >= (int32_t)s->scale_count) return -1;
     return (int8_t)s->scale_notes[idx];
+}
+
+// ============ Scale Definitions ============
+
+//                                       1  b2  2  b3  3   4  b5  5  b6  6  b7  7
+static const uint8_t SCALE_PATTERNS[NUM_SCALES][12] = {
+    // Western
+    {1,0,1,0,1,1,0,1,0,1,0,1}, // major
+    {1,0,1,1,0,1,0,1,1,0,1,0}, // naturalMinor
+    {1,0,1,1,0,1,0,1,1,0,0,1}, // harmonicMinor
+    {1,0,1,1,0,1,0,1,0,1,0,1}, // melodicMinor
+    // Modal
+    {1,0,1,1,0,1,0,1,0,1,1,0}, // dorian
+    {1,1,0,1,0,1,0,1,1,0,1,0}, // phrygian
+    {1,0,1,0,1,0,1,1,0,1,0,1}, // lydian
+    {1,0,1,0,1,1,0,1,0,1,1,0}, // mixolydian
+    {1,0,1,1,0,1,0,1,1,0,1,0}, // aeolian
+    {1,1,0,1,0,1,1,0,1,0,1,0}, // locrian
+    // Pentatonic
+    {1,0,1,0,1,0,0,1,0,1,0,0}, // majorPentatonic
+    {1,0,0,1,0,1,0,1,0,0,1,0}, // minorPentatonic
+    {1,0,0,1,0,1,1,1,0,0,1,0}, // blues
+    // Symmetric
+    {1,0,1,0,1,0,1,0,1,0,1,0}, // wholeTone
+    {1,1,1,1,1,1,1,1,1,1,1,1}, // chromatic
+    {1,0,1,1,0,1,1,0,1,1,0,1}, // diminished
+    {1,0,0,1,1,0,0,1,1,0,0,1}, // augmented
+    // Exotic
+    {1,0,1,1,0,0,0,1,1,0,0,0}, // hirajoshi
+    {1,1,0,0,0,1,0,1,0,0,1,0}, // insen
+    {1,1,0,0,0,1,1,0,0,0,1,0}, // iwato
+    {1,0,1,1,0,0,0,1,0,1,0,0}, // kumoi
+    {1,1,0,1,0,0,0,1,1,0,0,0}, // pelog
+    {1,1,0,0,1,1,0,1,1,0,0,1}, // hijaz
+    {1,1,0,0,1,1,0,1,1,0,0,1}, // doubleHarmonic
+    {1,0,1,1,0,0,1,1,1,0,0,1}, // hungarianMinor
+    {1,1,0,0,1,0,1,0,1,0,1,1}, // enigmatic
+    {1,0,1,0,1,0,1,0,0,1,1,0}, // prometheus
+    {1,1,0,0,1,1,1,0,1,0,0,1}, // persian
+    {1,0,1,1,0,1,1,1,1,0,0,1}, // algerian
+    {1,0,1,1,0,0,1,1,1,0,1,0}, // gypsy
+    {1,1,0,1,0,1,0,1,1,0,0,1}, // neapolitanMinor
+    {1,1,0,1,0,1,0,1,0,1,0,1}, // neapolitanMajor
+};
+
+static const char* SCALE_NAMES[NUM_SCALES] = {
+    "Major", "Natural Minor", "Harmonic Minor", "Melodic Minor",
+    "Dorian", "Phrygian", "Lydian", "Mixolydian", "Aeolian", "Locrian",
+    "Major Pentatonic", "Minor Pentatonic", "Blues",
+    "Whole Tone", "Chromatic", "Diminished", "Augmented",
+    "Hirajoshi", "In Sen", "Iwato", "Kumoi", "Pelog",
+    "Hijaz", "Double Harmonic", "Hungarian Minor", "Enigmatic",
+    "Prometheus", "Persian", "Algerian", "Gypsy",
+    "Neapolitan Minor", "Neapolitan Major",
+};
+
+/**
+ * Rebuild scale_notes[] mapping from scale_root and scale_id_idx.
+ * C port of TypeScript buildScaleMapping().
+ */
+void engine_rebuild_scale(EngineState* s) {
+    uint8_t root = s->scale_root;
+    uint8_t idx = s->scale_id_idx;
+    if (idx >= NUM_SCALES) idx = 0;
+
+    const uint8_t* pattern = SCALE_PATTERNS[idx];
+    uint16_t count = 0;
+    uint16_t zero_index = 0;
+    uint8_t zero_midi = 60 + root;  // Root at octave 4
+
+    for (uint8_t midi = 0; midi <= 127; midi++) {
+        int32_t pc = ((int32_t)midi - (int32_t)root) % 12;
+        if (pc < 0) pc += 12;
+        if (pattern[pc]) {
+            if (midi == zero_midi) {
+                zero_index = count;
+            }
+            s->scale_notes[count++] = midi;
+        }
+    }
+
+    s->scale_count = count;
+    s->scale_zero_index = zero_index;
+}
+
+/**
+ * Cycle scale type. direction: +1 = next, -1 = previous.
+ */
+void engine_cycle_scale(EngineState* s, int8_t direction) {
+    int32_t idx = (int32_t)s->scale_id_idx + direction;
+    idx = ((idx % NUM_SCALES) + NUM_SCALES) % NUM_SCALES;
+    s->scale_id_idx = (uint8_t)idx;
+    engine_rebuild_scale(s);
+}
+
+/**
+ * Cycle scale root by circle of fifths (±7 semitones).
+ * direction: +1 = up (sharp direction), -1 = down (flat direction).
+ */
+void engine_cycle_scale_root(EngineState* s, int8_t direction) {
+    int32_t root = (int32_t)s->scale_root + direction * 7;
+    root = ((root % 12) + 12) % 12;
+    s->scale_root = (uint8_t)root;
+    engine_rebuild_scale(s);
+}
+
+const char* engine_get_scale_name_str(const EngineState* s) {
+    uint8_t idx = s->scale_id_idx;
+    if (idx >= NUM_SCALES) return "Major";
+    return SCALE_NAMES[idx];
 }
 
 // ============ Sub-Mode Resolution ============
@@ -389,6 +499,11 @@ void engine_core_init(EngineState* s) {
 
     // Default RNG seed
     if (s->rng_state == 0) s->rng_state = 12345;
+
+    // Build initial scale mapping (default: C Major)
+    s->scale_root = 0;
+    s->scale_id_idx = 0;
+    engine_rebuild_scale(s);
 }
 
 /**

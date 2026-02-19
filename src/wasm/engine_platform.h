@@ -39,10 +39,4 @@ void platform_preview_value(
 /** Play a preview note (for auditory feedback during editing). */
 void platform_play_preview_note(uint8_t channel, int16_t row, int32_t length_ticks);
 
-/** Cycle the scale (called from input handler). direction: +1 = up, -1 = down. */
-void platform_cycle_scale(int8_t direction);
-
-/** Cycle the scale root. direction: +1 = up, -1 = down. */
-void platform_cycle_scale_root(int8_t direction);
-
 #endif // ENGINE_PLATFORM_H

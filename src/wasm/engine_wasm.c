@@ -57,18 +57,6 @@ EM_JS(void, js_play_preview_note, (int ch, int row, int length_ticks), {
     }
 });
 
-EM_JS(void, js_cycle_scale, (int direction), {
-    if (Module._callbacks && Module._callbacks.cycleScale) {
-        Module._callbacks.cycleScale(direction);
-    }
-});
-
-EM_JS(void, js_cycle_scale_root, (int direction), {
-    if (Module._callbacks && Module._callbacks.cycleScaleRoot) {
-        Module._callbacks.cycleScaleRoot(direction);
-    }
-});
-
 // ============ Platform Callback Implementations ============
 
 void platform_step_trigger(
@@ -106,14 +94,6 @@ void platform_preview_value(
 
 void platform_play_preview_note(uint8_t channel, int16_t row, int32_t length_ticks) {
     js_play_preview_note(channel, row, length_ticks);
-}
-
-void platform_cycle_scale(int8_t direction) {
-    js_cycle_scale(direction);
-}
-
-void platform_cycle_scale_root(int8_t direction) {
-    js_cycle_scale_root(direction);
 }
 
 // ============ Exported Functions ============
@@ -164,17 +144,6 @@ void engine_set_pattern_length(uint8_t ch, uint8_t pat, int32_t len) {
 EMSCRIPTEN_KEEPALIVE
 PatternLoop_C* engine_get_loops_buffer(void) {
     return &g_state.loops[0][0];
-}
-
-EMSCRIPTEN_KEEPALIVE
-uint8_t* engine_get_scale_buffer(void) {
-    return g_state.scale_notes;
-}
-
-EMSCRIPTEN_KEEPALIVE
-void engine_set_scale_info(uint16_t count, uint16_t zero_index) {
-    g_state.scale_count = count;
-    g_state.scale_zero_index = zero_index;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -311,16 +280,6 @@ void engine_set_ctrl_held(uint8_t held) {
 EMSCRIPTEN_KEEPALIVE
 void engine_set_channel_color(uint8_t ch, uint32_t rgb) {
     if (ch < NUM_CHANNELS) g_state.channel_colors[ch] = rgb;
-}
-
-EMSCRIPTEN_KEEPALIVE
-void engine_set_scale_root(uint8_t root) {
-    g_state.scale_root = root;
-}
-
-EMSCRIPTEN_KEEPALIVE
-void engine_set_scale_id_idx(uint8_t idx) {
-    g_state.scale_id_idx = idx;
 }
 
 // ============ UI State Getters ============
@@ -614,5 +573,32 @@ uint8_t engine_get_scale_root(void) {
 EMSCRIPTEN_KEEPALIVE
 uint8_t engine_get_scale_id_idx(void) {
     return g_state.scale_id_idx;
+}
+
+// ============ Scale Exports ============
+
+EMSCRIPTEN_KEEPALIVE
+int8_t engine_note_to_midi_export(int16_t row) {
+    return note_to_midi(row, &g_state);
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* engine_get_scale_name(void) {
+    return engine_get_scale_name_str(&g_state);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t engine_get_scale_count(void) {
+    return g_state.scale_count;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint16_t engine_get_scale_zero_index(void) {
+    return g_state.scale_zero_index;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_num_scales(void) {
+    return NUM_SCALES;
 }
 

@@ -9,7 +9,6 @@ import { useRenderVersion, getIsPlaying, getIsExternalPlayback, getBpm } from '.
 import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
 import { TICKS_PER_QUARTER } from './types/event';
-import { buildScaleMapping, SCALES, SCALE_ORDER, noteToMidi } from './types/scales';
 
 
 const darkTheme = createTheme({
@@ -78,9 +77,6 @@ function App() {
       // Set channel types: channels 0-5 melodic, 6-7 drum
       engine.writeChannelTypes([0, 0, 0, 0, 0, 0, 1, 1]);
 
-      // Sync initial scale to WASM
-      engine.syncScale(0, 'major');
-
       // Set initial zoom (1/16 = 120 ticks per col)
       engine.setZoom(120);
 
@@ -88,14 +84,14 @@ function App() {
       engine.setBpm(120);
 
       // Compute initial row offsets to position C4 at bottom for melodic channels
-      // For C Major scale: buildScaleMapping(0, major) gives zeroIndex and totalRows
-      // melodicOffset = 1 - zeroIndex / max(0, totalRows - VISIBLE_ROWS)
+      // Scale mapping is built by engine_core_init() in WASM (default: C Major)
       {
-        const scaleMapping = buildScaleMapping(0, SCALES.major.pattern);
+        const scaleCount = engine.getScaleCount();
+        const scaleZeroIndex = engine.getScaleZeroIndex();
         const VISIBLE_ROWS = 8;
-        const melodicMaxRowOffset = Math.max(0, scaleMapping.totalRows - VISIBLE_ROWS);
+        const melodicMaxRowOffset = Math.max(0, scaleCount - VISIBLE_ROWS);
         const melodicOffset = melodicMaxRowOffset > 0
-          ? 1 - scaleMapping.zeroIndex / melodicMaxRowOffset
+          ? 1 - scaleZeroIndex / melodicMaxRowOffset
           : 0.5;
         const DRUM_TOTAL_ROWS = 128;
         const drumMaxRowOffset = Math.max(0, DRUM_TOTAL_ROWS - VISIBLE_ROWS);
@@ -221,27 +217,12 @@ function App() {
     if (wasmEngineRef.current) {
       wasmEngineRef.current.onStepTrigger = handleStepTrigger;
       wasmEngineRef.current.onNoteOff = handleNoteOff;
-      wasmEngineRef.current.onCycleScale = (direction: number) => {
-        actions.cycleScale(direction > 0 ? "up" : "down");
-      };
-      wasmEngineRef.current.onCycleScaleRoot = (direction: number) => {
-        actions.cycleScaleRoot(direction > 0 ? "up" : "down");
-      };
       wasmEngineRef.current.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
-        // row is scale-relative; convert to MIDI using WASM state
         const engine = wasmEngineRef.current!;
         const isDrum = engine.getChannelType(channel) === 1;
-        let midiNote: number;
-        if (isDrum) {
-          midiNote = Math.max(0, Math.min(127, row));
-        } else {
-          const scaleRoot = engine.getScaleRoot();
-          const scaleIdIdx = engine.getScaleIdIdx();
-          const scaleId = SCALE_ORDER[scaleIdIdx] ?? 'major';
-          const scalePattern = SCALES[scaleId]?.pattern ?? SCALES.major.pattern;
-          const mapping = buildScaleMapping(scaleRoot, scalePattern);
-          midiNote = noteToMidi(row, mapping);
-        }
+        const midiNote = isDrum
+          ? Math.max(0, Math.min(127, row))
+          : engine.noteToMidi(row);
         if (midiNote >= 0) {
           handlePlayNote(midiNote, channel, lengthTicks > 0 ? lengthTicks : undefined);
         }
@@ -253,8 +234,6 @@ function App() {
       if (wasmEngineRef.current) {
         wasmEngineRef.current.onStepTrigger = null;
         wasmEngineRef.current.onNoteOff = null;
-        wasmEngineRef.current.onCycleScale = null;
-        wasmEngineRef.current.onCycleScaleRoot = null;
         wasmEngineRef.current.onPlayPreviewNote = null;
       }
     };
