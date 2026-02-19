@@ -66,7 +66,8 @@ function App() {
       wasmEngineRef.current = engine;
       setWasmReady(true);
       setWasmVersion(engine.getVersion());
-      console.log('WASM test: 5 + 7 =', engine.add(5, 7));
+      actions.setWasmEngine(engine);
+      console.log('WASM engine v' + engine.getVersion() + ' ready');
     }).catch((err) => {
       console.warn('WASM engine not available:', err);
     });
@@ -166,15 +167,24 @@ function App() {
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
 
-  // Wire up step trigger and note-off callbacks
+  // Wire up step trigger and note-off callbacks (for both TS and WASM engines)
   useEffect(() => {
     actions.setStepTriggerCallback(handleStepTrigger);
     actions.setNoteOffCallback(handleNoteOff);
+    // Also wire WASM engine callbacks to the same handlers
+    if (wasmEngineRef.current) {
+      wasmEngineRef.current.onStepTrigger = handleStepTrigger;
+      wasmEngineRef.current.onNoteOff = handleNoteOff;
+    }
     return () => {
       actions.setStepTriggerCallback(null);
       actions.setNoteOffCallback(null);
+      if (wasmEngineRef.current) {
+        wasmEngineRef.current.onStepTrigger = null;
+        wasmEngineRef.current.onNoteOff = null;
+      }
     };
-  }, [handleStepTrigger, handleNoteOff]);
+  }, [handleStepTrigger, handleNoteOff, wasmReady]);
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;

@@ -1,5 +1,5 @@
 import { getSequencerStore, NUM_CHANNELS } from '../store/sequencerStore';
-import { getLookup, invalidateAll } from '../store/tickLookupCache';
+import { getLookup, invalidateAll, setWasmSyncEngine } from '../store/tickLookupCache';
 import {
   type NoteEvent,
   type ModifySubMode,
@@ -10,6 +10,7 @@ import {
 } from '../types/event';
 import { SCALES, buildScaleMapping, noteToMidi, type ScaleMapping } from '../types/scales';
 import { getChordOffsets } from '../types/chords';
+import type { WasmEngine } from '../engine/WasmEngine';
 
 // Extra parameters passed alongside each triggered note
 export interface StepTriggerExtras {
@@ -20,6 +21,31 @@ export interface StepTriggerExtras {
 // Callback references
 let stepTriggerCallback: ((channel: number, row: number, tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
 let noteOffCallback: ((channel: number, midiNote: number) => void) | null = null;
+
+// WASM engine reference (set from App.tsx when engine loads)
+let wasmEngine: WasmEngine | null = null;
+
+export function setWasmEngine(engine: WasmEngine | null): void {
+  wasmEngine = engine;
+  setWasmSyncEngine(engine);
+  if (engine) {
+    // Wire WASM preview callback into the TS preview map
+    engine.onPreviewValue = (subMode, ch, eventIndex, tick, value) => {
+      // Convert eventIndex back to UUID for the preview map key
+      const store = getSequencerStore();
+      const patIdx = store.currentPatterns[ch];
+      const eventId = engine.getEventId(ch, patIdx, eventIndex);
+      if (eventId) {
+        subModePreview.set(`${subMode}:${ch}:${eventId}:${tick}`, value);
+      }
+    };
+  }
+}
+
+/** Check if WASM engine should be used for current tick */
+function useWasm(): boolean {
+  return wasmEngine !== null && wasmEngine.isReady() && getSequencerStore().engineType === 'wasm';
+}
 
 // Playback loop state
 let playbackTimerId: ReturnType<typeof setTimeout> | null = null;
@@ -62,6 +88,24 @@ export function isNoteActive(ch: number, eventId: string, tick: number): boolean
     }
   }
   return false;
+}
+
+/**
+ * Register an active note from the WASM engine.
+ * Called by WasmEngine's stepTrigger callback so the grid can highlight playing notes.
+ */
+export function registerWasmActiveNote(
+  ch: number, eventId: string, tick: number, length: number, midiNote: number
+): void {
+  const key = `${ch}:${eventId}:wasm`;
+  const existing = activeNotes.get(key);
+  if (existing) {
+    existing.start = tick;
+    existing.end = tick + length - 1;
+    existing.midiNote = midiNote;
+  } else {
+    activeNotes.set(key, { start: tick, end: tick + length - 1, midiNote });
+  }
 }
 
 // Sub-modes to pre-compute previews for at loop boundaries
@@ -206,6 +250,12 @@ export function setNoteOffCallback(
  * Advance the sequencer by one tick
  */
 export function tick(): void {
+  // WASM engine: delegate entirely to C
+  if (useWasm()) {
+    wasmEngine!.tick();
+    return;
+  }
+
   const store = getSequencerStore();
   const { currentTick, currentPatterns, patternLoops, mutedChannels, soloedChannels } = store;
 
@@ -353,7 +403,15 @@ export function play(): void {
   store._setIsExternalPlayback(false);
 
   invalidateAll();
-  computePreviewAll();
+
+  if (useWasm()) {
+    // Clear TS preview state and sync everything to WASM
+    subModePreview.clear();
+    wasmEngine!.syncAll(store);
+    wasmEngine!.init();
+  } else {
+    computePreviewAll();
+  }
 
   lastFrameTime = performance.now();
   tickAccumulator = 0;
@@ -370,10 +428,14 @@ export function stop(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (noteOffCallback) {
-    for (const [key, entry] of activeNotes) {
-      const ch = parseInt(key.split(":")[0], 10);
-      noteOffCallback(ch, entry.midiNote);
+  if (useWasm()) {
+    wasmEngine!.stop();
+  } else {
+    if (noteOffCallback) {
+      for (const [key, entry] of activeNotes) {
+        const ch = parseInt(key.split(":")[0], 10);
+        noteOffCallback(ch, entry.midiNote);
+      }
     }
   }
   continueCounters.clear();
@@ -542,7 +604,14 @@ export function playExternal(): void {
   store._setIsExternalPlayback(true);
 
   invalidateAll();
-  computePreviewAll();
+
+  if (useWasm()) {
+    subModePreview.clear();
+    wasmEngine!.syncAll(store);
+    wasmEngine!.init();
+  } else {
+    computePreviewAll();
+  }
 }
 
 export function externalTick(): void {
@@ -558,10 +627,14 @@ export function stopExternal(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (noteOffCallback) {
-    for (const [key, entry] of activeNotes) {
-      const ch = parseInt(key.split(":")[0], 10);
-      noteOffCallback(ch, entry.midiNote);
+  if (useWasm()) {
+    wasmEngine!.stop();
+  } else {
+    if (noteOffCallback) {
+      for (const [key, entry] of activeNotes) {
+        const ch = parseInt(key.split(":")[0], 10);
+        noteOffCallback(ch, entry.midiNote);
+      }
     }
   }
   continueCounters.clear();
