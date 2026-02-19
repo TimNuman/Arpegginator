@@ -9,6 +9,10 @@ lerna-debug.log*
 
 node_modules
 dist
+
+# WASM build outputs
+public/wasm/engine.js
+public/wasm/engine.wasm
 dist-ssr
 *.local
 

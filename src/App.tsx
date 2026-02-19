@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { css, Global } from '@emotion/react';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
+import { EngineToggle } from './components/EngineToggle';
+import { WasmEngine } from './engine/WasmEngine';
 import { useMidi } from './hooks/useMidi';
 import { useSequencerStore } from './store/sequencerStore';
 import * as actions from './actions';
@@ -53,6 +55,23 @@ const titleStyles = css`
 `;
 
 function App() {
+  // WASM engine
+  const wasmEngineRef = useRef<WasmEngine | null>(null);
+  const [wasmReady, setWasmReady] = useState(false);
+  const [wasmVersion, setWasmVersion] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    const engine = new WasmEngine();
+    engine.load().then(() => {
+      wasmEngineRef.current = engine;
+      setWasmReady(true);
+      setWasmVersion(engine.getVersion());
+      console.log('WASM test: 5 + 7 =', engine.add(5, 7));
+    }).catch((err) => {
+      console.warn('WASM engine not available:', err);
+    });
+  }, []);
+
   // Use a ref for BPM so handleStepTrigger can access current value without re-creating
   const bpmRef = useRef(120);
   // Track pending note timeouts so we can cancel them on stop
@@ -229,6 +248,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
+        <EngineToggle wasmReady={wasmReady} wasmVersion={wasmVersion} />
         <Grid onPlayNote={handlePlayNote} />
       </Box>
     </ThemeProvider>
