@@ -1,4 +1,3 @@
-import { invalidateLookup } from '../store/tickLookupCache';
 import { getWasmEngine } from './playbackActions';
 import { markDirty } from '../store/renderStore';
 
@@ -11,9 +10,5 @@ export function clearPattern(): void {
   if (!wasmEngine?.isReady()) return;
 
   wasmEngine.clearPattern();
-
-  const ch = wasmEngine.getCurrentChannel();
-  const pattern = wasmEngine.getCurrentPattern(ch);
-  invalidateLookup(ch, pattern);
   markDirty();
 }

@@ -138,6 +138,7 @@ typedef struct {
 
     // ============ Playback state ============
     int32_t     current_tick;
+    int32_t     last_scrub_tick;    // -1 = not scrubbing
     uint8_t     is_playing;
     float       bpm;
 
@@ -186,8 +187,11 @@ typedef struct {
 
 void engine_core_init(EngineState* s);
 void engine_core_play_init(EngineState* s);
+void engine_core_play_init_from_tick(EngineState* s, int32_t tick);
 void engine_core_tick(EngineState* s);
 void engine_core_stop(EngineState* s);
+void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick);
+void engine_core_scrub_end(EngineState* s);
 
 // ============ Chord Shape Generation ============
 

@@ -1,6 +1,7 @@
 import { Box, IconButton, Slider, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import StopIcon from '@mui/icons-material/Stop';
+import PauseIcon from '@mui/icons-material/Pause';
+import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { Output, Input } from 'webmidi';
 import {
@@ -21,6 +22,7 @@ interface TransportProps {
   bpm: number;
   onPlay: () => void;
   onStop: () => void;
+  onReset: () => void;
   onClear: () => void;
   onBpmChange: (bpm: number) => void;
   midiOutputs: Output[];
@@ -38,6 +40,7 @@ export const Transport = ({
   bpm,
   onPlay,
   onStop,
+  onReset,
   onClear,
   onBpmChange,
   midiOutputs,
@@ -59,7 +62,10 @@ export const Transport = ({
           onClick={showDisabledPlayButton ? undefined : (isPlaying ? onStop : onPlay)}
           disabled={showDisabledPlayButton}
         >
-          {showDisabledPlayButton ? <PlayArrowIcon /> : (isPlaying ? <StopIcon /> : <PlayArrowIcon />)}
+          {showDisabledPlayButton ? <PlayArrowIcon /> : (isPlaying ? <PauseIcon /> : <PlayArrowIcon />)}
+        </IconButton>
+        <IconButton css={clearButtonStyles} onClick={onReset}>
+          <SkipPreviousIcon />
         </IconButton>
         <IconButton css={clearButtonStyles} onClick={onClear}>
           <DeleteOutlineIcon />

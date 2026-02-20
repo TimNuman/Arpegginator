@@ -1,7 +1,5 @@
-import type { NoteEvent, PatternData, VelocityLoopMode, Subdivision } from '../types/event';
-import { SUBDIVISION_TICKS } from '../types/event';
+import type { NoteEvent, PatternData, VelocityLoopMode } from '../types/event';
 import type { StepTriggerExtras } from '../actions/playbackActions';
-import { registerWasmActiveNote } from '../actions/playbackActions';
 import { markDirty } from '../store/renderStore';
 
 // ============ Emscripten Module Types ============
@@ -34,9 +32,6 @@ const SUB_MODE_NAME_TO_ID: Record<string, number> = {
   velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4,
 };
 
-// C enum SubModeId names for preview callback
-const SUB_MODE_NAMES = ['velocity', 'hit', 'timing', 'flam', 'modulate'] as const;
-
 /** Load the Emscripten glue script and return the factory function. */
 function loadGlueScript(url: string): Promise<WasmFactory> {
   return new Promise((resolve, reject) => {
@@ -66,7 +61,10 @@ export class WasmEngine {
   // Core functions
   private _engineInit!: () => void;
   private _enginePlayInit!: () => void;
+  private _enginePlayInitFromTick!: (tick: number) => void;
   private _engineTick!: () => void;
+  private _engineScrubToTick!: (tick: number) => void;
+  private _engineScrubEnd!: () => void;
   private _engineStop!: () => void;
   private _getVersion!: () => number;
 
@@ -158,7 +156,6 @@ export class WasmEngine {
   // Callbacks
   onStepTrigger: ((channel: number, midiNote: number, tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
-  onPreviewValue: ((subMode: string, channel: number, eventIndex: number, tick: number, value: number) => void) | null = null;
   onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
   // Map eventIndex back to UUID for preview
   private eventIndexToId: Map<string, string>[][] = [];
@@ -175,7 +172,10 @@ export class WasmEngine {
 
     this._engineInit = cw('engine_init', null, []) as unknown as () => void;
     this._enginePlayInit = cw('engine_play_init', null, []) as unknown as () => void;
+    this._enginePlayInitFromTick = cw('engine_play_init_from_tick', null, ['number']) as unknown as (tick: number) => void;
     this._engineTick = cw('engine_tick', null, []) as unknown as () => void;
+    this._engineScrubToTick = cw('engine_scrub_to_tick', null, ['number']) as unknown as (tick: number) => void;
+    this._engineScrubEnd = cw('engine_scrub_end', null, []) as unknown as () => void;
     this._engineStop = cw('engine_stop', null, []) as unknown as () => void;
     this._getVersion = cw('engine_get_version', 'number', []);
     this._getEventBuffer = cw('engine_get_event_buffer', 'number', ['number', 'number']);
@@ -286,14 +286,7 @@ export class WasmEngine {
   private wireCallbacks(): void {
     const mod = this.module as unknown as Record<string, unknown>;
     mod._callbacks = {
-      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, evIdx: number) => {
-        // Register active note for grid highlighting
-        const patIdx = this._getCurrentPattern(ch);
-        const eventId = this.getEventId(ch, patIdx, evIdx);
-        if (eventId) {
-          registerWasmActiveNote(ch, eventId, tick, len, note);
-        }
-
+      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number) => {
         if (!this.onStepTrigger) return;
         const extras: StepTriggerExtras = {};
         if (timing !== 0) extras.timingOffsetPercent = timing;
@@ -315,12 +308,6 @@ export class WasmEngine {
       clearQueuedPattern: (_ch: number) => {
         // WASM updates queued_patterns internally; just trigger re-render
         markDirty();
-      },
-      previewValue: (sm: number, ch: number, evIdx: number, tick: number, val: number) => {
-        if (!this.onPreviewValue) return;
-        // Convert event_index back to sub-mode name
-        const subModeName = SUB_MODE_NAMES[sm];
-        this.onPreviewValue(subModeName, ch, evIdx, tick, val);
       },
       playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
         this.onPlayPreviewNote?.(ch, row, lengthTicks);
@@ -348,8 +335,21 @@ export class WasmEngine {
     this._enginePlayInit();
   }
 
+  /** Playback init from a specific tick (resume after scrub). */
+  initFromTick(tick: number): void {
+    this._enginePlayInitFromTick(tick);
+  }
+
   tick(): void {
     this._engineTick();
+  }
+
+  scrubToTick(tick: number): void {
+    this._engineScrubToTick(tick);
+  }
+
+  scrubEnd(): void {
+    this._engineScrubEnd();
   }
 
   stop(): void {

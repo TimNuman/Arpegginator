@@ -2,6 +2,7 @@
 export {
   play,
   stop,
+  resetPosition,
   togglePlay,
   scrubToTick,
   scrubEnd,

@@ -4,7 +4,7 @@ interface TouchStripProps {
   orientation: 'vertical' | 'horizontal';
   value: number;
   onChange: (value: number) => void;
-  onShiftChange?: (value: number) => void; // Called instead of onChange when shift is held
+  onShiftChange?: (delta: number) => void; // Called with relative delta (in items) when shift is held
   onShiftEnd?: () => void; // Called when shift-drag ends
   length?: number;
   thickness?: number;
@@ -112,18 +112,20 @@ export const TouchStrip = memo(({
       lastTime.current = performance.now();
       velocity.current = 0;
 
-      // Shift-drag: immediately scrub to absolute position
+      // Shift-drag: send zero delta to signal scrub start
       if (isShiftDragging.current) {
-        onShiftChangeRef.current!(posToAbsoluteValue(pos));
+        onShiftChangeRef.current!(0);
       }
     };
 
     const onMove = (pos: number) => {
       if (!isDragging.current) return;
 
-      // Shift-drag: absolute position mapping
+      // Shift-drag: relative delta in pixels → items
       if (isShiftDragging.current) {
-        onShiftChangeRef.current!(posToAbsoluteValue(pos));
+        const delta = pos - lastPos.current;
+        const itemsDelta = delta / itemSize;
+        onShiftChangeRef.current!(itemsDelta);
         lastPos.current = pos;
         return;
       }

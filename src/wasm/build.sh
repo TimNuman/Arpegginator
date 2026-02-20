@@ -20,7 +20,10 @@ mkdir -p "$OUTPUT_DIR"
 EXPORTED_FUNCTIONS='[
     "_engine_init",
     "_engine_play_init",
+    "_engine_play_init_from_tick",
     "_engine_tick",
+    "_engine_scrub_to_tick",
+    "_engine_scrub_end",
     "_engine_stop",
     "_engine_get_version",
     "_engine_get_event_buffer",

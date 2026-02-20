@@ -146,9 +146,21 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, midiNote: number, _tick: number, _noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
+    (channel: number, midiNote: number, _tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
       const note = midiNote;
       const midiChannel = channel + 1;
+
+      // Scrub preview: play immediately, schedule quick note-off
+      if (noteLengthTicks <= 1) {
+        playNote(note, velocity, midiChannel);
+        const id = setTimeout(() => {
+          pendingTimeouts.current.delete(id);
+          stopNote(note, midiChannel);
+        }, 80);
+        pendingTimeouts.current.add(id);
+        return;
+      }
+
       const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
       const stepDurationMs = tickDurationMs * (TICKS_PER_QUARTER / 4);
 
@@ -181,7 +193,7 @@ function App() {
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
       }
     },
-    [playNote]
+    [playNote, stopNote]
   );
 
   const handleNoteOff = useCallback(
@@ -265,6 +277,15 @@ function App() {
     stopAllNotes();
   }, [stopAllNotes]);
 
+  const handleReset = useCallback(() => {
+    for (const id of pendingTimeouts.current) {
+      clearTimeout(id);
+    }
+    pendingTimeouts.current.clear();
+    actions.resetPosition();
+    stopAllNotes();
+  }, [stopAllNotes]);
+
   const handleClear = useCallback(() => {
     actions.clearPattern();
   }, []);
@@ -287,6 +308,7 @@ function App() {
           bpm={bpm}
           onPlay={handlePlay}
           onStop={handleStop}
+          onReset={handleReset}
           onClear={handleClear}
           onBpmChange={handleSetBpm}
           midiOutputs={outputs}

@@ -311,12 +311,24 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     [wasmEngine, isPlaying],
   );
 
+  const scrubAccumulator = useRef(0);
+
   const handleScrub = useCallback(
-    (value: number) => {
-      const scrubTick = Math.round(loopStart + value * (loopLength - 1));
-      actions.scrubToTick(scrubTick);
+    (deltaItems: number) => {
+      if (deltaItems === 0) {
+        // Scrub start — reset accumulator
+        scrubAccumulator.current = 0;
+        return;
+      }
+      scrubAccumulator.current += deltaItems * ticksPerCol;
+      const wholeTicks = Math.trunc(scrubAccumulator.current);
+      if (wholeTicks === 0) return;
+      scrubAccumulator.current -= wholeTicks;
+      const t = wasmEngine.getCurrentTick();
+      const base = t >= 0 ? t : loopStart;
+      actions.scrubToTick(base + wholeTicks);
     },
-    [loopStart, loopLength],
+    [wasmEngine, ticksPerCol, loopStart],
   );
 
   const handleScrubEnd = useCallback(() => {

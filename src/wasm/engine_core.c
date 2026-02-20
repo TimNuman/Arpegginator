@@ -474,6 +474,7 @@ void engine_generate_chord_shapes(EngineState* s) {
  */
 void engine_core_init(EngineState* s) {
     s->current_tick = -1;
+    s->last_scrub_tick = -1;
     s->is_playing = 0;
 
     // Clear active notes
@@ -539,6 +540,7 @@ void engine_core_init(EngineState* s) {
  */
 void engine_core_play_init(EngineState* s) {
     s->current_tick = -1;
+    s->last_scrub_tick = -1;
 
     // Clear active notes
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
@@ -546,6 +548,22 @@ void engine_core_play_init(EngineState* s) {
     }
 
     // Clear continue counters and snapshots
+    memset(s->continue_counters, 0, sizeof(s->continue_counters));
+    memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
+}
+
+/**
+ * Play init from a specific tick (resume after scrub).
+ * Sets current_tick to tick-1 so the first tick() call advances to the target.
+ */
+void engine_core_play_init_from_tick(EngineState* s, int32_t tick) {
+    s->current_tick = tick - 1;
+    s->last_scrub_tick = -1;
+
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+        s->active_notes[i].active = 0;
+    }
+
     memset(s->continue_counters, 0, sizeof(s->continue_counters));
     memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
 }
@@ -564,7 +582,9 @@ void engine_core_stop(EngineState* s) {
     memset(s->continue_counters, 0, sizeof(s->continue_counters));
     memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
 
-    s->current_tick = -1;
+    // NOTE: current_tick is intentionally NOT reset here.
+    // The playhead stays visible at the last position.
+    // Use engine_core_play_init() to reset to beginning.
 
     // Clear queued patterns
     for (uint8_t ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -695,6 +715,184 @@ void engine_core_tick(EngineState* s) {
 
     s->current_tick = next_tick;
     platform_set_current_tick(next_tick);
+}
+
+// ============ Scrub (playhead drag preview) ============
+
+#define SCRUB_NOTE_LENGTH 1  // Very short so notes release quickly
+
+void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
+    // Kill all active notes from previous scrub position
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+        ActiveNote* n = &s->active_notes[i];
+        if (n->active) {
+            platform_note_off(n->channel, (uint8_t)n->midi_note);
+            n->active = 0;
+        }
+    }
+
+    // Compute any_soloed once
+    uint8_t any_soloed = 0;
+    for (uint8_t i = 0; i < NUM_CHANNELS; i++) {
+        if (s->soloed[i]) { any_soloed = 1; break; }
+    }
+
+    for (uint8_t ch = 0; ch < NUM_CHANNELS; ch++) {
+        uint8_t pat_idx = s->current_patterns[ch];
+        const PatternData_C* pd = &s->patterns[ch][pat_idx];
+        const PatternLoop_C* loop = &s->loops[ch][pat_idx];
+        int32_t loop_len = loop->length;
+        int32_t loop_end = loop->start + loop_len;
+
+        // Mute/solo check
+        uint8_t should_play = any_soloed
+            ? (s->soloed[ch] && !s->muted[ch])
+            : (!s->muted[ch]);
+        if (!should_play) continue;
+
+        // Compute looped positions
+        int32_t curr_looped = loop->start +
+            mod_positive(target_tick - loop->start, loop_len);
+
+        int32_t scan_start, scan_end;
+
+        if (s->last_scrub_tick < 0) {
+            scan_start = curr_looped;
+            scan_end = curr_looped;
+        } else {
+            int32_t prev_looped = loop->start +
+                mod_positive(s->last_scrub_tick - loop->start, loop_len);
+
+            if (target_tick >= s->last_scrub_tick) {
+                scan_start = prev_looped + 1;
+                scan_end = curr_looped;
+            } else {
+                scan_start = curr_looped;
+                scan_end = prev_looped - 1;
+            }
+        }
+
+        // Normalize range
+        if (scan_start > scan_end) {
+            int32_t tmp = scan_start;
+            scan_start = scan_end;
+            scan_end = tmp;
+        }
+        if (scan_start < loop->start) scan_start = loop->start;
+        if (scan_end >= loop_end) scan_end = loop_end - 1;
+
+        // Scan events in range
+        for (uint16_t ei = 0; ei < pd->event_count; ei++) {
+            const NoteEvent_C* ev = &pd->events[ei];
+            if (!ev->enabled) continue;
+
+            for (uint16_t r = 0; r < ev->repeat_amount; r++) {
+                int32_t ev_tick = ev->position + (int32_t)r * ev->repeat_space;
+                if (ev_tick >= pd->length_ticks) break;
+                if (ev_tick < scan_start || ev_tick > scan_end) continue;
+
+                // Resolve sub-modes (preview = no counter increment)
+                int16_t velocity = resolve_sub_mode_preview(s, ev, SM_VELOCITY, r, ch);
+                int16_t mod_val  = resolve_sub_mode_preview(s, ev, SM_MODULATE, r, ch);
+                int16_t effective_row = ev->row + mod_val;
+
+                // Chord expansion
+                int8_t offsets[MAX_CHORD_SIZE];
+                uint8_t offset_count;
+                get_chord_offsets(s, ev->chord_stack_size, ev->chord_shape_index,
+                                 ev->chord_inversion, offsets, &offset_count);
+
+                for (uint8_t ci = 0; ci < offset_count; ci++) {
+                    int16_t chord_row = effective_row + offsets[ci];
+                    int8_t midi_note;
+
+                    if (s->channel_types[ch] == CH_DRUM) {
+                        midi_note = (int8_t)clamp_i32(chord_row, 0, 127);
+                    } else {
+                        midi_note = note_to_midi(chord_row, s);
+                        if (midi_note < 0) continue;
+                    }
+
+                    // Short note length so it releases quickly
+                    handle_active_note(s, ch, ev->event_index,
+                                      (uint8_t)r, ci,
+                                      curr_looped, SCRUB_NOTE_LENGTH, midi_note);
+
+                    platform_step_trigger(
+                        ch, (uint8_t)midi_note, ev_tick,
+                        SCRUB_NOTE_LENGTH, (uint8_t)clamp_i32(velocity, 0, 127),
+                        0, 0, ev->event_index
+                    );
+                }
+            }
+        }
+    }
+
+    // Register active notes for UI highlighting: any event whose range
+    // covers curr_looped on the current channel (no audio trigger).
+    {
+        uint8_t view_ch = s->current_channel;
+        uint8_t view_pat = s->current_patterns[view_ch];
+        const PatternData_C* vpd = &s->patterns[view_ch][view_pat];
+        const PatternLoop_C* vloop = &s->loops[view_ch][view_pat];
+        int32_t vloop_len = vloop->length;
+        int32_t view_looped = vloop->start +
+            mod_positive(target_tick - vloop->start, vloop_len);
+
+        for (uint16_t ei = 0; ei < vpd->event_count; ei++) {
+            const NoteEvent_C* ev = &vpd->events[ei];
+            if (!ev->enabled) continue;
+
+            for (uint16_t r = 0; r < ev->repeat_amount; r++) {
+                int32_t ev_tick = ev->position + (int32_t)r * ev->repeat_space;
+                if (ev_tick >= vpd->length_ticks) break;
+                int32_t ev_end = ev_tick + ev->length;
+                if (view_looped >= ev_tick && view_looped < ev_end) {
+                    // This event covers the scrub position — mark active for UI
+                    int16_t mod_val = resolve_sub_mode_preview(s, ev, SM_MODULATE, r, view_ch);
+                    int16_t effective_row = ev->row + mod_val;
+
+                    int8_t offsets[MAX_CHORD_SIZE];
+                    uint8_t offset_count;
+                    get_chord_offsets(s, ev->chord_stack_size, ev->chord_shape_index,
+                                     ev->chord_inversion, offsets, &offset_count);
+
+                    for (uint8_t ci = 0; ci < offset_count; ci++) {
+                        int16_t chord_row = effective_row + offsets[ci];
+                        int8_t midi_note;
+                        if (s->channel_types[view_ch] == CH_DRUM) {
+                            midi_note = (int8_t)clamp_i32(chord_row, 0, 127);
+                        } else {
+                            midi_note = note_to_midi(chord_row, s);
+                            if (midi_note < 0) continue;
+                        }
+                        // Register with a range that covers the current tick
+                        handle_active_note(s, view_ch, ev->event_index,
+                                          (uint8_t)r, ci,
+                                          view_looped, 1, midi_note);
+                    }
+                }
+            }
+        }
+    }
+
+    // Update playhead position so grid shows it
+    s->current_tick = target_tick;
+    platform_set_current_tick(target_tick);
+
+    s->last_scrub_tick = target_tick;
+}
+
+void engine_core_scrub_end(EngineState* s) {
+    s->last_scrub_tick = -1;
+    // Send note-off for all active scrub notes
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+        ActiveNote* n = &s->active_notes[i];
+        if (n->active) {
+            platform_note_off(n->channel, (uint8_t)n->midi_note);
+            n->active = 0;
+        }
+    }
 }
 
 int32_t engine_core_get_version(void) {

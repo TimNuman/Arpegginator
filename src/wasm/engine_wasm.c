@@ -109,8 +109,23 @@ void engine_play_init(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void engine_play_init_from_tick(int32_t tick) {
+    engine_core_play_init_from_tick(&g_state, tick);
+}
+
+EMSCRIPTEN_KEEPALIVE
 void engine_tick(void) {
     engine_core_tick(&g_state);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_scrub_to_tick(int32_t target_tick) {
+    engine_core_scrub_to_tick(&g_state, target_tick);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_scrub_end(void) {
+    engine_core_scrub_end(&g_state);
 }
 
 EMSCRIPTEN_KEEPALIVE
