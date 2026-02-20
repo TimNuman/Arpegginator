@@ -134,7 +134,9 @@ static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t ti
 }
 
 // Play preview for an event — plays all chord tones if it has a chord, otherwise single note.
+// Only plays when not currently playing back.
 static void play_event_preview(const EngineState* s, const NoteEvent_C* ev, int32_t length_ticks) {
+    if (s->is_playing) return;
     uint8_t ch = s->current_channel;
     if (ev->chord_stack_size <= 1) {
         platform_play_preview_note(ch, ev->row, length_ticks);
@@ -283,7 +285,9 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
     if (new_idx >= 0) {
         s->selected_event_idx = new_idx;
     }
-    platform_play_preview_note(s->current_channel, row, tpc);
+    if (!s->is_playing) {
+        platform_play_preview_note(s->current_channel, row, tpc);
+    }
 }
 
 // ============ Channel Mode Button Press ============
