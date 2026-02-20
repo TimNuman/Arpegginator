@@ -131,11 +131,37 @@ void engine_cycle_scale(EngineState* s, int8_t direction) {
 /**
  * Cycle scale root by circle of fifths (±7 semitones).
  * direction: +1 = up (sharp direction), -1 = down (flat direction).
+ * Notes are shifted to keep their original pitches by finding the new root's
+ * scale degree in the old scale and offsetting all note rows.
  */
 void engine_cycle_scale_root(EngineState* s, int8_t direction) {
-    int32_t root = (int32_t)s->scale_root + direction * 7;
-    root = ((root % 12) + 12) % 12;
-    s->scale_root = (uint8_t)root;
+    // Find the new root MIDI in the old scale to get the row offset
+    int32_t new_root_midi = (int32_t)s->scale_root + direction * 7;
+    new_root_midi = ((new_root_midi % 12) + 12) % 12;
+
+    // Look up new root pitch class in old scale at octave 4 (near zero_index)
+    uint8_t target_midi = (uint8_t)(60 + new_root_midi);
+    int16_t offset = 0;
+    for (uint16_t i = 0; i < s->scale_count; i++) {
+        if (s->scale_notes[i] == target_midi) {
+            offset = (int16_t)i - (int16_t)s->scale_zero_index;
+            break;
+        }
+    }
+
+    // Shift all melodic notes by -offset to keep original pitches
+    for (uint8_t ch = 0; ch < NUM_CHANNELS; ch++) {
+        if (s->channel_types[ch] == CH_DRUM) continue;
+        for (uint8_t pat = 0; pat < NUM_PATTERNS; pat++) {
+            PatternData_C* p = &s->patterns[ch][pat];
+            for (uint16_t e = 0; e < p->event_count; e++) {
+                p->events[e].row -= offset;
+            }
+        }
+    }
+
+    // Change root and rebuild scale
+    s->scale_root = (uint8_t)new_root_midi;
     engine_rebuild_scale(s);
 }
 
