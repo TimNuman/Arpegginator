@@ -362,7 +362,10 @@ static void render_pattern_mode(EngineState* s, const RenderedNote* notes, uint1
                         if (is_left && rn->row == actual_row && ne <= start_tick)
                             off_screen = 1;
                     }
-                    if (off_screen) value = BTN_COLOR_25;
+                    if (off_screen) {
+                        value = BTN_COLOR_25;
+                        color = ch_color;
+                    }
                 }
 
                 // Grid markers
