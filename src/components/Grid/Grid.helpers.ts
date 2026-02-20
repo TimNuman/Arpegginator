@@ -43,6 +43,60 @@ export const tickToBeatDisplay = (tick: number): string => {
   return `${beat}.${sixteenth}`;
 };
 
+/** Musical subdivision names for tick values (TICKS_PER_QUARTER = 480) */
+const MUSICAL_NAMES: [number, string][] = [
+  [30,  "1/64"],
+  [40,  "1/32T"],
+  [45,  "1/64."],
+  [60,  "1/32"],
+  [80,  "1/16T"],
+  [90,  "1/32."],
+  [120, "1/16"],
+  [160, "1/8T"],
+  [180, "1/16."],
+  [240, "1/8"],
+  [320, "1/4T"],
+  [360, "1/8."],
+  [480, "1/4"],
+  [640, "1/2T"],
+  [720, "1/4."],
+  [960, "1/2"],
+  [1440, "1/2."],
+  [1920, "1"],
+];
+
+/** Triplet musical names only */
+const TRIPLET_NAMES = new Map<number, string>([
+  [40,  "1/32T"],
+  [80,  "1/16T"],
+  [160, "1/8T"],
+  [320, "1/4T"],
+  [640, "1/2T"],
+]);
+
+/** Convert tick duration to musical subdivision name relative to zoom level.
+ *  Multiples of zoom show as N/[zoom denom] (e.g. 480 at 1/16 zoom → "4/16").
+ *  Triplets keep musical names (e.g. 160 → "1/8T"). */
+export const ticksToMusicalName = (ticks: number, zoomTicks: number): string => {
+  // Triplets always use musical name
+  const triplet = TRIPLET_NAMES.get(ticks);
+  if (triplet) return triplet;
+
+  // Multiples of zoom level: show as N/[zoom denom]
+  if (ticks > 0 && ticks % zoomTicks === 0) {
+    const n = ticks / zoomTicks;
+    const whole = 1920;
+    const den = whole / zoomTicks;
+    return `${n}/${den}`;
+  }
+
+  // Sub-zoom values: use MUSICAL_NAMES lookup
+  for (const [t, name] of MUSICAL_NAMES) {
+    if (t === ticks) return name;
+  }
+  return `${ticks}t`;
+};
+
 /** Convert uint32 packed 0xRRGGBB to "#RRGGBB" hex string */
 export function uint32ToHex(val: number): string {
   const r = (val >> 16) & 0xff;

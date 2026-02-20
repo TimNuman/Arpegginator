@@ -57,6 +57,7 @@ import {
   noop,
   midiNoteToName,
   ticksToDisplay,
+  ticksToMusicalName,
   tickToBeatDisplay,
   uint32ToHex,
   encodeModifiers,
@@ -352,8 +353,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             const m = wasmEngine.noteToMidi(selRow);
             return m >= 0 ? midiNoteToName(m) : "??";
           })();
-      const lengthDisplay = ticksToDisplay(selLength, ticksPerCol);
-      const repeatSpaceDisplay = ticksToDisplay(repeatSpace, ticksPerCol);
+      const lengthDisplay = ticksToMusicalName(selLength, ticksPerCol);
+      const repeatSpaceDisplay = ticksToMusicalName(repeatSpace, ticksPerCol);
       const highlightLength = keyboard.shift && !keyboard.alt && !keyboard.meta;
       const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
@@ -364,7 +365,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         rows: [
           {
             label: "NOTE",
-            valueParts: [{ text: noteName }, { text: `  ` }, { text: zoom }],
+            valueParts: [{ text: noteName }],
           },
           showChord
             ? {

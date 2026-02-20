@@ -440,6 +440,53 @@ static int32_t zoom_cycle(int32_t current, int8_t direction) {
 static const uint8_t MODIFY_SUB_MODE_ORDER[] = { SM_VELOCITY, SM_MODULATE, SM_HIT, SM_FLAM, SM_TIMING };
 #define NUM_MODIFY_ORDER 5
 
+// Triplet tick values
+static const int32_t TRIPLETS[] = { 40, 80, 160, 320, 640 };
+#define NUM_TRIPLETS 5
+#define MAX_STEPS 128
+
+// Sub-zoom musical values (straight + dotted, no triplets, min 1/32)
+static const int32_t SUB_ZOOM[] = { 60, 90, 120, 180 };
+#define NUM_SUB_ZOOM 4
+
+static void sort_steps(int32_t* out, int n) {
+    for (int i = 1; i < n; i++) {
+        int32_t key = out[i];
+        int j = i - 1;
+        while (j >= 0 && out[j] > key) { out[j + 1] = out[j]; j--; }
+        out[j + 1] = key;
+    }
+}
+
+// Build step table: sub-zoom values + multiples of zoom, no triplets.
+static int build_step_table(int32_t zoom, int32_t max_tick, int32_t* out) {
+    int n = 0;
+    for (int i = 0; i < NUM_SUB_ZOOM && n < MAX_STEPS; i++) {
+        if (SUB_ZOOM[i] < zoom && SUB_ZOOM[i] <= max_tick) out[n++] = SUB_ZOOM[i];
+    }
+    for (int32_t v = zoom; v <= max_tick && n < MAX_STEPS; v += zoom) {
+        out[n++] = v;
+    }
+    sort_steps(out, n);
+    return n;
+}
+
+// Build step table: sub-zoom values + multiples of zoom + triplets.
+static int build_step_table_with_triplets(int32_t zoom, int32_t max_tick, int32_t* out) {
+    int n = build_step_table(zoom, max_tick, out);
+    for (int i = 0; i < NUM_TRIPLETS; i++) {
+        if (TRIPLETS[i] >= zoom && TRIPLETS[i] <= max_tick) {
+            int found = 0;
+            for (int j = 0; j < n; j++) {
+                if (out[j] == TRIPLETS[i]) { found = 1; break; }
+            }
+            if (!found && n < MAX_STEPS) out[n++] = TRIPLETS[i];
+        }
+    }
+    sort_steps(out, n);
+    return n;
+}
+
 static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     if (s->selected_event_idx < 0) {
         // No selected note + Alt: cycle scale
@@ -457,15 +504,6 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     if ((uint16_t)s->selected_event_idx >= pat->event_count) return;
     NoteEvent_C* ev = &pat->events[s->selected_event_idx];
     int32_t tpc = s->zoom;
-
-    // Alt+Up/Down: cycle note speed (not implemented in C yet — keep in JS)
-    // For now, delegate speed cycling to JS via platform callback
-    if ((mods & MOD_ALT) && !(mods & MOD_SHIFT) && !(mods & MOD_META)) {
-        if (dir == DIR_UP || dir == DIR_DOWN) {
-            // Speed cycling stays in JS for now
-            return;
-        }
-    }
 
     // Cmd+Shift+Up/Down: cycle chord shape
     if ((mods & MOD_META) && (mods & MOD_SHIFT)) {
@@ -494,16 +532,23 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
         }
     }
 
-    // Cmd+Shift+Left/Right: adjust repeat space
+    // Cmd+Shift+Left/Right: adjust repeat space (zoom-level steps + triplets)
     if ((mods & MOD_META) && (mods & MOD_SHIFT)) {
         if (dir == DIR_LEFT || dir == DIR_RIGHT) {
-            int32_t space = ev->repeat_space;
-            if (dir == DIR_LEFT) {
-                space = i32_max(tpc, space - tpc);
-            } else {
-                space = i32_min(64 * tpc, space + tpc);
+            int32_t steps[MAX_STEPS];
+            int n = build_step_table_with_triplets(tpc, 1920, steps);
+            int32_t cur = ev->repeat_space;
+            int increase = (dir == DIR_RIGHT);
+            int idx = -1;
+            for (int i = 0; i < n; i++) {
+                if (steps[i] >= cur) { idx = i; break; }
             }
-            engine_set_event_repeat_space(s, (uint16_t)s->selected_event_idx, space);
+            if (idx < 0) idx = n - 1;
+            if (steps[idx] == cur) {
+                if (increase) idx = idx < n - 1 ? idx + 1 : idx;
+                else idx = idx > 0 ? idx - 1 : idx;
+            }
+            engine_set_event_repeat_space(s, (uint16_t)s->selected_event_idx, steps[idx]);
             return;
         }
     }
@@ -522,21 +567,29 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
         }
     }
 
-    // Shift+Left/Right: resize note
+    // Shift+Left/Right: resize note (zoom-level steps + triplets)
     if ((mods & MOD_SHIFT) && !(mods & MOD_META) && !(mods & MOD_ALT)) {
         if (dir == DIR_LEFT || dir == DIR_RIGHT) {
-            int32_t len = ev->length;
-            if (dir == DIR_LEFT) {
-                len = i32_max(tpc, len - tpc);
-            } else {
-                int32_t max_len = pat->length_ticks - ev->position;
-                if (ev->repeat_amount > 1) {
-                    max_len = i32_min(max_len, ev->repeat_space);
-                }
-                len = i32_min(max_len, len + tpc);
+            int32_t max_len = pat->length_ticks - ev->position;
+            if (ev->repeat_amount > 1) {
+                max_len = i32_min(max_len, ev->repeat_space);
             }
-            engine_set_event_length(s, (uint16_t)s->selected_event_idx, len);
-            play_event_preview(s, ev, len);
+            int32_t steps[MAX_STEPS];
+            int n = build_step_table(tpc, max_len, steps);
+            int32_t cur = ev->length;
+            int increase = (dir == DIR_RIGHT);
+            int idx = -1;
+            for (int i = 0; i < n; i++) {
+                if (steps[i] >= cur) { idx = i; break; }
+            }
+            if (idx < 0) idx = n - 1;
+            if (steps[idx] == cur) {
+                if (increase) idx = idx < n - 1 ? idx + 1 : idx;
+                else idx = idx > 0 ? idx - 1 : idx;
+            }
+            int32_t new_len = steps[idx];
+            engine_set_event_length(s, (uint16_t)s->selected_event_idx, new_len);
+            play_event_preview(s, ev, new_len);
             return;
         }
     }
