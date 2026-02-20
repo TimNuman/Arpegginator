@@ -375,9 +375,11 @@ static void render_pattern_mode(EngineState* s, const RenderedNote* notes, uint1
                     // Loop boundaries
                     if (actual_tick == loop->start || (col_end_tick >= loop_end && actual_tick < loop_end)) {
                         value |= FLAG_LOOP_BOUNDARY;
-                    } else if ((actual_tick / TICKS_PER_QUARTER) % 2 == 0) {
-                        value |= FLAG_BEAT_MARKER;
                     }
+                }
+                // Beat marker (alternate quarter shading, inside and outside loop)
+                if ((actual_tick / TICKS_PER_QUARTER) % 2 == 0) {
+                    value |= FLAG_BEAT_MARKER;
                 }
 
                 // Root/C-note marker
