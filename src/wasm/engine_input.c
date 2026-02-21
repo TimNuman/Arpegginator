@@ -335,6 +335,14 @@ static void handle_loop_press(EngineState* s, uint8_t vis_row, uint8_t vis_col, 
     int32_t loop_end = loop->start + loop->length;
     int32_t pat_len = s->patterns[ch][pat].length_ticks;
 
+    // Remember looped playhead position before change
+    int32_t old_looped = -1;
+    if (s->current_tick >= 0 && loop->length > 0) {
+        int32_t r = (s->current_tick - loop->start) % loop->length;
+        if (r < 0) r += loop->length;
+        old_looped = loop->start + r;
+    }
+
     if (mods & MOD_SHIFT) {
         // Shift+click: set loop start
         int32_t new_start = i32_min(tick, loop_end - tpc);
@@ -345,6 +353,16 @@ static void handle_loop_press(EngineState* s, uint8_t vis_row, uint8_t vis_col, 
         int32_t new_end = i32_max(tick + tpc, loop->start + tpc);
         if (new_end > pat_len) new_end = pat_len;
         loop->length = new_end - loop->start;
+    }
+
+    // Keep playhead at same position; reset to loop start if it falls outside
+    if (old_looped >= 0 && loop->length > 0) {
+        int32_t new_end = loop->start + loop->length;
+        if (old_looped >= new_end || old_looped < loop->start) {
+            s->current_tick = loop->start;
+        } else {
+            s->current_tick = old_looped;
+        }
     }
 }
 

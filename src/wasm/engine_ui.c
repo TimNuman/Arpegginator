@@ -490,11 +490,16 @@ static void render_loop_mode(EngineState* s, const RenderedNote* notes, uint16_t
     // Same as pattern mode but with pulsing loop boundaries
     render_pattern_mode(s, notes, note_count);
 
-    // Add pulsing flag to loop boundary cells
+    // Add pulsing flag to loop boundary cells; hide playhead when not playing
+    // to avoid confusion with loop boundary lines
     for (int vr = 0; vr < VISIBLE_ROWS; vr++) {
         for (int vc = 0; vc < VISIBLE_COLS; vc++) {
-            if (s->button_values[vr][vc] & FLAG_LOOP_BOUNDARY) {
-                s->button_values[vr][vc] |= FLAG_LOOP_BOUNDARY_PULSING;
+            uint16_t* v = &s->button_values[vr][vc];
+            if (*v & FLAG_LOOP_BOUNDARY) {
+                *v |= FLAG_LOOP_BOUNDARY_PULSING;
+            }
+            if (!s->is_playing) {
+                *v &= ~FLAG_PLAYHEAD;
             }
         }
     }
