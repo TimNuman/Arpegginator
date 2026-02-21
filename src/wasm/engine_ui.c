@@ -74,43 +74,40 @@ static int16_t get_sub_mode_value_fill(const NoteEvent_C* ev, uint8_t sm, uint16
 
 // ============ Rendered notes expansion ============
 
-// Get chord offsets for a note event (from pre-computed shapes table)
+// Get chord offsets for a note event (amount + space model)
 uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out) {
-    uint8_t stack = ev->chord_stack_size;
-    if (stack <= 1) {
+    uint8_t amount = ev->chord_amount;
+    if (amount <= 1) {
         offsets[0] = 0;
         return 1;
     }
-    if (stack > MAX_CHORD_SIZE) stack = MAX_CHORD_SIZE;
+    if (amount > MAX_CHORD_SIZE) amount = MAX_CHORD_SIZE;
+    if (amount > max_out) amount = max_out;
 
-    uint8_t shape_count = s->chord_shape_counts[stack];
-    if (shape_count == 0) {
-        offsets[0] = 0;
-        return 1;
+    // Build base chord: [0, space, 2*space, ...]
+    int16_t offsets16[MAX_CHORD_SIZE];
+    for (uint8_t i = 0; i < amount; i++) {
+        offsets16[i] = (int16_t)(i * ev->chord_space);
     }
 
-    int8_t shape_idx = ev->chord_shape_index;
-    if (shape_idx < 0) shape_idx = 0;
-    if (shape_idx >= (int8_t)shape_count) shape_idx = shape_count - 1;
-
-    // Copy base shape
-    for (uint8_t i = 0; i < stack && i < max_out; i++) {
-        offsets[i] = s->chord_shapes[stack][shape_idx][i];
-    }
-
-    // Apply inversion
+    // Apply inversions using scale-dependent octave
+    int16_t octave = (int16_t)s->scale_octave_size;
     int8_t inv = ev->chord_inversion;
     if (inv > 0) {
-        for (int8_t n = 0; n < inv && n < (int8_t)stack; n++) {
-            offsets[n] += DIATONIC_OCTAVE;
+        for (int8_t n = 0; n < inv; n++) {
+            offsets16[n % amount] += octave;
         }
     } else if (inv < 0) {
-        for (int8_t n = 0; n < -inv && n < (int8_t)stack; n++) {
-            offsets[stack - 1 - n] -= DIATONIC_OCTAVE;
+        for (int8_t n = 0; n < -inv; n++) {
+            offsets16[amount - 1 - (n % amount)] -= octave;
         }
     }
 
-    return stack;
+    for (uint8_t i = 0; i < amount; i++) {
+        offsets[i] = (int8_t)offsets16[i];
+    }
+
+    return amount;
 }
 
 uint16_t engine_render_events(

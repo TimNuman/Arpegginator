@@ -88,13 +88,13 @@ function App() {
       {
         const scaleCount = engine.getScaleCount();
         const scaleZeroIndex = engine.getScaleZeroIndex();
-        const VISIBLE_ROWS = 8;
-        const melodicMaxRowOffset = Math.max(0, scaleCount - VISIBLE_ROWS);
+        const visibleRows = engine.getVisibleRows();
+        const melodicMaxRowOffset = Math.max(0, scaleCount - visibleRows);
         const melodicOffset = melodicMaxRowOffset > 0
           ? 1 - scaleZeroIndex / melodicMaxRowOffset
           : 0.5;
         const DRUM_TOTAL_ROWS = 128;
-        const drumMaxRowOffset = Math.max(0, DRUM_TOTAL_ROWS - VISIBLE_ROWS);
+        const drumMaxRowOffset = Math.max(0, DRUM_TOTAL_ROWS - visibleRows);
         const drumOffset = drumMaxRowOffset > 0
           ? 1 - 36 / drumMaxRowOffset
           : 0.5;

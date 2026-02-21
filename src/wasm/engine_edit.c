@@ -33,8 +33,8 @@ static void init_event(NoteEvent_C* ev, int16_t row, int32_t position, int32_t l
     ev->enabled = 1;
     ev->repeat_amount = 1;
     ev->repeat_space = length;
-    ev->chord_stack_size = 1;
-    ev->chord_shape_index = 0;
+    ev->chord_amount = 1;
+    ev->chord_space = 2;       // default: thirds (2 scale degrees apart)
     ev->chord_inversion = 0;
     ev->event_index = id;
 
@@ -234,37 +234,25 @@ void engine_adjust_chord_stack(EngineState* s, uint16_t event_idx, int8_t direct
     if (event_idx >= pat->event_count) return;
     NoteEvent_C* ev = &pat->events[event_idx];
 
-    int8_t new_size = (int8_t)ev->chord_stack_size + direction;
-    if (new_size < 1) new_size = 1;
-    if (new_size > MAX_CHORD_SIZE) new_size = MAX_CHORD_SIZE;
-    if (new_size == (int8_t)ev->chord_stack_size) return;
+    int8_t new_amount = (int8_t)ev->chord_amount + direction;
+    if (new_amount < 1) new_amount = 1;
+    if (new_amount > MAX_CHORD_SIZE) new_amount = MAX_CHORD_SIZE;
 
-    ev->chord_stack_size = (uint8_t)new_size;
-
-    // Clamp shape index
-    uint8_t shape_count = s->chord_shape_counts[new_size];
-    if (shape_count > 0 && ev->chord_shape_index >= (int8_t)shape_count) {
-        ev->chord_shape_index = 0;
-    }
-
-    // Clamp inversion
-    int8_t max_inv = (int8_t)(new_size - 1);
-    if (ev->chord_inversion > max_inv) ev->chord_inversion = max_inv;
-    if (ev->chord_inversion < -max_inv) ev->chord_inversion = -max_inv;
+    ev->chord_amount = (uint8_t)new_amount;
 }
 
-void engine_cycle_chord_shape(EngineState* s, uint16_t event_idx, int8_t direction) {
+void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direction) {
     PatternData_C* pat = get_current_pattern(s);
     if (event_idx >= pat->event_count) return;
     NoteEvent_C* ev = &pat->events[event_idx];
 
-    if (ev->chord_stack_size <= 1) return;
+    if (ev->chord_amount <= 1) return;
 
-    uint8_t count = s->chord_shape_counts[ev->chord_stack_size];
-    if (count == 0) return;
+    int8_t new_space = (int8_t)ev->chord_space + direction;
+    if (new_space < 1) new_space = 1;
+    if (new_space > 12) new_space = 12;
 
-    int8_t new_idx = (int8_t)((ev->chord_shape_index + direction + count) % count);
-    ev->chord_shape_index = new_idx;
+    ev->chord_space = (uint8_t)new_space;
 }
 
 void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -272,13 +260,10 @@ void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t dir
     if (event_idx >= pat->event_count) return;
     NoteEvent_C* ev = &pat->events[event_idx];
 
-    if (ev->chord_stack_size <= 1) return;
+    if (ev->chord_amount <= 1) return;
 
-    int8_t max_inv = (int8_t)(ev->chord_stack_size - 1);
-    int8_t new_inv = ev->chord_inversion + direction;
-    new_inv = i32_clamp(new_inv, -max_inv, max_inv);
-
-    ev->chord_inversion = new_inv;
+    // Infinite inversions
+    ev->chord_inversion += direction;
 }
 
 // ============ Pattern Operations ============

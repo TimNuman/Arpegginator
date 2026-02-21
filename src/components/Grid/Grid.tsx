@@ -4,7 +4,6 @@ import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
 import { CHANNEL_COLORS } from "./ChannelColors";
-import { VISIBLE_ROWS, VISIBLE_COLS } from "../../store/sequencerStore";
 import {
   useRenderVersion,
   getIsPlaying,
@@ -74,6 +73,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const renderVersion = useRenderVersion();
 
   // ============ Read ALL state from WASM (single source of truth) ============
+  const VISIBLE_ROWS = wasmEngine.getVisibleRows();
+  const VISIBLE_COLS = wasmEngine.getVisibleCols();
   const currentChannel = wasmEngine.getCurrentChannel();
   const currentTick = wasmEngine.getCurrentTick();
   const isPlaying = getIsPlaying(); // JS owns transport
@@ -355,8 +356,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const selLength = wasmEngine.getSelLength();
       const repeatAmount = wasmEngine.getSelRepeatAmount();
       const repeatSpace = wasmEngine.getSelRepeatSpace();
-      const chordSize = wasmEngine.getSelChordStackSize();
-      const chordShape = wasmEngine.getSelChordShapeIndex();
+      const chordAmount = wasmEngine.getSelChordAmount();
+      const chordSpace = wasmEngine.getSelChordSpace();
       const chordInv = wasmEngine.getSelChordInversion();
 
       const noteName = isDrumChannel
@@ -370,8 +371,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const highlightLength = keyboard.shift && !keyboard.alt && !keyboard.meta;
       const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
-      const highlightChord = keyboard.meta;
-      const showChord = keyboard.meta || chordSize > 1;
+      const highlightChordAmount = keyboard.meta && !keyboard.shift;
+      const highlightChordSpace = keyboard.meta && keyboard.shift;
+      const showChord = keyboard.meta || chordAmount > 1;
 
       return {
         rows: [
@@ -384,12 +386,12 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
                 label: "CHORD",
                 valueParts: [
                   {
-                    text: `${chordSize}`,
-                    highlight: highlightChord && !keyboard.shift,
+                    text: `${chordAmount}`,
+                    highlight: highlightChordAmount,
                   },
                   {
-                    text: chordSize > 1 ? ` S${chordShape + 1}` : "",
-                    highlight: highlightChord && keyboard.shift,
+                    text: chordAmount > 1 ? `x${chordSpace}` : "",
+                    highlight: highlightChordSpace,
                   },
                   {
                     text:

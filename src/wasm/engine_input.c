@@ -109,7 +109,7 @@ static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t ti
     for (uint16_t i = 0; i < pd->event_count; i++) {
         const NoteEvent_C* ev = &pd->events[i];
         if (!ev->enabled) continue;
-        if (ev->chord_stack_size <= 1) continue;  // no chord, skip
+        if (ev->chord_amount <= 1) continue;  // no chord, skip
 
         int8_t offsets[MAX_CHORD_SIZE];
         uint8_t chord_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
@@ -138,7 +138,7 @@ static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t ti
 static void play_event_preview(const EngineState* s, const NoteEvent_C* ev, int32_t length_ticks) {
     if (s->is_playing) return;
     uint8_t ch = s->current_channel;
-    if (ev->chord_stack_size <= 1) {
+    if (ev->chord_amount <= 1) {
         platform_play_preview_note(ch, ev->row, length_ticks);
         return;
     }
@@ -527,28 +527,47 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     NoteEvent_C* ev = &pat->events[s->selected_event_idx];
     int32_t tpc = s->zoom;
 
-    // Cmd+Shift+Up/Down: cycle chord shape
+    // Cmd+Shift+Up/Down: adjust chord space
     if ((mods & MOD_META) && (mods & MOD_SHIFT)) {
         if (dir == DIR_UP || dir == DIR_DOWN) {
-            engine_cycle_chord_shape(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            engine_adjust_chord_space(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            // Camera follows highest note when going up, lowest when going down
+            if (ev->chord_amount > 1) {
+                int8_t offsets[MAX_CHORD_SIZE];
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
+                follow_note(s, follow_row, ev->position);
+            }
             play_event_preview(s, ev, tpc);
             return;
         }
     }
 
-    // Cmd+Up/Down: adjust chord stack size
+    // Cmd+Up/Down: adjust chord amount
     if ((mods & MOD_META) && !(mods & MOD_SHIFT)) {
         if (dir == DIR_UP || dir == DIR_DOWN) {
             engine_adjust_chord_stack(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            // Camera follows highest note when going up, lowest when going down
+            if (ev->chord_amount > 1) {
+                int8_t offsets[MAX_CHORD_SIZE];
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
+                follow_note(s, follow_row, ev->position);
+            }
             play_event_preview(s, ev, tpc);
             return;
         }
     }
 
-    // Shift+Up/Down: cycle chord inversion (only when chord active)
+    // Shift+Up/Down: cycle chord inversion (infinite, only when chord active)
     if ((mods & MOD_SHIFT) && !(mods & MOD_META) && !(mods & MOD_ALT)) {
-        if (ev->chord_stack_size > 1 && (dir == DIR_UP || dir == DIR_DOWN)) {
+        if (ev->chord_amount > 1 && (dir == DIR_UP || dir == DIR_DOWN)) {
             engine_cycle_chord_inversion(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            // Camera follows highest note when going up, lowest when going down
+            int8_t offsets[MAX_CHORD_SIZE];
+            uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+            int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
+            follow_note(s, follow_row, ev->position);
             play_event_preview(s, ev, tpc);
             return;
         }

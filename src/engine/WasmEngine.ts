@@ -115,8 +115,8 @@ export class WasmEngine {
   private _getSelLength!: () => number;
   private _getSelRepeatAmount!: () => number;
   private _getSelRepeatSpace!: () => number;
-  private _getSelChordStackSize!: () => number;
-  private _getSelChordShapeIndex!: () => number;
+  private _getSelChordAmount!: () => number;
+  private _getSelChordSpace!: () => number;
   private _getSelChordInversion!: () => number;
   private _getSelSubModeLoopMode!: (sm: number) => number;
   private _getSelSubModeArrayLength!: (sm: number) => number;
@@ -146,6 +146,11 @@ export class WasmEngine {
   private _buttonPress!: (row: number, col: number, modifiers: number) => void;
   private _arrowPress!: (direction: number, modifiers: number) => void;
   private _keyAction!: (actionId: number) => void;
+
+  // Grid dimensions and constants (read from WASM — single source of truth)
+  private _getVisibleRows!: () => number;
+  private _getVisibleCols!: () => number;
+  private _getNumChannels!: () => number;
 
   // Edit operations
   private _clearPattern!: () => void;
@@ -224,8 +229,8 @@ export class WasmEngine {
     this._getSelLength = cw('engine_get_sel_length', 'number', []);
     this._getSelRepeatAmount = cw('engine_get_sel_repeat_amount', 'number', []);
     this._getSelRepeatSpace = cw('engine_get_sel_repeat_space', 'number', []);
-    this._getSelChordStackSize = cw('engine_get_sel_chord_stack_size', 'number', []);
-    this._getSelChordShapeIndex = cw('engine_get_sel_chord_shape_index', 'number', []);
+    this._getSelChordAmount = cw('engine_get_sel_chord_amount', 'number', []);
+    this._getSelChordSpace = cw('engine_get_sel_chord_space', 'number', []);
     this._getSelChordInversion = cw('engine_get_sel_chord_inversion', 'number', []);
     this._getSelSubModeLoopMode = cw('engine_get_sel_sub_mode_loop_mode', 'number', ['number']);
     this._getSelSubModeArrayLength = cw('engine_get_sel_sub_mode_array_length', 'number', ['number']);
@@ -255,6 +260,11 @@ export class WasmEngine {
     this._buttonPress = cw('engine_button_press_export', null, ['number', 'number', 'number']) as unknown as (r: number, c: number, m: number) => void;
     this._arrowPress = cw('engine_arrow_press_export', null, ['number', 'number']) as unknown as (d: number, m: number) => void;
     this._keyAction = cw('engine_key_action_export', null, ['number']) as unknown as (a: number) => void;
+
+    // Grid dimensions and constants
+    this._getVisibleRows = cw('engine_get_visible_rows', 'number', []);
+    this._getVisibleCols = cw('engine_get_visible_cols', 'number', []);
+    this._getNumChannels = cw('engine_get_num_channels', 'number', []);
 
     // Edit operations
     this._clearPattern = cw('engine_clear_pattern_export', null, []) as unknown as () => void;
@@ -420,8 +430,8 @@ export class WasmEngine {
         flamLoopMode: subModeArrays[3].loopMode,
         modulate: subModeArrays[4].values,
         modulateLoopMode: subModeArrays[4].loopMode,
-        chordStackSize: mod.HEAPU8[ptr + this.fieldOffsets[7]],
-        chordShapeIndex: view.getInt8(ptr + this.fieldOffsets[8]),
+        chordAmount: mod.HEAPU8[ptr + this.fieldOffsets[7]],
+        chordSpace: mod.HEAPU8[ptr + this.fieldOffsets[8]],
         chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),
       };
 
@@ -548,23 +558,25 @@ export class WasmEngine {
 
   /**
    * Read the grid output buffers from WASM memory.
-   * Returns button_values[8][16] as uint16 and color_overrides[8][16] as uint32.
+   * Dimensions come from WASM (single source of truth).
    */
   readGridBuffers(): { buttonValues: number[][]; colorOverrides: number[][] } {
     const mod = this.module!;
+    const rows = this._getVisibleRows();
+    const cols = this._getVisibleCols();
     const bvPtr = this._getButtonValuesBuffer();
     const coPtr = this._getColorOverridesBuffer();
-    const bvView = new Uint16Array(mod.HEAPU8.buffer, bvPtr, 8 * 16);
-    const coView = new Uint32Array(mod.HEAPU8.buffer, coPtr, 8 * 16);
+    const bvView = new Uint16Array(mod.HEAPU8.buffer, bvPtr, rows * cols);
+    const coView = new Uint32Array(mod.HEAPU8.buffer, coPtr, rows * cols);
 
     const buttonValues: number[][] = [];
     const colorOverrides: number[][] = [];
-    for (let r = 0; r < 8; r++) {
+    for (let r = 0; r < rows; r++) {
       const bvRow: number[] = [];
       const coRow: number[] = [];
-      for (let c = 0; c < 16; c++) {
-        bvRow.push(bvView[r * 16 + c]);
-        coRow.push(coView[r * 16 + c]);
+      for (let c = 0; c < cols; c++) {
+        bvRow.push(bvView[r * cols + c]);
+        coRow.push(coView[r * cols + c]);
       }
       buttonValues.push(bvRow);
       colorOverrides.push(coRow);
@@ -601,8 +613,8 @@ export class WasmEngine {
   getSelLength(): number { return this._getSelLength(); }
   getSelRepeatAmount(): number { return this._getSelRepeatAmount(); }
   getSelRepeatSpace(): number { return this._getSelRepeatSpace(); }
-  getSelChordStackSize(): number { return this._getSelChordStackSize(); }
-  getSelChordShapeIndex(): number { return this._getSelChordShapeIndex(); }
+  getSelChordAmount(): number { return this._getSelChordAmount(); }
+  getSelChordSpace(): number { return this._getSelChordSpace(); }
   getSelChordInversion(): number { return this._getSelChordInversion(); }
   getSelSubModeLoopMode(sm: number): number { return this._getSelSubModeLoopMode(sm); }
   getSelSubModeArrayLength(sm: number): number { return this._getSelSubModeArrayLength(sm); }
@@ -623,6 +635,11 @@ export class WasmEngine {
   }
   getScaleCount(): number { return this._getScaleCount(); }
   getScaleZeroIndex(): number { return this._getScaleZeroIndex(); }
+
+  // Constants from WASM (single source of truth)
+  getVisibleRows(): number { return this._getVisibleRows(); }
+  getVisibleCols(): number { return this._getVisibleCols(); }
+  getNumChannels(): number { return this._getNumChannels(); }
 
   /** Write channel types to WASM memory. 0 = melodic, 1 = drum. */
   writeChannelTypes(types: number[]): void {

@@ -84,7 +84,7 @@ EXPORTED_FUNCTIONS='[
     "_engine_set_sub_mode_length_export",
     "_engine_toggle_sub_mode_loop_mode_export",
     "_engine_adjust_chord_stack_export",
-    "_engine_cycle_chord_shape_export",
+    "_engine_adjust_chord_space_export",
     "_engine_cycle_chord_inversion_export",
     "_engine_copy_pattern_export",
     "_engine_clear_pattern_export",
@@ -95,8 +95,8 @@ EXPORTED_FUNCTIONS='[
     "_engine_get_sel_length",
     "_engine_get_sel_repeat_amount",
     "_engine_get_sel_repeat_space",
-    "_engine_get_sel_chord_stack_size",
-    "_engine_get_sel_chord_shape_index",
+    "_engine_get_sel_chord_amount",
+    "_engine_get_sel_chord_space",
     "_engine_get_sel_chord_inversion",
     "_engine_get_sel_sub_mode_loop_mode",
     "_engine_get_sel_sub_mode_array_length",
@@ -107,7 +107,10 @@ EXPORTED_FUNCTIONS='[
     "_engine_get_current_pattern",
     "_engine_get_channel_type",
     "_engine_get_scale_root",
-    "_engine_get_scale_id_idx"
+    "_engine_get_scale_id_idx",
+    "_engine_get_visible_rows",
+    "_engine_get_visible_cols",
+    "_engine_get_num_channels"
 ]'
 # Remove whitespace from JSON
 EXPORTED_FUNCTIONS=$(echo "$EXPORTED_FUNCTIONS" | tr -d '[:space:]')

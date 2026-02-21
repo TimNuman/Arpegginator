@@ -10,16 +10,15 @@
 #define MAX_EVENTS          128
 #define MAX_SUB_MODE_LEN    32
 #define NUM_SUB_MODES       5
-#define MAX_CHORD_SIZE      5
-#define MAX_CHORD_SHAPES    20
+#define MAX_CHORD_SIZE      8
 #define MAX_SCALE_NOTES     128
 #define NUM_SCALES          32
 #define MAX_ACTIVE_NOTES    256
 #define DIATONIC_OCTAVE     7
 
 // Grid display dimensions
-#define VISIBLE_ROWS        8
-#define VISIBLE_COLS        16
+#define VISIBLE_ROWS        16
+#define VISIBLE_COLS        32
 
 // Ticks per quarter note (matches JS TICKS_PER_QUARTER)
 #define TICKS_PER_QUARTER   480
@@ -84,9 +83,9 @@ typedef struct {
     uint16_t      repeat_amount;  // 1 = no repeats
     int32_t       repeat_space;   // ticks between repeats
     SubModeArray  sub_modes[NUM_SUB_MODES]; // velocity, hit, timing, flam, modulate
-    uint8_t       chord_stack_size;  // 1-5
-    int8_t        chord_shape_index;
-    int8_t        chord_inversion;
+    uint8_t       chord_amount;      // 1 = single note, 2-5 = chord
+    uint8_t       chord_space;       // row offset between chord notes (default 2)
+    int8_t        chord_inversion;   // infinite inversions (scale-dependent octave)
     uint16_t      event_index;    // integer ID (maps to UUID on JS side)
 } NoteEvent_C;
 
@@ -131,10 +130,8 @@ typedef struct {
     uint8_t     scale_root;                     // 0-11 (C=0)
     uint8_t     scale_id_idx;                   // index into scale table
 
-    // ============ Chord shapes ============
-    // [stack_size 0-5][shape_index][note_index]
-    int8_t      chord_shapes[MAX_CHORD_SIZE + 1][MAX_CHORD_SHAPES][MAX_CHORD_SIZE];
-    uint8_t     chord_shape_counts[MAX_CHORD_SIZE + 1];
+    // ============ Scale-derived ============
+    uint8_t     scale_octave_size;              // notes per octave in current scale (e.g. 7 for major, 5 for pentatonic)
 
     // ============ Playback state ============
     int32_t     current_tick;
@@ -192,10 +189,6 @@ void engine_core_tick(EngineState* s);
 void engine_core_stop(EngineState* s);
 void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick);
 void engine_core_scrub_end(EngineState* s);
-
-// ============ Chord Shape Generation ============
-
-void engine_generate_chord_shapes(EngineState* s);
 
 // ============ Utility ============
 

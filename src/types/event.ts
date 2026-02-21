@@ -57,10 +57,10 @@ export interface NoteEvent {
   modulate: number[];
   modulateLoopMode: VelocityLoopMode;
 
-  // Chord stack (pitch stacking on Y axis)
-  chordStackSize: number;       // 1 = single note, 2-5 = chord
-  chordShapeIndex: number;      // which shape for this stack size
-  chordInversion: number;       // inversion: 0 = root, +N = bottom note up, -N = top note down
+  // Chord (pitch stacking on Y axis)
+  chordAmount: number;          // 1 = single note, 2-5 = chord
+  chordSpace: number;           // scale-degree gap between chord notes (default 2 = thirds)
+  chordInversion: number;       // inversion: infinite, +N = bottom notes up, -N = top notes down
 }
 
 // ============ PatternData ============

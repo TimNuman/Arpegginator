@@ -70,9 +70,9 @@ void engine_toggle_sub_mode_loop_mode(EngineState* s, uint16_t event_idx, uint8_
 void engine_adjust_chord_stack(EngineState* s, uint16_t event_idx, int8_t direction);
 
 /**
- * Cycle chord shape. direction: 1 = next, -1 = previous.
+ * Adjust chord space (gap between notes). direction: 1 = wider, -1 = narrower.
  */
-void engine_cycle_chord_shape(EngineState* s, uint16_t event_idx, int8_t direction);
+void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direction);
 
 /**
  * Cycle chord inversion. direction: 1 = up, -1 = down.

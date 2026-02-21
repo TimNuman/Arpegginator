@@ -209,8 +209,8 @@ int32_t engine_get_field_offset(int32_t field_id) {
         case 4: return (int32_t)(uintptr_t)&base->repeat_amount;
         case 5: return (int32_t)(uintptr_t)&base->repeat_space;
         case 6: return (int32_t)(uintptr_t)&base->sub_modes;
-        case 7: return (int32_t)(uintptr_t)&base->chord_stack_size;
-        case 8: return (int32_t)(uintptr_t)&base->chord_shape_index;
+        case 7: return (int32_t)(uintptr_t)&base->chord_amount;
+        case 8: return (int32_t)(uintptr_t)&base->chord_space;
         case 9: return (int32_t)(uintptr_t)&base->chord_inversion;
         case 10: return (int32_t)(uintptr_t)&base->event_index;
         default: return -1;
@@ -440,8 +440,8 @@ void engine_adjust_chord_stack_export(uint16_t event_idx, int8_t direction) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-void engine_cycle_chord_shape_export(uint16_t event_idx, int8_t direction) {
-    engine_cycle_chord_shape(&g_state, event_idx, direction);
+void engine_adjust_chord_space_export(uint16_t event_idx, int8_t direction) {
+    engine_adjust_chord_space(&g_state, event_idx, direction);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -511,15 +511,15 @@ int32_t engine_get_sel_repeat_space(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-uint8_t engine_get_sel_chord_stack_size(void) {
+uint8_t engine_get_sel_chord_amount(void) {
     const NoteEvent_C* ev = _get_selected_event();
-    return ev ? ev->chord_stack_size : 0;
+    return ev ? ev->chord_amount : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
-int8_t engine_get_sel_chord_shape_index(void) {
+uint8_t engine_get_sel_chord_space(void) {
     const NoteEvent_C* ev = _get_selected_event();
-    return ev ? ev->chord_shape_index : 0;
+    return ev ? ev->chord_space : 2;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -615,5 +615,22 @@ uint16_t engine_get_scale_zero_index(void) {
 EMSCRIPTEN_KEEPALIVE
 uint8_t engine_get_num_scales(void) {
     return NUM_SCALES;
+}
+
+// ============ Grid Dimension Getters ============
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_visible_rows(void) {
+    return VISIBLE_ROWS;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_visible_cols(void) {
+    return VISIBLE_COLS;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t engine_get_num_channels(void) {
+    return NUM_CHANNELS;
 }
 

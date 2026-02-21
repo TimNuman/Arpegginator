@@ -116,6 +116,13 @@ void engine_rebuild_scale(EngineState* s) {
 
     s->scale_count = count;
     s->scale_zero_index = zero_index;
+
+    // Compute scale_octave_size = number of 1s in the scale pattern
+    uint8_t octave_size = 0;
+    for (uint8_t i = 0; i < 12; i++) {
+        if (pattern[i]) octave_size++;
+    }
+    s->scale_octave_size = octave_size;
 }
 
 /**
@@ -219,60 +226,38 @@ static int16_t resolve_sub_mode_preview(
 
 // ============ Chord Offsets ============
 
-static void get_chord_offsets(
+static void get_chord_offsets_raw(
     const EngineState* s,
-    uint8_t stack_size,
-    int8_t shape_index,
+    uint8_t amount,
+    uint8_t space,
     int8_t inversion,
-    int8_t* out_offsets,
+    int16_t* out_offsets,
     uint8_t* out_count
 ) {
-    uint8_t clamped = stack_size < 1 ? 1 : (stack_size > MAX_CHORD_SIZE ? MAX_CHORD_SIZE : stack_size);
-    uint8_t shape_count = s->chord_shape_counts[clamped];
-
-    if (shape_count == 0 || clamped == 1) {
+    if (amount <= 1) {
         out_offsets[0] = 0;
         *out_count = 1;
         return;
     }
+    uint8_t clamped = amount > MAX_CHORD_SIZE ? MAX_CHORD_SIZE : amount;
 
-    int32_t idx = ((int32_t)(shape_index % (int8_t)shape_count) + shape_count) % shape_count;
-
-    // Copy base shape
-    int8_t shape[MAX_CHORD_SIZE];
+    // Build base chord: [0, space, 2*space, ...]
     for (uint8_t i = 0; i < clamped; i++) {
-        shape[i] = s->chord_shapes[clamped][idx][i];
+        out_offsets[i] = (int16_t)(i * space);
     }
 
-    // Apply inversion
+    // Apply inversions using scale-dependent octave
+    int16_t octave = (int16_t)s->scale_octave_size;
     if (inversion > 0) {
-        for (int8_t inv = 0; inv < inversion && inv < (int8_t)clamped; inv++) {
-            // Shift bottom note up by DIATONIC_OCTAVE
-            int8_t bottom = shape[0];
-            for (uint8_t i = 0; i < clamped - 1; i++) {
-                shape[i] = shape[i + 1];
-            }
-            shape[clamped - 1] = bottom + DIATONIC_OCTAVE;
+        for (int8_t n = 0; n < inversion; n++) {
+            out_offsets[n % clamped] += octave;
         }
     } else if (inversion < 0) {
-        for (int8_t inv = 0; inv < -inversion && inv < (int8_t)clamped; inv++) {
-            // Shift top note down by DIATONIC_OCTAVE
-            int8_t top = shape[clamped - 1];
-            for (uint8_t i = clamped - 1; i > 0; i--) {
-                shape[i] = shape[i - 1];
-            }
-            shape[0] = top - DIATONIC_OCTAVE;
+        for (int8_t n = 0; n < -inversion; n++) {
+            out_offsets[clamped - 1 - (n % clamped)] -= octave;
         }
     }
 
-    // Normalize so minimum is 0
-    int8_t min_val = shape[0];
-    for (uint8_t i = 1; i < clamped; i++) {
-        if (shape[i] < min_val) min_val = shape[i];
-    }
-    for (uint8_t i = 0; i < clamped; i++) {
-        out_offsets[i] = shape[i] - min_val;
-    }
     *out_count = clamped;
 }
 
@@ -387,85 +372,6 @@ static void snapshot_and_preview_channel(EngineState* s, uint8_t ch) {
     compute_preview_for_channel(s, ch);
 }
 
-// ============ Chord Shape Generation ============
-
-// Generate all ascending combos [0, ...] of length `size` with max gap 2
-static uint8_t g_shape_results[MAX_CHORD_SHAPES][MAX_CHORD_SIZE];
-static uint8_t g_shape_count;
-
-static void gen_shapes_recurse(
-    int8_t* current, uint8_t depth, uint8_t size,
-    int8_t last_val, int8_t max_span
-) {
-    if (depth == size) {
-        if (g_shape_count < MAX_CHORD_SHAPES) {
-            for (uint8_t i = 0; i < size; i++) {
-                g_shape_results[g_shape_count][i] = current[i];
-            }
-            g_shape_count++;
-        }
-        return;
-    }
-    for (int8_t next = last_val + 1; next <= max_span; next++) {
-        current[depth] = next;
-        gen_shapes_recurse(current, depth + 1, size, next, max_span);
-    }
-}
-
-void engine_generate_chord_shapes(EngineState* s) {
-    // Size 0 and 1: single note
-    s->chord_shape_counts[0] = 1;
-    s->chord_shapes[0][0][0] = 0;
-    s->chord_shape_counts[1] = 1;
-    s->chord_shapes[1][0][0] = 0;
-
-    for (uint8_t size = 2; size <= MAX_CHORD_SIZE; size++) {
-        int8_t max_gap = 2;
-        int8_t max_span = max_gap * (size - 1);
-        int8_t current[MAX_CHORD_SIZE];
-        current[0] = 0;
-
-        g_shape_count = 0;
-        gen_shapes_recurse(current, 1, size, 0, max_span);
-
-        // Sort by span (compact first), then lexicographic
-        // Simple bubble sort — only runs at init, small N
-        for (int i = 0; i < (int)g_shape_count - 1; i++) {
-            for (int j = 0; j < (int)g_shape_count - 1 - i; j++) {
-                uint8_t* a = g_shape_results[j];
-                uint8_t* b = g_shape_results[j + 1];
-                int span_a = a[size - 1];
-                int span_b = b[size - 1];
-                int swap = 0;
-                if (span_a > span_b) {
-                    swap = 1;
-                } else if (span_a == span_b) {
-                    for (uint8_t k = 0; k < size; k++) {
-                        if (a[k] != b[k]) {
-                            swap = (a[k] > b[k]);
-                            break;
-                        }
-                    }
-                }
-                if (swap) {
-                    uint8_t tmp[MAX_CHORD_SIZE];
-                    memcpy(tmp, a, size);
-                    memcpy(a, b, size);
-                    memcpy(b, tmp, size);
-                }
-            }
-        }
-
-        s->chord_shape_counts[size] = g_shape_count < MAX_CHORD_SHAPES
-            ? g_shape_count : MAX_CHORD_SHAPES;
-        for (uint8_t i = 0; i < s->chord_shape_counts[size]; i++) {
-            for (uint8_t j = 0; j < size; j++) {
-                s->chord_shapes[size][i][j] = (int8_t)g_shape_results[i][j];
-            }
-        }
-    }
-}
-
 // ============ Core Functions ============
 
 /**
@@ -520,9 +426,6 @@ void engine_core_init(EngineState* s) {
         }
         s->queued_patterns[ch] = -1;
     }
-
-    // Generate chord shapes
-    engine_generate_chord_shapes(s);
 
     // Default RNG seed
     if (s->rng_state == 0) s->rng_state = 12345;
@@ -668,8 +571,10 @@ void engine_core_tick(EngineState* s) {
                     // Chord expansion
                     int8_t offsets[MAX_CHORD_SIZE];
                     uint8_t offset_count;
-                    get_chord_offsets(s, ev->chord_stack_size, ev->chord_shape_index,
-                                     ev->chord_inversion, offsets, &offset_count);
+                    int16_t offsets16[MAX_CHORD_SIZE];
+                    get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
+                                         ev->chord_inversion, offsets16, &offset_count);
+                    for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         int16_t chord_row = effective_row + offsets[ci];
@@ -799,8 +704,10 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
                 // Chord expansion
                 int8_t offsets[MAX_CHORD_SIZE];
                 uint8_t offset_count;
-                get_chord_offsets(s, ev->chord_stack_size, ev->chord_shape_index,
-                                 ev->chord_inversion, offsets, &offset_count);
+                    int16_t offsets16[MAX_CHORD_SIZE];
+                    get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
+                                         ev->chord_inversion, offsets16, &offset_count);
+                    for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
                 for (uint8_t ci = 0; ci < offset_count; ci++) {
                     int16_t chord_row = effective_row + offsets[ci];
@@ -854,8 +761,10 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
 
                     int8_t offsets[MAX_CHORD_SIZE];
                     uint8_t offset_count;
-                    get_chord_offsets(s, ev->chord_stack_size, ev->chord_shape_index,
-                                     ev->chord_inversion, offsets, &offset_count);
+                    int16_t offsets16[MAX_CHORD_SIZE];
+                    get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
+                                         ev->chord_inversion, offsets16, &offset_count);
+                    for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         int16_t chord_row = effective_row + offsets[ci];
