@@ -611,6 +611,14 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             <Box
               css={[
                 modifierKeyStyles,
+                keyboard.shift && modifierKeyActiveStyles,
+              ]}
+            >
+              shift
+            </Box>
+            <Box
+              css={[
+                modifierKeyStyles,
                 keyboard.ctrl && modifierKeyActiveStyles,
               ]}
             >
@@ -619,10 +627,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             <Box
               css={[
                 modifierKeyStyles,
-                keyboard.shift && modifierKeyActiveStyles,
+                keyboard.alt && modifierKeyActiveStyles,
               ]}
             >
-              shift
+              opt
             </Box>
             <Box
               css={[
