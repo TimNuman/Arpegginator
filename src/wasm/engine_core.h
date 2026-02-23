@@ -17,8 +17,8 @@
 #define DIATONIC_OCTAVE     7
 
 // Grid display dimensions
-#define VISIBLE_ROWS        16
-#define VISIBLE_COLS        32
+#define VISIBLE_ROWS        8
+#define VISIBLE_COLS        16
 
 // Ticks per quarter note (matches JS TICKS_PER_QUARTER)
 #define TICKS_PER_QUARTER   480
@@ -157,6 +157,7 @@ typedef struct {
     int32_t     zoom;               // ZoomLevel (ticks per grid cell)
     int16_t     selected_event_idx; // -1 = none, else index into current pattern's events
     float       row_offsets[NUM_CHANNELS]; // per-channel vertical scroll (0.0-1.0)
+    float       target_row_offsets[NUM_CHANNELS]; // easing target
     float       col_offset;         // horizontal scroll (0.0-1.0)
 
     // Modifier key state (set from JS each frame before compute_grid)

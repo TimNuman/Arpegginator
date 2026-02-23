@@ -685,9 +685,25 @@ static void apply_ctrl_overlay(EngineState* s) {
 // Scratch buffer for rendered notes
 static RenderedNote g_rendered_notes[MAX_RENDERED_NOTES];
 
+#define EASE_FACTOR   0.12f
+#define EASE_SNAP     0.001f
+
 void engine_compute_grid(EngineState* s) {
     uint8_t ch = s->current_channel;
     uint8_t pat = s->current_patterns[ch];
+
+    // Ease row offset toward target (smooth float lerp, snap at end)
+    float cur = s->row_offsets[ch];
+    float tgt = s->target_row_offsets[ch];
+    if (cur != tgt) {
+        float diff = tgt - cur;
+        float abs_diff = diff > 0 ? diff : -diff;
+        if (abs_diff < EASE_SNAP) {
+            s->row_offsets[ch] = tgt;
+        } else {
+            s->row_offsets[ch] = cur + diff * EASE_FACTOR;
+        }
+    }
 
     // Clear buffers
     memset(s->button_values, 0, sizeof(s->button_values));
@@ -725,4 +741,12 @@ void engine_compute_grid(EngineState* s) {
             }
         }
     }
+}
+
+uint8_t engine_is_animating(const EngineState* s) {
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+        float diff = s->target_row_offsets[i] - s->row_offsets[i];
+        if (diff > EASE_SNAP || diff < -EASE_SNAP) return 1;
+    }
+    return 0;
 }

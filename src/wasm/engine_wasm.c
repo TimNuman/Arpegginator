@@ -259,7 +259,10 @@ void engine_set_selected_event(int16_t idx) {
 
 EMSCRIPTEN_KEEPALIVE
 void engine_set_row_offset(uint8_t ch, float offset) {
-    if (ch < NUM_CHANNELS) g_state.row_offsets[ch] = offset;
+    if (ch < NUM_CHANNELS) {
+        g_state.row_offsets[ch] = offset;
+        g_state.target_row_offsets[ch] = offset;
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -368,6 +371,11 @@ uint16_t engine_alloc_event_id_export(void) {
 EMSCRIPTEN_KEEPALIVE
 void engine_compute_grid_export(void) {
     engine_compute_grid(&g_state);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_is_animating_export(void) {
+    return engine_is_animating(&g_state);
 }
 
 // ============ Pattern Data Getters ============

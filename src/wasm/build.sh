@@ -73,6 +73,7 @@ EXPORTED_FUNCTIONS='[
     "_engine_get_pattern_length",
     "_engine_alloc_event_id_export",
     "_engine_compute_grid_export",
+    "_engine_is_animating_export",
     "_engine_toggle_event_export",
     "_engine_remove_event_export",
     "_engine_move_event_export",
@@ -124,7 +125,7 @@ emcc "$SCRIPT_DIR/engine_core.c" "$SCRIPT_DIR/engine_ui.c" "$SCRIPT_DIR/engine_e
     -s EXPORT_NAME='createWasmEngine' \
     -s ENVIRONMENT='web' \
     -s ALLOW_MEMORY_GROWTH=1 \
-    -s INITIAL_MEMORY=4194304 \
+    -s INITIAL_MEMORY=16777216 \
     -o "$OUTPUT_DIR/engine.js"
 
 echo "WASM build complete:"

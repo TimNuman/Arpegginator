@@ -151,6 +151,39 @@ static void play_event_preview(const EngineState* s, const NoteEvent_C* ev, int3
 
 // ============ Camera Follow ============
 
+// Convert desired start_array_index to a row offset float that round-trips correctly.
+// get_start_row reconstructs via: (int16_t)((1.0f - offset) * max + 0.5f)
+// So we solve for the offset that lands in the right rounding bin.
+static float start_index_to_offset(int16_t desired_start, int16_t max_row_off) {
+    if (max_row_off <= 0) return 1.0f;
+    // Use (desired_start) / max, which should round-trip via (int16_t)(x * max + 0.5f)
+    float off = 1.0f - (float)desired_start / (float)max_row_off;
+    return off < 0 ? 0 : (off > 1 ? 1 : off);
+}
+
+static void set_row_target(EngineState* s, float new_off) {
+    uint8_t ch = s->current_channel;
+    float clamped = new_off < 0 ? 0 : (new_off > 1 ? 1 : new_off);
+    float diff = clamped - s->row_offsets[ch];
+    float abs_diff = diff > 0 ? diff : -diff;
+    // Compute one-row distance in offset space
+    int16_t total = get_total_rows(s);
+    int16_t max_off = total - VISIBLE_ROWS;
+    float one_row = max_off > 0 ? (1.0f / (float)max_off) : 1.0f;
+    if (abs_diff <= one_row + 0.001f) {
+        // Small move: snap directly, no easing
+        s->row_offsets[ch] = clamped;
+    }
+    s->target_row_offsets[ch] = clamped;
+}
+
+// Set target from a desired start_array_index (integer-exact)
+static void set_row_target_index(EngineState* s, int16_t desired_start) {
+    int16_t total = get_total_rows(s);
+    int16_t max_row_off = total - VISIBLE_ROWS;
+    set_row_target(s, start_index_to_offset(desired_start, max_row_off));
+}
+
 static void follow_note(EngineState* s, int16_t row, int32_t tick) {
     int16_t min_row = get_min_row(s);
     int16_t total = get_total_rows(s);
@@ -160,11 +193,11 @@ static void follow_note(EngineState* s, int16_t row, int32_t tick) {
         int16_t arr_pos = row - min_row;
         int16_t start_idx = get_start_array_index(s);
         if (arr_pos < start_idx) {
-            float new_off = 1.0f - (float)arr_pos / max_row_off;
-            s->row_offsets[s->current_channel] = new_off < 0 ? 0 : (new_off > 1 ? 1 : new_off);
+            // Note above view: scroll so note is at top
+            set_row_target_index(s, arr_pos);
         } else if (arr_pos > start_idx + VISIBLE_ROWS - 1) {
-            float new_off = 1.0f - (float)(arr_pos - VISIBLE_ROWS + 1) / max_row_off;
-            s->row_offsets[s->current_channel] = new_off < 0 ? 0 : (new_off > 1 ? 1 : new_off);
+            // Note below view: scroll so note is at bottom
+            set_row_target_index(s, arr_pos - VISIBLE_ROWS + 1);
         }
     }
 
@@ -559,15 +592,34 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
         }
     }
 
-    // Shift+Up/Down: cycle chord inversion (infinite, only when chord active)
+    // Shift+Up/Down: chord inversion or octave jump (single note)
     if ((mods & MOD_SHIFT) && !(mods & MOD_META) && !(mods & MOD_ALT)) {
-        if (ev->chord_amount > 1 && (dir == DIR_UP || dir == DIR_DOWN)) {
+        if (dir == DIR_UP || dir == DIR_DOWN) {
             engine_cycle_chord_inversion(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
-            // Camera follows highest note when going up, lowest when going down
-            int8_t offsets[MAX_CHORD_SIZE];
-            uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
-            int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
-            follow_note(s, follow_row, ev->position);
+            int16_t follow_row;
+            if (ev->chord_amount > 1) {
+                int8_t offsets[MAX_CHORD_SIZE];
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                int8_t min_off = offsets[0], max_off = offsets[0];
+                for (uint8_t i = 1; i < cnt; i++) {
+                    if (offsets[i] < min_off) min_off = offsets[i];
+                    if (offsets[i] > max_off) max_off = offsets[i];
+                }
+                follow_row = ev->row + (dir == DIR_UP ? max_off : min_off);
+                // Column follow only (via follow_note), then pin row target after
+                follow_note(s, follow_row, ev->position);
+                // Pin edge note to screen edge — MUST be after follow_note to have final say
+                int16_t min_row = get_min_row(s);
+                int16_t arr_pos = follow_row - min_row;
+                if (dir == DIR_UP) {
+                    set_row_target_index(s, arr_pos - VISIBLE_ROWS + 1);
+                } else {
+                    set_row_target_index(s, arr_pos);
+                }
+            } else {
+                follow_row = ev->row;
+                follow_note(s, follow_row, ev->position);
+            }
             play_event_preview(s, ev, tpc);
             return;
         }
@@ -656,7 +708,19 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
 
         if (new_row != ev->row || new_pos != ev->position) {
             engine_move_event(s, (uint16_t)s->selected_event_idx, new_row, new_pos);
-            follow_note(s, new_row, new_pos);
+            // For chords: follow top note when moving up, bottom note when moving down
+            int16_t follow_row = new_row;
+            if (ev->chord_amount > 1 && (dir == DIR_UP || dir == DIR_DOWN)) {
+                int8_t offsets[MAX_CHORD_SIZE];
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                int8_t min_off = offsets[0], max_off = offsets[0];
+                for (uint8_t i = 1; i < cnt; i++) {
+                    if (offsets[i] < min_off) min_off = offsets[i];
+                    if (offsets[i] > max_off) max_off = offsets[i];
+                }
+                follow_row = new_row + (dir == DIR_UP ? max_off : min_off);
+            }
+            follow_note(s, follow_row, new_pos);
             play_event_preview(s, ev, tpc);
         }
     }

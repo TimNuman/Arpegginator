@@ -401,6 +401,7 @@ void engine_core_init(EngineState* s) {
     s->col_offset = 0.0f;
     for (int i = 0; i < NUM_CHANNELS; i++) {
         s->row_offsets[i] = 0.0f;
+        s->target_row_offsets[i] = 0.0f;
     }
 
     // Initialize BPM

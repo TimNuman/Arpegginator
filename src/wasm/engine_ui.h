@@ -64,4 +64,7 @@ float engine_get_default_modify_scroll(const int16_t* levels, uint8_t count, uin
 // Returns the number of chord notes (1 if no chord). Writes offsets to `offsets`.
 uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out);
 
+// Returns 1 if camera easing is in progress
+uint8_t engine_is_animating(const EngineState* s);
+
 #endif // ENGINE_UI_H

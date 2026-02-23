@@ -141,6 +141,7 @@ export class WasmEngine {
   private _getPatternsHaveNotesBuffer!: () => number;
   private _getChannelsPlayingNowBuffer!: () => number;
   private _computeGrid!: () => void;
+  private _isAnimating!: () => number;
 
   // Input handling
   private _buttonPress!: (row: number, col: number, modifiers: number) => void;
@@ -255,6 +256,7 @@ export class WasmEngine {
     this._getPatternsHaveNotesBuffer = cw('engine_get_patterns_have_notes_buffer', 'number', []);
     this._getChannelsPlayingNowBuffer = cw('engine_get_channels_playing_now_buffer', 'number', []);
     this._computeGrid = cw('engine_compute_grid_export', null, []) as unknown as () => void;
+    this._isAnimating = cw('engine_is_animating_export', 'number', []);
 
     // Input handling
     this._buttonPress = cw('engine_button_press_export', null, ['number', 'number', 'number']) as unknown as (r: number, c: number, m: number) => void;
@@ -396,12 +398,13 @@ export class WasmEngine {
       const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
       for (let sm = 0; sm < 5; sm++) {
         const arrBase = subModesBase + sm * this.subModeArraySize;
-        const len = mod.HEAPU8[arrBase + 64];
+        const lenOffset = this.subModeArraySize - 2;  // length field: after all int16 values
+        const len = mod.HEAPU8[arrBase + lenOffset];
         const values: number[] = [];
         for (let j = 0; j < len; j++) {
           values.push(view.getInt16(arrBase + j * 2, true));
         }
-        const loopModeVal = mod.HEAPU8[arrBase + 65];
+        const loopModeVal = mod.HEAPU8[arrBase + lenOffset + 1];
         subModeArrays.push({
           values,
           loopMode: LOOP_MODE_REVERSE[loopModeVal] ?? 'reset',
@@ -528,6 +531,10 @@ export class WasmEngine {
 
   computeGrid(): void {
     this._computeGrid();
+  }
+
+  isAnimating(): boolean {
+    return this._isAnimating() !== 0;
   }
 
   /** Read which patterns have notes (8×8 boolean grid). */

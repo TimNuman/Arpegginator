@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { Box } from "@mui/material";
 import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
@@ -225,6 +225,20 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     return { buttonValues: buffers.buttonValues, colorOverrides: hexColors };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmEngine, renderVersion, keyboard.ctrl]);
+
+  // ============ Camera Easing Animation Loop ============
+  const animFrameRef = useRef(0);
+  useEffect(() => {
+    if (!wasmEngine.isAnimating()) return;
+    const tick = () => {
+      markDirty();
+      if (wasmEngine.isAnimating()) {
+        animFrameRef.current = requestAnimationFrame(tick);
+      }
+    };
+    animFrameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [wasmEngine, renderVersion]);
 
   // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(

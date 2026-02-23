@@ -260,10 +260,52 @@ void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t dir
     if (event_idx >= pat->event_count) return;
     NoteEvent_C* ev = &pat->events[event_idx];
 
-    if (ev->chord_amount <= 1) return;
+    int16_t octave = (int16_t)s->scale_octave_size;
+    int16_t min_row = -(int16_t)s->scale_zero_index;
+    int16_t max_row = (int16_t)s->scale_count - (int16_t)s->scale_zero_index - 1;
 
-    // Infinite inversions
+    // Single note: jump octave directly
+    if (ev->chord_amount <= 1) {
+        int16_t new_row = ev->row + (direction > 0 ? octave : -octave);
+        if (new_row < min_row || new_row > max_row) return;
+        ev->row = new_row;
+        return;
+    }
+
+    // Save state for rollback
+    int8_t old_inv = ev->chord_inversion;
+    int16_t old_row = ev->row;
+
     ev->chord_inversion += direction;
+
+    // Absorb full octave cycles into the root note
+    int8_t amt = (int8_t)ev->chord_amount;
+    if (ev->chord_inversion >= amt) {
+        ev->chord_inversion -= amt;
+        ev->row += octave;
+    } else if (ev->chord_inversion <= -amt) {
+        ev->chord_inversion += amt;
+        ev->row -= octave;
+    }
+
+    // Validate: all chord notes must be within MIDI range
+    // Compute min/max chord offset using the simple formula
+    int16_t chord_min = 0, chord_max = 0;
+    for (uint8_t i = 0; i < ev->chord_amount; i++) {
+        int16_t off = (int16_t)(i * ev->chord_space);
+        if (off < chord_min) chord_min = off;
+        if (off > chord_max) chord_max = off;
+    }
+    // Account for inversions shifting offsets by octave
+    int8_t inv = ev->chord_inversion;
+    if (inv > 0) chord_max += octave;
+    if (inv < 0) chord_min -= octave;
+
+    if (ev->row + chord_min < min_row || ev->row + chord_max > max_row) {
+        // Rollback
+        ev->chord_inversion = old_inv;
+        ev->row = old_row;
+    }
 }
 
 // ============ Pattern Operations ============
