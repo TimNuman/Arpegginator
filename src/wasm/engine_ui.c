@@ -72,6 +72,22 @@ static int16_t get_sub_mode_value_fill(const NoteEvent_C* ev, uint8_t sm, uint16
     return arr->values[idx];
 }
 
+// Continue-aware: uses counter_snapshots to offset into the array
+static int16_t get_sub_mode_value_continue(const EngineState* s, const NoteEvent_C* ev, uint8_t sm, uint16_t repeat_idx, uint8_t channel) {
+    const SubModeArray* arr = &ev->sub_modes[sm];
+    if (arr->length == 0) return arr->values[0];
+    uint16_t snapshot = s->counter_snapshots[sm][channel][ev->event_index];
+    return arr->values[(snapshot + repeat_idx) % arr->length];
+}
+
+// Resolve sub-mode value for rendering (handles all loop modes including continue)
+static int16_t resolve_render_sub_mode(const EngineState* s, const NoteEvent_C* ev, uint8_t sm, uint16_t repeat_idx, uint8_t channel) {
+    uint8_t mode = ev->sub_modes[sm].loop_mode;
+    if (mode == LOOP_CONTINUE) return get_sub_mode_value_continue(s, ev, sm, repeat_idx, channel);
+    if (mode == LOOP_FILL) return get_sub_mode_value_fill(ev, sm, repeat_idx);
+    return get_sub_mode_value_at(ev, sm, repeat_idx);
+}
+
 // ============ Rendered notes expansion ============
 
 // Get chord offsets for a note event (amount + space model)
@@ -137,15 +153,10 @@ uint16_t engine_render_events(
                 pos = mod_pos(pos, pat->length_ticks);
             }
 
-            // Get modulation offset for this repeat
+            // Get modulation offset for this repeat (continue-aware)
             int16_t mod_offset = 0;
             if (ev->sub_modes[SM_MODULATE].length > 0) {
-                uint8_t loop_mode = ev->sub_modes[SM_MODULATE].loop_mode;
-                if (loop_mode == LOOP_FILL) {
-                    mod_offset = get_sub_mode_value_fill(ev, SM_MODULATE, r);
-                } else {
-                    mod_offset = get_sub_mode_value_at(ev, SM_MODULATE, r);
-                }
+                mod_offset = resolve_render_sub_mode(s, ev, SM_MODULATE, r, channel);
             }
 
             // Expand chord notes (arp filtering: only show what will play)
@@ -315,8 +326,8 @@ static void render_pattern_mode(EngineState* s, const RenderedNote* notes, uint1
             if (note_at_tick) {
                 const NoteEvent_C* src_ev = &pat_data->events[note_at_tick->source_idx];
 
-                // Hit chance determines brightness
-                int16_t hit_chance = get_sub_mode_value_at(src_ev, SM_HIT, note_at_tick->repeat_index);
+                // Hit chance determines brightness (continue-aware)
+                int16_t hit_chance = resolve_render_sub_mode(s, src_ev, SM_HIT, note_at_tick->repeat_index, ch);
                 value = hit_chance >= 75 ? BTN_COLOR_100
                       : hit_chance >= 50 ? BTN_COLOR_50
                       : BTN_COLOR_25;
@@ -333,8 +344,8 @@ static void render_pattern_mode(EngineState* s, const RenderedNote* notes, uint1
                     value |= FLAG_SELECTED;
                 }
 
-                // Velocity-based color blend
-                int16_t vel = get_sub_mode_value_at(src_ev, SM_VELOCITY, note_at_tick->repeat_index);
+                // Velocity-based color blend (continue-aware)
+                int16_t vel = resolve_render_sub_mode(s, src_ev, SM_VELOCITY, note_at_tick->repeat_index, ch);
                 color = velocity_color_blend(ch_color, vel);
 
             } else {
