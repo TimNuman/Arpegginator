@@ -79,6 +79,17 @@ void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direct
  */
 void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t direction);
 
+/**
+ * Cycle arp style. direction: 1 = next, -1 = previous.
+ * Wraps around: CHORD → UP → DOWN → UP_DOWN → DOWN_UP → CHORD.
+ */
+void engine_cycle_arp_style(EngineState* s, uint16_t event_idx, int8_t direction);
+
+/**
+ * Adjust arp offset. direction: 1 = right (shift start forward), -1 = left.
+ */
+void engine_adjust_arp_offset(EngineState* s, uint16_t event_idx, int8_t direction);
+
 // ============ Pattern Operations ============
 
 /**

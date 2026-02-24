@@ -261,6 +261,43 @@ static void get_chord_offsets_raw(
     *out_count = clamped;
 }
 
+// ============ Arpeggio ============
+
+uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset) {
+    if (style == ARP_CHORD || chord_count <= 1) return 255; // sentinel: play all
+
+    // Apply offset to repeat index
+    int32_t effective = (int32_t)repeat_idx + (int32_t)offset;
+
+    if (style == ARP_UP) {
+        effective = ((effective % chord_count) + chord_count) % chord_count;
+        return (uint8_t)effective;
+    }
+    if (style == ARP_DOWN) {
+        effective = ((effective % chord_count) + chord_count) % chord_count;
+        return (uint8_t)((chord_count - 1) - effective);
+    }
+
+    // UP_DOWN / DOWN_UP: bounce, endpoints played once
+    // For N notes, cycle length = 2*(N-1). E.g. 3 notes -> cycle 4: [0,1,2,1]
+    uint16_t cycle_len = 2 * (chord_count - 1);
+    effective = ((effective % cycle_len) + cycle_len) % cycle_len;
+
+    uint8_t idx;
+    if (effective < chord_count) {
+        idx = (uint8_t)effective;
+    } else {
+        idx = (uint8_t)(cycle_len - effective);
+    }
+
+    if (style == ARP_DOWN_UP) {
+        // Reverse: start from top
+        idx = (chord_count - 1) - idx;
+    }
+
+    return idx;
+}
+
 // ============ Active Notes ============
 
 static void kill_active_notes_for_channel(EngineState* s, uint8_t ch) {
@@ -577,7 +614,13 @@ void engine_core_tick(EngineState* s) {
                                          ev->chord_inversion, offsets16, &offset_count);
                     for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
+                    // Arpeggio: pick which chord note(s) to play
+                    uint8_t arp_idx = get_arp_chord_index(ev->arp_style, offset_count, r, ev->arp_offset);
+
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
+                        // Skip notes not selected by arpeggio
+                        if (arp_idx != 255 && ci != arp_idx) continue;
+
                         int16_t chord_row = effective_row + offsets[ci];
                         int8_t midi_note;
 

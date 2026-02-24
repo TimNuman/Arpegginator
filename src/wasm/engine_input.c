@@ -100,7 +100,7 @@ static int16_t find_event_overlapping(const EngineState* s, int16_t row, int32_t
 }
 
 // Find event whose chord tone occupies (row, tick).
-// Checks all chord offsets for each event/repeat combination.
+// Only matches chord tones that are actually visible (respects arp style filtering).
 static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t tick) {
     uint8_t ch = s->current_channel;
     uint8_t pat = s->current_patterns[ch];
@@ -114,19 +114,21 @@ static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t ti
         int8_t offsets[MAX_CHORD_SIZE];
         uint8_t chord_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
 
-        // Check if any chord offset matches the row
-        uint8_t row_match = 0;
-        for (uint8_t c = 0; c < chord_count; c++) {
-            if (ev->row + offsets[c] == row) { row_match = 1; break; }
-        }
-        if (!row_match) continue;
-
-        // Check if tick falls within any repeat
+        // Check if tick falls within any repeat, and if so whether
+        // the clicked row matches a visible chord tone for that repeat
         for (uint16_t r = 0; r < ev->repeat_amount; r++) {
             int32_t pos = ev->position + (int32_t)r * ev->repeat_space;
             int32_t end = pos + ev->length;
-            if (tick >= pos && tick < end) {
-                return (int16_t)i;
+            if (tick < pos || tick >= end) continue;
+
+            // Which chord notes are visible on this repeat?
+            uint8_t arp_idx = get_arp_chord_index(ev->arp_style, chord_count, r, ev->arp_offset);
+
+            for (uint8_t c = 0; c < chord_count; c++) {
+                if (arp_idx != 255 && c != arp_idx) continue;
+                if (ev->row + offsets[c] == row) {
+                    return (int16_t)i;
+                }
             }
         }
     }
@@ -621,6 +623,19 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
                 follow_note(s, follow_row, ev->position);
             }
             play_event_preview(s, ev, tpc);
+            return;
+        }
+    }
+
+    // Alt+Up/Down: cycle arp style (only when chord is active)
+    // Alt+Left/Right: adjust arp offset (only when arp style != CHORD)
+    if ((mods & MOD_ALT) && !(mods & MOD_META) && !(mods & MOD_CTRL) && !(mods & MOD_SHIFT)) {
+        if ((dir == DIR_UP || dir == DIR_DOWN) && ev->chord_amount > 1) {
+            engine_cycle_arp_style(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            return;
+        }
+        if ((dir == DIR_LEFT || dir == DIR_RIGHT) && ev->chord_amount > 1 && ev->arp_style != ARP_CHORD) {
+            engine_adjust_arp_offset(s, (uint16_t)s->selected_event_idx, dir == DIR_RIGHT ? 1 : -1);
             return;
         }
     }

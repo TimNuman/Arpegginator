@@ -213,6 +213,8 @@ int32_t engine_get_field_offset(int32_t field_id) {
         case 8: return (int32_t)(uintptr_t)&base->chord_space;
         case 9: return (int32_t)(uintptr_t)&base->chord_inversion;
         case 10: return (int32_t)(uintptr_t)&base->event_index;
+        case 11: return (int32_t)(uintptr_t)&base->arp_style;
+        case 12: return (int32_t)(uintptr_t)&base->arp_offset;
         default: return -1;
     }
 }
@@ -458,6 +460,16 @@ void engine_cycle_chord_inversion_export(uint16_t event_idx, int8_t direction) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void engine_cycle_arp_style_export(uint16_t event_idx, int8_t direction) {
+    engine_cycle_arp_style(&g_state, event_idx, direction);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_adjust_arp_offset_export(uint16_t event_idx, int8_t direction) {
+    engine_adjust_arp_offset(&g_state, event_idx, direction);
+}
+
+EMSCRIPTEN_KEEPALIVE
 void engine_copy_pattern_export(uint8_t target_pattern) {
     engine_copy_pattern(&g_state, target_pattern);
 }
@@ -534,6 +546,18 @@ EMSCRIPTEN_KEEPALIVE
 int8_t engine_get_sel_chord_inversion(void) {
     const NoteEvent_C* ev = _get_selected_event();
     return ev ? ev->chord_inversion : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_sel_arp_style(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->arp_style : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int8_t engine_get_sel_arp_offset(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->arp_offset : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE

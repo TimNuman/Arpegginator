@@ -36,6 +36,8 @@ static void init_event(NoteEvent_C* ev, int16_t row, int32_t position, int32_t l
     ev->chord_amount = 1;
     ev->chord_space = 2;       // default: thirds (2 scale degrees apart)
     ev->chord_inversion = 0;
+    ev->arp_style = ARP_CHORD;
+    ev->arp_offset = 0;
     ev->event_index = id;
 
     // Default sub-mode values
@@ -306,6 +308,29 @@ void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t dir
         ev->chord_inversion = old_inv;
         ev->row = old_row;
     }
+}
+
+void engine_cycle_arp_style(EngineState* s, uint16_t event_idx, int8_t direction) {
+    PatternData_C* pat = get_current_pattern(s);
+    if (event_idx >= pat->event_count) return;
+    NoteEvent_C* ev = &pat->events[event_idx];
+
+    if (ev->chord_amount <= 1) return;  // no chord, no arp
+
+    int8_t new_style = (int8_t)ev->arp_style + direction;
+    if (new_style < 0) new_style = ARP_STYLE_COUNT - 1;
+    if (new_style >= ARP_STYLE_COUNT) new_style = 0;
+    ev->arp_style = (uint8_t)new_style;
+}
+
+void engine_adjust_arp_offset(EngineState* s, uint16_t event_idx, int8_t direction) {
+    PatternData_C* pat = get_current_pattern(s);
+    if (event_idx >= pat->event_count) return;
+    NoteEvent_C* ev = &pat->events[event_idx];
+
+    if (ev->chord_amount <= 1 || ev->arp_style == ARP_CHORD) return;
+
+    ev->arp_offset += direction;
 }
 
 // ============ Pattern Operations ============

@@ -61,6 +61,10 @@ export interface NoteEvent {
   chordAmount: number;          // 1 = single note, 2-5 = chord
   chordSpace: number;           // scale-degree gap between chord notes (default 2 = thirds)
   chordInversion: number;       // inversion: infinite, +N = bottom notes up, -N = top notes down
+
+  // Arpeggio (chord notes cycle on repeats)
+  arpStyle: number;             // 0=CHORD, 1=UP, 2=DOWN, 3=UP_DOWN, 4=DOWN_UP
+  arpOffset: number;            // starting offset into arp cycle
 }
 
 // ============ PatternData ============

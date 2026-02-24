@@ -55,6 +55,14 @@ typedef enum { LOOP_RESET = 0, LOOP_CONTINUE = 1, LOOP_FILL = 2 } LoopMode;
 typedef enum { CH_MELODIC = 0, CH_DRUM = 1 } ChannelType;
 typedef enum { SM_VELOCITY = 0, SM_HIT = 1, SM_TIMING = 2, SM_FLAM = 3, SM_MODULATE = 4 } SubModeId;
 
+// Arpeggio styles (chord notes on repeats)
+#define ARP_CHORD     0   // All chord notes play together (default)
+#define ARP_UP        1   // Cycle low→high
+#define ARP_DOWN      2   // Cycle high→low
+#define ARP_UP_DOWN   3   // Bounce: endpoints once (C E G E C E G E...)
+#define ARP_DOWN_UP   4   // Bounce reverse (G E C E G E C E...)
+#define ARP_STYLE_COUNT 5
+
 // UI modes
 typedef enum { UI_PATTERN = 0, UI_CHANNEL = 1, UI_LOOP = 2, UI_MODIFY = 3 } UiMode;
 
@@ -86,6 +94,8 @@ typedef struct {
     uint8_t       chord_amount;      // 1 = single note, 2-5 = chord
     uint8_t       chord_space;       // row offset between chord notes (default 2)
     int8_t        chord_inversion;   // infinite inversions (scale-dependent octave)
+    uint8_t       arp_style;         // ARP_CHORD, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_DOWN_UP
+    int8_t        arp_offset;        // starting offset into arp cycle (shifts which chord note plays first)
     uint16_t      event_index;    // integer ID (maps to UUID on JS side)
 } NoteEvent_C;
 
@@ -215,6 +225,14 @@ const char* engine_get_scale_name_str(const EngineState* s);
 
 /** Convert scale-relative row to MIDI note. Returns -1 if out of range. */
 int8_t note_to_midi(int16_t row, const EngineState* s);
+
+/**
+ * Get which chord note index to play for a given repeat.
+ * Returns 255 (sentinel) for ARP_CHORD meaning "play all notes".
+ * For other styles returns 0..chord_count-1.
+ * offset shifts the starting position in the cycle.
+ */
+uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset);
 
 // ============ Version ============
 
