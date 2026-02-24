@@ -96,6 +96,7 @@ typedef struct {
     int8_t        chord_inversion;   // infinite inversions (scale-dependent octave)
     uint8_t       arp_style;         // ARP_CHORD, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_DOWN_UP
     int8_t        arp_offset;        // starting offset into arp cycle (shifts which chord note plays first)
+    uint8_t       arp_voices;        // simultaneous chord notes per arp step (1 = single, max = chord_amount-1)
     uint16_t      event_index;    // integer ID (maps to UUID on JS side)
 } NoteEvent_C;
 
@@ -233,6 +234,15 @@ int8_t note_to_midi(int16_t row, const EngineState* s);
  * offset shifts the starting position in the cycle.
  */
 uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset);
+
+/**
+ * Check if a specific chord index should be active for a given repeat.
+ * Takes arp_voices into account: for voices > 1, a sliding window of
+ * consecutive chord indices is active starting from the base arp index.
+ * Returns 1 if active, 0 if not.
+ * For ARP_CHORD style (or chord_count <= 1), always returns 1.
+ */
+uint8_t is_arp_chord_active(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset, uint8_t voices, uint8_t chord_idx);
 
 // ============ Version ============
 

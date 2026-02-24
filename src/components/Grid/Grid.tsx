@@ -375,6 +375,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const chordInv = wasmEngine.getSelChordInversion();
       const arpStyle = wasmEngine.getSelArpStyle();
       const arpOffset = wasmEngine.getSelArpOffset();
+      const arpVoices = wasmEngine.getSelArpVoices();
       const ARP_STYLE_NAMES = ['CHD', 'UP', 'DN', 'U/D', 'D/U'];
 
       const noteName = isDrumChannel
@@ -391,6 +392,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const highlightChordAmount = keyboard.meta && !keyboard.shift;
       const highlightChordSpace = keyboard.meta && keyboard.shift;
       const highlightArpStyle = keyboard.alt && !keyboard.meta && !keyboard.shift;
+      const highlightArpVoices = keyboard.alt && keyboard.shift && !keyboard.meta;
       const showChord = keyboard.meta || keyboard.alt || chordAmount > 1;
 
       return {
@@ -427,6 +429,12 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
                       ? `${arpOffset > 0 ? '+' : ''}${arpOffset}`
                       : '',
                     highlight: highlightArpStyle,
+                  },
+                  {
+                    text: chordAmount > 1 && arpStyle > 0 && arpVoices > 1
+                      ? ` v${arpVoices}`
+                      : '',
+                    highlight: highlightArpVoices,
                   },
                 ],
               }

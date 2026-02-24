@@ -298,6 +298,22 @@ uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_
     return idx;
 }
 
+uint8_t is_arp_chord_active(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset, uint8_t voices, uint8_t chord_idx) {
+    if (style == ARP_CHORD || chord_count <= 1) return 1; // play all
+
+    uint8_t base = get_arp_chord_index(style, chord_count, repeat_idx, offset);
+    if (base == 255) return 1; // sentinel: play all
+
+    uint8_t v = voices < 1 ? 1 : voices;
+    if (v >= chord_count) return 1; // all notes active
+
+    // Check if chord_idx is within the window [base, base+1, ..., base+v-1] mod chord_count
+    for (uint8_t i = 0; i < v; i++) {
+        if ((base + i) % chord_count == chord_idx) return 1;
+    }
+    return 0;
+}
+
 // ============ Active Notes ============
 
 static void kill_active_notes_for_channel(EngineState* s, uint8_t ch) {
@@ -614,12 +630,9 @@ void engine_core_tick(EngineState* s) {
                                          ev->chord_inversion, offsets16, &offset_count);
                     for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
-                    // Arpeggio: pick which chord note(s) to play
-                    uint8_t arp_idx = get_arp_chord_index(ev->arp_style, offset_count, r, ev->arp_offset);
-
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         // Skip notes not selected by arpeggio
-                        if (arp_idx != 255 && ci != arp_idx) continue;
+                        if (!is_arp_chord_active(ev->arp_style, offset_count, r, ev->arp_offset, ev->arp_voices, ci)) continue;
 
                         int16_t chord_row = effective_row + offsets[ci];
                         int8_t midi_note;

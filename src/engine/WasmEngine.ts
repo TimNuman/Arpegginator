@@ -120,6 +120,7 @@ export class WasmEngine {
   private _getSelChordInversion!: () => number;
   private _getSelArpStyle!: () => number;
   private _getSelArpOffset!: () => number;
+  private _getSelArpVoices!: () => number;
   private _getSelSubModeLoopMode!: (sm: number) => number;
   private _getSelSubModeArrayLength!: (sm: number) => number;
 
@@ -237,6 +238,7 @@ export class WasmEngine {
     this._getSelChordInversion = cw('engine_get_sel_chord_inversion', 'number', []);
     this._getSelArpStyle = cw('engine_get_sel_arp_style', 'number', []);
     this._getSelArpOffset = cw('engine_get_sel_arp_offset', 'number', []);
+    this._getSelArpVoices = cw('engine_get_sel_arp_voices', 'number', []);
     this._getSelSubModeLoopMode = cw('engine_get_sel_sub_mode_loop_mode', 'number', ['number']);
     this._getSelSubModeArrayLength = cw('engine_get_sel_sub_mode_array_length', 'number', ['number']);
 
@@ -278,7 +280,7 @@ export class WasmEngine {
     // Query struct layout from C
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
-    for (let i = 0; i <= 12; i++) {
+    for (let i = 0; i <= 13; i++) {
       this.fieldOffsets[i] = this._getFieldOffset(i);
     }
 
@@ -442,6 +444,7 @@ export class WasmEngine {
         chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),
         arpStyle: mod.HEAPU8[ptr + this.fieldOffsets[11]],
         arpOffset: view.getInt8(ptr + this.fieldOffsets[12]),
+        arpVoices: mod.HEAPU8[ptr + this.fieldOffsets[13]],
       };
 
       events.push(event);
@@ -631,6 +634,7 @@ export class WasmEngine {
   getSelChordInversion(): number { return this._getSelChordInversion(); }
   getSelArpStyle(): number { return this._getSelArpStyle(); }
   getSelArpOffset(): number { return this._getSelArpOffset(); }
+  getSelArpVoices(): number { return this._getSelArpVoices(); }
   getSelSubModeLoopMode(sm: number): number { return this._getSelSubModeLoopMode(sm); }
   getSelSubModeArrayLength(sm: number): number { return this._getSelSubModeArrayLength(sm); }
 

@@ -90,6 +90,12 @@ void engine_cycle_arp_style(EngineState* s, uint16_t event_idx, int8_t direction
  */
 void engine_adjust_arp_offset(EngineState* s, uint16_t event_idx, int8_t direction);
 
+/**
+ * Adjust simultaneous arp voices. direction: 1 = more, -1 = fewer.
+ * Range: 1 to chord_amount-1.
+ */
+void engine_adjust_arp_voices(EngineState* s, uint16_t event_idx, int8_t direction);
+
 // ============ Pattern Operations ============
 
 /**

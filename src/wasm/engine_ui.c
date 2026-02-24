@@ -149,10 +149,8 @@ uint16_t engine_render_events(
             }
 
             // Expand chord notes (arp filtering: only show what will play)
-            uint8_t arp_idx = get_arp_chord_index(ev->arp_style, chord_count, r, ev->arp_offset);
-
             for (uint8_t c = 0; c < chord_count && count < max_out; c++) {
-                if (arp_idx != 255 && c != arp_idx) continue;
+                if (!is_arp_chord_active(ev->arp_style, chord_count, r, ev->arp_offset, ev->arp_voices, c)) continue;
 
                 RenderedNote* rn = &out[count++];
                 rn->source_row = ev->row;

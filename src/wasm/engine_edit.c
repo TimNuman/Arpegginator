@@ -38,6 +38,7 @@ static void init_event(NoteEvent_C* ev, int16_t row, int32_t position, int32_t l
     ev->chord_inversion = 0;
     ev->arp_style = ARP_CHORD;
     ev->arp_offset = 0;
+    ev->arp_voices = 1;
     ev->event_index = id;
 
     // Default sub-mode values
@@ -321,6 +322,21 @@ void engine_cycle_arp_style(EngineState* s, uint16_t event_idx, int8_t direction
     if (new_style < 0) new_style = ARP_STYLE_COUNT - 1;
     if (new_style >= ARP_STYLE_COUNT) new_style = 0;
     ev->arp_style = (uint8_t)new_style;
+}
+
+void engine_adjust_arp_voices(EngineState* s, uint16_t event_idx, int8_t direction) {
+    PatternData_C* pat = get_current_pattern(s);
+    if (event_idx >= pat->event_count) return;
+    NoteEvent_C* ev = &pat->events[event_idx];
+
+    if (ev->chord_amount <= 1 || ev->arp_style == ARP_CHORD) return;
+
+    int8_t new_voices = (int8_t)ev->arp_voices + direction;
+    if (new_voices < 1) new_voices = 1;
+    // Max is chord_amount - 1 (at chord_amount it would be all notes = just use CHORD style)
+    if (new_voices >= (int8_t)ev->chord_amount) new_voices = (int8_t)ev->chord_amount - 1;
+
+    ev->arp_voices = (uint8_t)new_voices;
 }
 
 void engine_adjust_arp_offset(EngineState* s, uint16_t event_idx, int8_t direction) {

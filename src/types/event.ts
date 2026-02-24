@@ -65,6 +65,7 @@ export interface NoteEvent {
   // Arpeggio (chord notes cycle on repeats)
   arpStyle: number;             // 0=CHORD, 1=UP, 2=DOWN, 3=UP_DOWN, 4=DOWN_UP
   arpOffset: number;            // starting offset into arp cycle
+  arpVoices: number;            // simultaneous chord notes per arp step (1 = single, max = chordAmount-1)
 }
 
 // ============ PatternData ============
