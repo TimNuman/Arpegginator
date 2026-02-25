@@ -230,6 +230,27 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
     int32_t tpc = s->zoom;
     PatternData_C* pat = &s->patterns[s->current_channel][s->current_patterns[s->current_channel]];
 
+    // Alt+click: copy selected event to this position
+    if ((mods & MOD_ALT) && !(mods & MOD_META) && !(mods & MOD_CTRL) && s->selected_event_idx >= 0) {
+        if (pat->event_count >= MAX_EVENTS) return;
+        const NoteEvent_C* src = &pat->events[s->selected_event_idx];
+
+        // Place the previously selected event before duplicating
+        engine_place_event(s, (uint16_t)s->selected_event_idx);
+
+        uint16_t new_idx = pat->event_count;
+        pat->events[new_idx] = *src;  // struct copy (all fields)
+        pat->events[new_idx].row = row;
+        pat->events[new_idx].position = tick;
+        pat->events[new_idx].event_index = engine_alloc_event_id(s);
+        pat->event_count++;
+
+        s->selected_event_idx = (int16_t)new_idx;
+        engine_update_has_notes(s, s->current_channel, s->current_patterns[s->current_channel]);
+        play_event_preview(s, &pat->events[new_idx], tpc);
+        return;
+    }
+
     // Meta+click: disable note (only turn off, never re-enable)
     if (mods & MOD_META) {
         int16_t idx = engine_find_event_at(s, row, tick);
