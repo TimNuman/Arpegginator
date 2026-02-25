@@ -156,9 +156,6 @@ void engine_set_event_repeat_amount(EngineState* s, uint16_t event_idx, uint16_t
     NoteEvent_C* ev = &pat->events[event_idx];
 
     ev->repeat_amount = repeat_amount;
-    if (repeat_amount > 1 && ev->length > ev->repeat_space) {
-        ev->length = ev->repeat_space;
-    }
 }
 
 void engine_set_event_repeat_space(EngineState* s, uint16_t event_idx, int32_t repeat_space) {
@@ -167,9 +164,6 @@ void engine_set_event_repeat_space(EngineState* s, uint16_t event_idx, int32_t r
     NoteEvent_C* ev = &pat->events[event_idx];
 
     ev->repeat_space = repeat_space;
-    if (ev->repeat_amount > 1 && ev->length > repeat_space) {
-        ev->length = repeat_space;
-    }
 }
 
 // ============ Sub-Mode Operations ============

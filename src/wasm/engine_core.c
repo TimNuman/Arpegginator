@@ -346,28 +346,22 @@ static void handle_active_note(
     int32_t note_length,
     int8_t midi_note
 ) {
-    // Find existing note with same key and send note-off
+    // Kill any active note on the same channel with the same midi note.
+    // A note must always be released before the same pitch triggers again.
     int free_slot = -1;
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
         ActiveNote* n = &s->active_notes[i];
-        if (n->active &&
-            n->channel == ch &&
-            n->event_index == event_index &&
-            n->repeat_index == repeat_index &&
-            n->chord_index == chord_index) {
+        if (n->active && n->channel == ch && n->midi_note == midi_note) {
             platform_note_off(ch, (uint8_t)n->midi_note);
-            // Reuse this slot
-            n->start = channel_tick;
-            n->end = channel_tick + note_length - 1;
-            n->midi_note = midi_note;
-            return;
+            n->active = 0;
+            if (free_slot < 0) free_slot = i;
         }
         if (!n->active && free_slot < 0) {
             free_slot = i;
         }
     }
 
-    // Allocate new slot
+    // Allocate slot
     if (free_slot >= 0) {
         ActiveNote* n = &s->active_notes[free_slot];
         n->active = 1;

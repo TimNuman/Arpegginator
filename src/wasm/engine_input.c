@@ -721,9 +721,6 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
     if ((mods & MOD_SHIFT) && !(mods & MOD_META) && !(mods & MOD_ALT)) {
         if (dir == DIR_LEFT || dir == DIR_RIGHT) {
             int32_t max_len = pat->length_ticks - ev->position;
-            if (ev->repeat_amount > 1) {
-                max_len = i32_min(max_len, ev->repeat_space);
-            }
             int32_t steps[MAX_STEPS];
             int n = build_step_table(tpc, max_len, steps);
             int32_t cur = ev->length;

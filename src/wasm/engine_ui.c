@@ -176,6 +176,21 @@ uint16_t engine_render_events(
         }
     }
 
+    // Post-process: cap each note's visual length so it doesn't overlap
+    // the next note on the same row (a note must release before re-triggering).
+    for (uint16_t i = 0; i < count; i++) {
+        RenderedNote* rn = &out[i];
+        int32_t nearest_next = rn->position + rn->length; // default: full length
+        for (uint16_t j = 0; j < count; j++) {
+            if (j == i) continue;
+            if (out[j].row != rn->row) continue;
+            if (out[j].position > rn->position && out[j].position < nearest_next) {
+                nearest_next = out[j].position;
+            }
+        }
+        rn->length = nearest_next - rn->position;
+    }
+
     return count;
 }
 
