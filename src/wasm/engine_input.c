@@ -251,8 +251,8 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
         return;
     }
 
-    // Meta+click: disable note (only turn off, never re-enable)
-    if (mods & MOD_META) {
+    // Meta+click (no Shift): disable note (only turn off, never re-enable)
+    if ((mods & MOD_META) && !(mods & MOD_SHIFT)) {
         int16_t idx = engine_find_event_at(s, row, tick);
         if (idx < 0) idx = find_event_overlapping(s, row, tick);
         if (idx < 0) idx = find_event_by_chord(s, row, tick);
@@ -265,8 +265,23 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
         return;
     }
 
-    // Shift+click: resize selected note to this tick
-    if ((mods & MOD_SHIFT) && s->selected_event_idx >= 0) {
+    // Cmd+Shift+click: set repeat amount to fill until this tick
+    if ((mods & MOD_META) && (mods & MOD_SHIFT) && s->selected_event_idx >= 0) {
+        NoteEvent_C* sel = &pat->events[s->selected_event_idx];
+        if (sel->row == row && tick > sel->position) {
+            int32_t span = tick - sel->position;
+            int32_t space = sel->repeat_space;
+            if (space < 1) space = tpc;
+            uint16_t amt = (uint16_t)(span / space) + 1;
+            if (amt < 1) amt = 1;
+            if (amt > 64) amt = 64;
+            engine_set_event_repeat_amount(s, (uint16_t)s->selected_event_idx, amt);
+            return;
+        }
+    }
+
+    // Shift+click (no Cmd): resize selected note to this tick
+    if ((mods & MOD_SHIFT) && !(mods & MOD_META) && s->selected_event_idx >= 0) {
         NoteEvent_C* sel = &pat->events[s->selected_event_idx];
         if (sel->row == row) {
             int32_t start = i32_min(sel->position, tick);
@@ -362,8 +377,8 @@ static void handle_channel_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
     uint8_t pat_idx = vis_col - 1;
     if (pat_idx >= NUM_PATTERNS) return;
 
-    if ((mods & MOD_SHIFT) && ch_idx == s->current_channel) {
-        // Shift+click on empty pattern: copy current pattern
+    if ((mods & MOD_ALT) && ch_idx == s->current_channel) {
+        // Alt+click on empty pattern: copy current pattern
         if (!s->patterns_have_notes[ch_idx][pat_idx]) {
             engine_copy_pattern(s, pat_idx);
         }
