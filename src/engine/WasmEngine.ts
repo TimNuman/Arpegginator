@@ -123,6 +123,7 @@ export class WasmEngine {
   private _getSelArpVoices!: () => number;
   private _getSelSubModeLoopMode!: (sm: number) => number;
   private _getSelSubModeArrayLength!: (sm: number) => number;
+  private _getChordName!: () => number;
 
   // Current pattern/loop getters
   private _getCurrentLoopStart!: () => number;
@@ -241,6 +242,7 @@ export class WasmEngine {
     this._getSelArpVoices = cw('engine_get_sel_arp_voices', 'number', []);
     this._getSelSubModeLoopMode = cw('engine_get_sel_sub_mode_loop_mode', 'number', ['number']);
     this._getSelSubModeArrayLength = cw('engine_get_sel_sub_mode_array_length', 'number', ['number']);
+    this._getChordName = cw('engine_get_chord_name', 'number', []);
 
     // Current pattern/loop getters
     this._getCurrentLoopStart = cw('engine_get_current_loop_start', 'number', []);
@@ -637,6 +639,10 @@ export class WasmEngine {
   getSelArpVoices(): number { return this._getSelArpVoices(); }
   getSelSubModeLoopMode(sm: number): number { return this._getSelSubModeLoopMode(sm); }
   getSelSubModeArrayLength(sm: number): number { return this._getSelSubModeArrayLength(sm); }
+  getChordName(): string {
+    const ptr = this._getChordName();
+    return (this.module as unknown as { UTF8ToString: (ptr: number) => string }).UTF8ToString(ptr);
+  }
 
   // Current pattern/loop getters
   getCurrentLoopStart(): number { return this._getCurrentLoopStart(); }

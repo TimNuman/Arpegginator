@@ -394,6 +394,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const highlightArpStyle = keyboard.alt && !keyboard.meta && !keyboard.shift;
       const highlightArpVoices = keyboard.alt && keyboard.shift && !keyboard.meta;
       const showChord = keyboard.meta || keyboard.alt || chordAmount > 1;
+      const chordName = chordAmount > 1 ? wasmEngine.getChordName() : '';
 
       return {
         rows: [
@@ -404,39 +405,35 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           showChord
             ? {
                 label: "CHORD",
-                valueParts: [
-                  {
-                    text: `${chordAmount}`,
-                    highlight: highlightChordAmount,
-                  },
-                  {
-                    text: chordAmount > 1 ? `x${chordSpace}` : "",
-                    highlight: highlightChordSpace,
-                  },
-                  {
-                    text:
-                      chordInv !== 0
-                        ? ` I${chordInv > 0 ? "+" : ""}${chordInv}`
-                        : "",
-                    highlight: keyboard.shift && !keyboard.meta,
-                  },
-                  {
-                    text: chordAmount > 1 ? ` ${ARP_STYLE_NAMES[arpStyle] ?? 'CHD'}` : '',
-                    highlight: highlightArpStyle,
-                  },
-                  {
-                    text: chordAmount > 1 && arpStyle > 0 && arpOffset !== 0
-                      ? `${arpOffset > 0 ? '+' : ''}${arpOffset}`
-                      : '',
-                    highlight: highlightArpStyle,
-                  },
-                  {
-                    text: chordAmount > 1 && arpStyle > 0 && arpVoices > 1
-                      ? ` v${arpVoices}`
-                      : '',
-                    highlight: highlightArpVoices,
-                  },
-                ],
+                valueParts: chordAmount > 1
+                  ? [
+                      {
+                        text: chordName || `${chordAmount}x${chordSpace}`,
+                        highlight: highlightChordAmount || highlightChordSpace,
+                      },
+                      {
+                        text: arpStyle > 0 ? ` ${ARP_STYLE_NAMES[arpStyle] ?? 'CHD'}` : '',
+                        highlight: highlightArpStyle,
+                      },
+                      {
+                        text: arpStyle > 0 && arpOffset !== 0
+                          ? `${arpOffset > 0 ? '+' : ''}${arpOffset}`
+                          : '',
+                        highlight: highlightArpStyle,
+                      },
+                      {
+                        text: arpStyle > 0 && arpVoices > 1
+                          ? ` v${arpVoices}`
+                          : '',
+                        highlight: highlightArpVoices,
+                      },
+                    ]
+                  : [
+                      {
+                        text: `${chordAmount}`,
+                        highlight: highlightChordAmount,
+                      },
+                    ],
               }
             : {
                 label: "LENGTH",

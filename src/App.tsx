@@ -319,7 +319,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        {wasmEngineRef.current && <Grid onPlayNote={handlePlayNote} wasmEngine={wasmEngineRef.current} />}
+        {wasmReady && wasmEngineRef.current && <Grid onPlayNote={handlePlayNote} wasmEngine={wasmEngineRef.current} />}
       </Box>
     </ThemeProvider>
   );

@@ -1,4 +1,5 @@
 #include <emscripten.h>
+#include <string.h>
 #include "engine_core.h"
 #include "engine_ui.h"
 #include "engine_edit.h"
@@ -659,6 +660,265 @@ uint16_t engine_get_scale_zero_index(void) {
 EMSCRIPTEN_KEEPALIVE
 uint8_t engine_get_num_scales(void) {
     return NUM_SCALES;
+}
+
+// ============ Chord Name Analysis ============
+
+static const char* NOTE_NAMES[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+
+// Chord interval patterns: sorted intervals from root (semitones), quality suffix
+typedef struct {
+    uint8_t intervals[4];  // up to 4 intervals (0-terminated after last)
+    uint8_t count;         // number of intervals
+    const char* suffix;    // quality suffix
+} ChordTemplate;
+
+static const ChordTemplate CHORD_TEMPLATES[] = {
+    // Triads
+    {{4,7,0,0},   2, ""},        // major
+    {{3,7,0,0},   2, "m"},       // minor
+    {{3,6,0,0},   2, "dim"},     // diminished
+    {{4,8,0,0},   2, "aug"},     // augmented
+    {{2,7,0,0},   2, "sus2"},    // sus2
+    {{5,7,0,0},   2, "sus4"},    // sus4
+    // 7ths
+    {{4,7,11,0},  3, "maj7"},    // major 7
+    {{4,7,10,0},  3, "7"},       // dominant 7
+    {{3,7,10,0},  3, "m7"},      // minor 7
+    {{3,7,11,0},  3, "mM7"},     // minor-major 7
+    {{3,6,10,0},  3, "m7b5"},    // half-diminished
+    {{3,6,9,0},   3, "dim7"},    // diminished 7
+    {{4,8,10,0},  3, "aug7"},    // augmented 7
+    // 6ths
+    {{4,7,9,0},   3, "6"},       // major 6
+    {{3,7,9,0},   3, "m6"},      // minor 6
+    // sus 7ths
+    {{5,7,10,0},  3, "7sus4"},   // 7sus4
+    // 5ths
+    {{7,0,0,0},   1, "5"},       // power chord
+};
+#define NUM_CHORD_TEMPLATES (sizeof(CHORD_TEMPLATES) / sizeof(CHORD_TEMPLATES[0]))
+
+// Roman numeral lookup
+static const char* ROMAN[] = {"I","II","III","IV","V","VI","VII"};
+
+// Find scale degree for a pitch class relative to the current scale
+// Returns 0-6 (degree index) or -1 if not found
+static int8_t find_scale_degree(const EngineState* s, uint8_t pc) {
+    // Walk through the first octave of scale notes starting from root
+    uint8_t root = s->scale_root;
+    const uint8_t* pattern = NULL;
+
+    // We need the scale pattern — reconstruct from scale_notes around zero_index
+    // Simpler: check scale_notes for a note with this pitch class near zero_index
+    uint16_t zi = s->scale_zero_index;
+    uint8_t octave_size = s->scale_octave_size;
+
+    for (uint8_t d = 0; d < octave_size && d < 12; d++) {
+        uint16_t idx = zi + d;
+        if (idx >= s->scale_count) break;
+        uint8_t midi = s->scale_notes[idx];
+        if (midi % 12 == pc) return (int8_t)d;
+    }
+    // Check below zero_index too (for flats)
+    for (uint8_t d = 0; d < octave_size && d < 12; d++) {
+        if (zi < d + 1) break;
+        uint16_t idx = zi - d - 1;
+        uint8_t midi = s->scale_notes[idx];
+        if (midi % 12 == pc) return (int8_t)(octave_size - d - 1);
+    }
+    return -1;
+}
+
+// Extension interval labels (semitone → name)
+static const char* interval_to_ext(uint8_t semitones) {
+    switch (semitones) {
+        case 1:  return "b9";
+        case 2:  return "9";
+        case 3:  return "#9";
+        case 5:  return "11";
+        case 6:  return "#11";
+        case 8:  return "b13";
+        case 9:  return "13";
+        case 10: return "b7";
+        case 11: return "maj7";
+        default: return NULL;
+    }
+}
+
+static char g_chord_name_buf[64];
+
+// Helper: append string to buffer
+static char* buf_append(char* p, const char* end, const char* s) {
+    while (*s && p < end) *p++ = *s++;
+    return p;
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* engine_get_chord_name(void) {
+    g_chord_name_buf[0] = '\0';
+
+    const NoteEvent_C* ev = _get_selected_event();
+    if (!ev || ev->chord_amount <= 1) return g_chord_name_buf;
+
+    // 1. Get chord offsets and convert to MIDI pitch classes
+    int8_t offsets[MAX_CHORD_SIZE];
+    uint8_t chord_count = get_chord_offsets(&g_state, ev, offsets, MAX_CHORD_SIZE);
+
+    uint8_t pitch_classes[MAX_CHORD_SIZE];
+    uint8_t pc_count = 0;
+    int8_t lowest_midi = 127;
+    uint8_t bass_pc = 0;
+
+    for (uint8_t i = 0; i < chord_count; i++) {
+        int8_t midi = note_to_midi(ev->row + offsets[i], &g_state);
+        if (midi < 0) continue;
+        if (midi < lowest_midi) {
+            lowest_midi = midi;
+            bass_pc = (uint8_t)(midi % 12);
+        }
+        uint8_t pc = (uint8_t)(midi % 12);
+        uint8_t dup = 0;
+        for (uint8_t j = 0; j < pc_count; j++) {
+            if (pitch_classes[j] == pc) { dup = 1; break; }
+        }
+        if (!dup && pc_count < MAX_CHORD_SIZE) {
+            pitch_classes[pc_count++] = pc;
+        }
+    }
+
+    if (pc_count < 2) return g_chord_name_buf;
+
+    // Sort pitch classes ascending
+    for (uint8_t i = 0; i < pc_count - 1; i++) {
+        for (uint8_t j = i + 1; j < pc_count; j++) {
+            if (pitch_classes[j] < pitch_classes[i]) {
+                uint8_t tmp = pitch_classes[i];
+                pitch_classes[i] = pitch_classes[j];
+                pitch_classes[j] = tmp;
+            }
+        }
+    }
+
+    // 2. Try all rotations, find best subset match (most intervals matched)
+    //    Bass note (lowest pitch) is tried first so it wins on ties
+    const char* best_suffix = NULL;
+    uint8_t best_root_pc = 0;
+    uint8_t best_match_count = 0;
+    uint8_t best_intervals[MAX_CHORD_SIZE - 1];
+    uint8_t best_n_intervals = 0;
+    uint8_t best_matched[MAX_CHORD_SIZE - 1]; // which intervals were matched by template
+
+    // Find bass_pc index in sorted array
+    uint8_t bass_idx = 0;
+    for (uint8_t i = 0; i < pc_count; i++) {
+        if (pitch_classes[i] == bass_pc) { bass_idx = i; break; }
+    }
+
+    for (uint8_t r = 0; r < pc_count; r++) {
+        // Try bass note first, then the rest in order
+        uint8_t rot = (r == 0) ? bass_idx : (r <= bass_idx ? r - 1 : r);
+        uint8_t root_pc = pitch_classes[rot];
+        uint8_t intervals[MAX_CHORD_SIZE - 1];
+        uint8_t n_intervals = 0;
+
+        for (uint8_t i = 0; i < pc_count; i++) {
+            if (i == rot) continue;
+            intervals[n_intervals++] = (pitch_classes[i] - root_pc + 12) % 12;
+        }
+
+        // Sort intervals
+        for (uint8_t i = 0; i < n_intervals - 1; i++) {
+            for (uint8_t j = i + 1; j < n_intervals; j++) {
+                if (intervals[j] < intervals[i]) {
+                    uint8_t tmp = intervals[i];
+                    intervals[i] = intervals[j];
+                    intervals[j] = tmp;
+                }
+            }
+        }
+
+        // Find best matching template (subset match, largest wins)
+        for (uint16_t t = 0; t < NUM_CHORD_TEMPLATES; t++) {
+            const ChordTemplate* tmpl = &CHORD_TEMPLATES[t];
+            if (tmpl->count > n_intervals) continue;
+            if (tmpl->count <= best_match_count) continue; // can't beat current best
+
+            // Check if all template intervals exist in chord intervals
+            uint8_t matched[MAX_CHORD_SIZE - 1];
+            memset(matched, 0, sizeof(matched));
+            uint8_t all_found = 1;
+            for (uint8_t k = 0; k < tmpl->count; k++) {
+                uint8_t found = 0;
+                for (uint8_t m = 0; m < n_intervals; m++) {
+                    if (intervals[m] == tmpl->intervals[k]) {
+                        matched[m] = 1;
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) { all_found = 0; break; }
+            }
+            if (all_found) {
+                best_suffix = tmpl->suffix;
+                best_root_pc = root_pc;
+                best_match_count = tmpl->count;
+                best_n_intervals = n_intervals;
+                memcpy(best_intervals, intervals, n_intervals);
+                memcpy(best_matched, matched, n_intervals);
+            }
+        }
+    }
+
+    // 3. Build the output string
+    char* p = g_chord_name_buf;
+    char* end = g_chord_name_buf + sizeof(g_chord_name_buf) - 1;
+
+    if (best_suffix) {
+        // Root note name + quality
+        p = buf_append(p, end, NOTE_NAMES[best_root_pc]);
+        p = buf_append(p, end, best_suffix);
+
+        // Extensions: unmatched intervals
+        for (uint8_t i = 0; i < best_n_intervals && p < end - 5; i++) {
+            if (best_matched[i]) continue;
+            const char* ext = interval_to_ext(best_intervals[i]);
+            if (ext) {
+                if (p < end) *p++ = '+';
+                p = buf_append(p, end, ext);
+            }
+        }
+
+        // Slash notation for inversions (bass note differs from chord root)
+        if (best_root_pc != bass_pc) {
+            if (p < end) *p++ = '/';
+            p = buf_append(p, end, NOTE_NAMES[bass_pc]);
+        }
+    } else {
+        // Fallback: root note + interval list
+        uint8_t root_pc = pitch_classes[0];
+        p = buf_append(p, end, NOTE_NAMES[root_pc]);
+        if (p < end) *p++ = '(';
+        for (uint8_t i = 1; i < pc_count && p < end - 3; i++) {
+            uint8_t iv = (pitch_classes[i] - root_pc + 12) % 12;
+            if (iv >= 10) { *p++ = '0' + (iv / 10); }
+            *p++ = '0' + (iv % 10);
+            if (i < pc_count - 1 && p < end) *p++ = ',';
+        }
+        if (p < end) *p++ = ')';
+        best_root_pc = root_pc;
+    }
+
+    // 4. Roman numeral
+    int8_t degree = find_scale_degree(&g_state, best_root_pc);
+    if (degree >= 0 && degree < 7) {
+        p = buf_append(p, end, " (");
+        p = buf_append(p, end, ROMAN[degree]);
+        if (p < end) *p++ = ')';
+    }
+
+    *p = '\0';
+    return g_chord_name_buf;
 }
 
 // ============ Grid Dimension Getters ============
