@@ -54,9 +54,8 @@ const titleStyles = css`
 `;
 
 function App() {
-  // WASM engine
-  const wasmEngineRef = useRef<WasmEngine | null>(null);
-  const [wasmReady, setWasmReady] = useState(false);
+  // WASM engine — null until loaded, non-null gates rendering
+  const [wasmEngine, setWasmEngine] = useState<WasmEngine | null>(null);
 
   useEffect(() => {
     const engine = new WasmEngine();
@@ -103,8 +102,7 @@ function App() {
         }
       }
 
-      wasmEngineRef.current = engine;
-      setWasmReady(true);
+      setWasmEngine(engine);
       actions.setWasmEngine(engine);
       console.log('WASM engine v' + engine.getVersion() + ' ready');
     }).catch((err) => {
@@ -226,15 +224,14 @@ function App() {
   useEffect(() => {
     actions.setStepTriggerCallback(handleStepTrigger);
     actions.setNoteOffCallback(handleNoteOff);
-    if (wasmEngineRef.current) {
-      wasmEngineRef.current.onStepTrigger = handleStepTrigger;
-      wasmEngineRef.current.onNoteOff = handleNoteOff;
-      wasmEngineRef.current.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
-        const engine = wasmEngineRef.current!;
-        const isDrum = engine.getChannelType(channel) === 1;
+    if (wasmEngine) {
+      wasmEngine.onStepTrigger = handleStepTrigger;
+      wasmEngine.onNoteOff = handleNoteOff;
+      wasmEngine.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
+        const isDrum = wasmEngine.getChannelType(channel) === 1;
         const midiNote = isDrum
           ? Math.max(0, Math.min(127, row))
-          : engine.noteToMidi(row);
+          : wasmEngine.noteToMidi(row);
         if (midiNote >= 0) {
           handlePlayNote(midiNote, channel, lengthTicks > 0 ? lengthTicks : undefined);
         }
@@ -243,13 +240,13 @@ function App() {
     return () => {
       actions.setStepTriggerCallback(null);
       actions.setNoteOffCallback(null);
-      if (wasmEngineRef.current) {
-        wasmEngineRef.current.onStepTrigger = null;
-        wasmEngineRef.current.onNoteOff = null;
-        wasmEngineRef.current.onPlayPreviewNote = null;
+      if (wasmEngine) {
+        wasmEngine.onStepTrigger = null;
+        wasmEngine.onNoteOff = null;
+        wasmEngine.onPlayPreviewNote = null;
       }
     };
-  }, [handleStepTrigger, handleNoteOff, handlePlayNote, wasmReady]);
+  }, [handleStepTrigger, handleNoteOff, handlePlayNote, wasmEngine]);
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;
@@ -294,6 +291,21 @@ function App() {
     actions.setBpm(newBpm);
   }, []);
 
+  // Don't render anything until both WASM and MIDI are ready
+  if (!wasmEngine || !isEnabled) {
+    return (
+      <ThemeProvider theme={darkTheme}>
+        <CssBaseline />
+        <Global styles={globalStyles} />
+        <Box css={appContainerStyles}>
+          <Box component="h1" css={titleStyles}>
+            ARP3
+          </Box>
+        </Box>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
@@ -319,7 +331,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        {wasmReady && wasmEngineRef.current && <Grid onPlayNote={handlePlayNote} wasmEngine={wasmEngineRef.current} />}
+        <Grid onPlayNote={handlePlayNote} wasmEngine={wasmEngine} />
       </Box>
     </ThemeProvider>
   );
