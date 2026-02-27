@@ -109,7 +109,8 @@ export const oledRowStyles = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 33.33%;
+  flex: 1;
+  min-height: 0;
 `;
 
 export const oledLabelStyles = css`
@@ -130,6 +131,13 @@ export const oledHighlightStyles = css`
   font-size: 12px;
   font-weight: 500;
   text-shadow: 0 0 8px rgba(255, 255, 0, 0.5);
+`;
+
+export const oledHighlightRedStyles = css`
+  color: #f55;
+  font-size: 12px;
+  font-weight: 500;
+  text-shadow: 0 0 8px rgba(255, 85, 85, 0.5);
 `;
 
 export const rotaryEncoderStyles = css`

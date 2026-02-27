@@ -30,6 +30,7 @@ import {
   oledLabelStyles,
   oledValueStyles,
   oledHighlightStyles,
+  oledHighlightRedStyles,
   rotaryEncoderStyles,
   rotaryKnobStyles,
   arrowButtonContainerStyles,
@@ -367,7 +368,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   );
 
   // ============ OLED Display ============
-  type OledValuePart = { text: string; highlight?: boolean };
+  type OledValuePart = { text: string; highlight?: boolean; highlightRed?: boolean };
   type OledRow = { label: string; valueParts: OledValuePart[] };
 
   const getOledContent = useCallback((): { rows: OledRow[] } => {
@@ -378,8 +379,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const repeatSpace = wasmEngine.getSelRepeatSpace();
       const chordAmount = wasmEngine.getSelChordAmount();
       const chordSpace = wasmEngine.getSelChordSpace();
-      const chordInv = wasmEngine.getSelChordInversion();
-      const chordVoicing = wasmEngine.getSelChordVoicing();
       const arpStyle = wasmEngine.getSelArpStyle();
       const arpOffset = wasmEngine.getSelArpOffset();
       const arpVoices = wasmEngine.getSelArpVoices();
@@ -393,75 +392,111 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           })();
       const lengthDisplay = ticksToMusicalName(selLength, ticksPerCol);
       const repeatSpaceDisplay = ticksToMusicalName(repeatSpace, ticksPerCol);
-      const highlightLength = keyboard.shift && !keyboard.alt && !keyboard.meta;
-      const highlightRepeatAmount = keyboard.meta && !keyboard.shift;
-      const highlightRepeatSpace = keyboard.meta && keyboard.shift;
-      const highlightChordAmount = keyboard.meta && !keyboard.shift;
-      const highlightChordSpace = keyboard.meta && keyboard.shift;
-      const highlightVoicing = keyboard.alt && keyboard.shift && !keyboard.meta;
-      const highlightArpStyle = keyboard.alt && !keyboard.meta && !keyboard.shift;
-      const highlightArpVoices = keyboard.alt && keyboard.shift && !keyboard.meta;
-      const showChord = keyboard.meta || keyboard.alt || chordAmount > 1;
-      const chordName = chordAmount > 1 ? wasmEngine.getChordName() : '';
+      const chordVoicing = chordAmount > 1 ? wasmEngine.getSelChordVoicing() : 0;
       const voicingName = chordAmount > 1 ? wasmEngine.getVoicingName(chordAmount, chordSpace, chordVoicing) : '';
+      const rawChordName = chordAmount > 1 ? wasmEngine.getChordName() : '';
+      // Append +oct/+2oct suffix from voicing name (pitch class dedup hides octave doublings)
+      const octSuffix = voicingName.match(/\+?(\d*oct)/)?.[0]?.replace(/^([^+])/, '+$1') ?? '';
+      const chordName = rawChordName ? `${rawChordName}${octSuffix ? ` ${octSuffix}` : ''}` : '';
+
+      // Determine what ↕ (red) and ↔ (yellow) will change
+      const { shift, meta, alt } = keyboard;
+      // highlightX = yellow (←→), highlightY = red (↑↓)
+      type HTarget = 'none' | 'move' | 'length' | 'rptAmt' | 'rptSpace' | 'arpOffset' | 'arpVoices';
+      type VTarget = 'none' | 'move' | 'inversion' | 'chdAmt' | 'chdSpace' | 'arpStyle' | 'voicing';
+      let hTarget: HTarget = 'none';
+      let vTarget: VTarget = 'none';
+
+      if (meta && shift) {
+        hTarget = 'rptSpace'; vTarget = 'chdSpace';
+      } else if (meta) {
+        hTarget = 'rptAmt'; vTarget = 'chdAmt';
+      } else if (alt && shift) {
+        hTarget = 'arpVoices'; vTarget = 'voicing';
+      } else if (alt) {
+        hTarget = 'arpOffset'; vTarget = 'arpStyle';
+      } else if (shift) {
+        hTarget = 'length'; vTarget = 'inversion';
+      }
+
+      // Row 1: note + chord condensed
+      const row1Parts: OledValuePart[] = [
+        { text: noteName, highlightRed: vTarget === 'move' },
+      ];
+      if (chordAmount > 1) {
+        row1Parts.push({ text: ' - ' });
+        if (vTarget === 'chdAmt' || vTarget === 'chdSpace') {
+          // Show amount and space separately so we can highlight the right one
+          row1Parts.push({ text: `${chordAmount}`, highlightRed: vTarget === 'chdAmt' });
+          row1Parts.push({ text: `x` });
+          row1Parts.push({ text: `${chordSpace}`, highlightRed: vTarget === 'chdSpace' });
+        } else {
+          // Chord name (e.g. "Cmaj7 (I)") — highlight when changing voicing
+          row1Parts.push({ text: chordName || `${chordAmount}x${chordSpace}`, highlightRed: vTarget === 'voicing' });
+        }
+        if (vTarget === 'inversion') {
+          const inv = wasmEngine.getSelChordInversion();
+          row1Parts.push({ text: ` i${inv >= 0 ? '+' : ''}${inv}`, highlightRed: true });
+        }
+      }
+
+      // Row 2: length + repeat + arp condensed
+      const row2Parts: OledValuePart[] = [
+        { text: lengthDisplay, highlight: hTarget === 'length' },
+        { text: ' ' },
+        { text: `${repeatAmount}`, highlight: hTarget === 'rptAmt' },
+        { text: 'x' },
+        { text: repeatSpaceDisplay, highlight: hTarget === 'rptSpace' },
+      ];
+      if (chordAmount > 1 && arpStyle > 0) {
+        row2Parts.push({ text: ` ${ARP_STYLE_NAMES[arpStyle] ?? 'CHD'}`, highlightRed: vTarget === 'arpStyle' });
+        if (arpOffset !== 0 || hTarget === 'arpOffset') {
+          row2Parts.push({ text: `${arpOffset > 0 ? '+' : ''}${arpOffset}`, highlight: hTarget === 'arpOffset' });
+        }
+        if (arpVoices > 1 || hTarget === 'arpVoices') {
+          row2Parts.push({ text: ` v${arpVoices}`, highlight: hTarget === 'arpVoices' });
+        }
+      }
+
+      // Row 3: modifier legend — what current held keys do
+      let xLabel = 'Move';
+      let yLabel = 'Move';
+
+      if (meta && shift) {
+        xLabel = 'Rpt space';
+        yLabel = 'Chd space';
+      } else if (meta) {
+        xLabel = 'Rpt amt';
+        yLabel = 'Chd amt';
+      } else if (alt && shift) {
+        xLabel = 'Arp voices';
+        yLabel = 'Voicing';
+      } else if (alt) {
+        xLabel = 'Arp offset';
+        yLabel = 'Arp style';
+      } else if (shift) {
+        xLabel = 'Length';
+        yLabel = 'Inversion';
+      }
+
+      const hasModifier = shift || meta || alt;
+
+      if (hasModifier) {
+        return {
+          rows: [
+            { label: "", valueParts: row1Parts },
+            { label: "", valueParts: row2Parts },
+            { label: "", valueParts: [{ text: `\u2195 ${yLabel}`, highlightRed: true }] },
+            { label: "", valueParts: [{ text: `\u2194 ${xLabel}`, highlight: true }] },
+          ],
+        };
+      }
 
       return {
         rows: [
-          {
-            label: "NOTE",
-            valueParts: [{ text: noteName }],
-          },
-          showChord
-            ? {
-                label: "CHORD",
-                valueParts: chordAmount > 1
-                  ? [
-                      {
-                        text: chordName || `${chordAmount}x${chordSpace}`,
-                        highlight: highlightChordAmount || highlightChordSpace,
-                      },
-                      {
-                        text: voicingName && voicingName !== 'base' ? ` [${voicingName}]` : '',
-                        highlight: highlightVoicing,
-                      },
-                      {
-                        text: arpStyle > 0 ? ` ${ARP_STYLE_NAMES[arpStyle] ?? 'CHD'}` : '',
-                        highlight: highlightArpStyle,
-                      },
-                      {
-                        text: arpStyle > 0 && arpOffset !== 0
-                          ? `${arpOffset > 0 ? '+' : ''}${arpOffset}`
-                          : '',
-                        highlight: highlightArpStyle,
-                      },
-                      {
-                        text: arpStyle > 0 && arpVoices > 1
-                          ? ` v${arpVoices}`
-                          : '',
-                        highlight: highlightArpVoices,
-                      },
-                    ]
-                  : [
-                      {
-                        text: `${chordAmount}`,
-                        highlight: highlightChordAmount,
-                      },
-                    ],
-              }
-            : {
-                label: "LENGTH",
-                valueParts: [
-                  { text: lengthDisplay, highlight: highlightLength },
-                ],
-              },
-          {
-            label: "REPEAT",
-            valueParts: [
-              { text: `${repeatAmount}`, highlight: highlightRepeatAmount },
-              { text: "x" },
-              { text: repeatSpaceDisplay, highlight: highlightRepeatSpace },
-            ],
-          },
+          { label: "", valueParts: row1Parts },
+          { label: "", valueParts: row2Parts },
+          { label: "", valueParts: [{ text: '\u2190\u2191\u2192\u2193 Move' }] },
         ],
       };
     }
@@ -718,7 +753,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
                     <span
                       key={partIndex}
                       css={
-                        part.highlight ? oledHighlightStyles : oledValueStyles
+                        part.highlightRed ? oledHighlightRedStyles
+                          : part.highlight ? oledHighlightStyles
+                          : oledValueStyles
                       }
                     >
                       {part.text}
