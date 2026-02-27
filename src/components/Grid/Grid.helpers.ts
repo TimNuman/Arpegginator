@@ -97,6 +97,35 @@ export const ticksToMusicalName = (ticks: number, zoomTicks: number): string => 
   return `${ticks}t`;
 };
 
+/** Convert tick duration to canonical musical name (always simplified).
+ *  Prefers "1/4" over "2/8", uses MUSICAL_NAMES lookup first. */
+export const ticksToCanonicalName = (ticks: number): string => {
+  const triplet = TRIPLET_NAMES.get(ticks);
+  if (triplet) return triplet;
+
+  for (const [t, name] of MUSICAL_NAMES) {
+    if (t === ticks) return name;
+  }
+
+  // Multiples of whole notes
+  const whole = 1920;
+  if (ticks > 0 && ticks % whole === 0) {
+    return `${ticks / whole}`;
+  }
+
+  // Try expressing as N/denom using the simplest denominator
+  for (const [t, name] of MUSICAL_NAMES) {
+    if (t > 0 && ticks % t === 0) {
+      const n = ticks / t;
+      // Extract denominator from name like "1/4" → 4
+      const m = name.match(/^1\/(\d+)$/);
+      if (m) return `${n}/${m[1]}`;
+    }
+  }
+
+  return `${ticks}t`;
+};
+
 /** Convert uint32 packed 0xRRGGBB to "#RRGGBB" hex string */
 export function uint32ToHex(val: number): string {
   const r = (val >> 16) & 0xff;

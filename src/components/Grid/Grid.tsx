@@ -57,6 +57,7 @@ import {
   noop,
   midiNoteToName,
   ticksToDisplay,
+  ticksToCanonicalName,
   ticksToMusicalName,
   tickToBeatDisplay,
   uint32ToHex,
@@ -406,7 +407,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             return m >= 0 ? midiNoteToName(m) : "??";
           })();
       const lengthDisplay = ticksToMusicalName(selLength, ticksPerCol);
-      const repeatSpaceDisplay = ticksToMusicalName(repeatSpace, ticksPerCol);
+      const repeatSpaceDisplay = ticksToCanonicalName(repeatSpace);
       const chordVoicing =
         chordAmount > 1 ? wasmEngine.getSelChordVoicing() : 0;
       const voicingName =
@@ -462,61 +463,54 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
 
       // Row 1: note + chord condensed
       const row1Parts: OledValuePart[] = [{ text: noteName }];
-      if (chordAmount > 1) {
+      if (chordAmount > 1 && chordSpace === 1) {
+        // Cluster chord (space=1): show as range
+        const topRow = selRow + (chordAmount - 1);
+        const topName = isDrumChannel
+          ? getDrumName(topRow)
+          : (() => {
+              const m = wasmEngine.noteToMidi(topRow);
+              return m >= 0 ? midiNoteToName(m) : "??";
+            })();
+        row1Parts.push({ text: ` to ${topName}` });
+      } else if (chordAmount === 2) {
+        // Interval (2-note stack): show both notes + interval name
+        const secondRow = selRow + chordSpace;
+        const secondName = isDrumChannel
+          ? getDrumName(secondRow)
+          : (() => {
+              const m = wasmEngine.noteToMidi(secondRow);
+              return m >= 0 ? midiNoteToName(m) : "??";
+            })();
+        const INTERVAL_NAMES = [
+          "unison", "min 2nd", "2nd", "min 3rd", "3rd", "4th",
+          "tritone", "5th", "min 6th", "6th", "min 7th", "7th",
+        ];
+        const midi1 = wasmEngine.noteToMidi(selRow);
+        const midi2 = wasmEngine.noteToMidi(secondRow);
+        const semitones = Math.abs(midi2 - midi1);
+        const intervalName = semitones === 12
+          ? "octave"
+          : semitones > 12
+            ? `${INTERVAL_NAMES[semitones % 12]} +oct`
+            : INTERVAL_NAMES[semitones] ?? `${semitones}st`;
+        row1Parts.push({ text: ` - ${secondName} (${intervalName})` });
+      } else if (chordAmount > 2) {
         row1Parts.push({ text: " - " });
-        if (vTarget === "chdAmt" || vTarget === "chdSpace") {
-          // Show amount and space separately so we can highlight the right one
-          row1Parts.push({
-            text: `${chordAmount}`,
-            highlightRed: vTarget === "chdAmt",
-          });
-          row1Parts.push({ text: `x` });
-          row1Parts.push({
-            text: `${chordSpace}`,
-            highlightRed: vTarget === "chdSpace",
-          });
-        } else {
-          // Chord name (e.g. "Cmaj7 (I)") — highlight when changing voicing
-          row1Parts.push({
-            text: chordName || `${chordAmount}x${chordSpace}`,
-            highlightRed: vTarget === "voicing",
-          });
-        }
-        if (vTarget === "inversion") {
-          const inv = wasmEngine.getSelChordInversion();
-          row1Parts.push({
-            text: ` i${inv >= 0 ? "+" : ""}${inv}`,
-            highlightRed: true,
-          });
-        }
+        row1Parts.push({
+          text: chordName || `${chordAmount}x${chordSpace}`,
+          highlightRed: vTarget === "voicing",
+        });
       }
 
-      // Row 2: length + repeat + arp condensed
+      // Row 2: length x amount @ space + arp
       const row2Parts: OledValuePart[] = [
         { text: lengthDisplay, highlight: hTarget === "length" },
-        { text: " " },
+        { text: " x " },
         { text: `${repeatAmount}`, highlight: hTarget === "rptAmt" },
-        { text: "x" },
+        { text: " @ " },
         { text: repeatSpaceDisplay, highlight: hTarget === "rptSpace" },
       ];
-      if (chordAmount > 1 && arpStyle > 0) {
-        row2Parts.push({
-          text: ` ${ARP_STYLE_NAMES[arpStyle] ?? "CHD"}`,
-          highlightRed: vTarget === "arpStyle",
-        });
-        if (arpOffset !== 0 || hTarget === "arpOffset") {
-          row2Parts.push({
-            text: `${arpOffset > 0 ? "+" : ""}${arpOffset}`,
-            highlight: hTarget === "arpOffset",
-          });
-        }
-        if (arpVoices > 1 || hTarget === "arpVoices") {
-          row2Parts.push({
-            text: ` v${arpVoices}`,
-            highlight: hTarget === "arpVoices",
-          });
-        }
-      }
 
       // Row 3: modifier legend — what current held keys do
       let xLabel = "Move";
@@ -536,23 +530,54 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         yLabel = "Arp style";
       } else if (shift) {
         xLabel = "Length";
-        yLabel = "Inversion";
+        yLabel = chordAmount > 1 ? "Inversion" : "Move octave";
       }
 
       const hasModifier = shift || meta || alt;
 
       if (hasModifier) {
+        // Build current value strings for the legend rows
+        const inv = wasmEngine.getSelChordInversion();
+        const yValue: Record<VTarget, string> = {
+          none: "",
+          move: "",
+          inversion: chordAmount > 1 ? `${inv >= 0 ? "+" : ""}${inv}` : "",
+          chdAmt: `${chordAmount}`,
+          chdSpace: `${chordSpace}`,
+          arpStyle: ARP_STYLE_NAMES[arpStyle] ?? "CHD",
+          voicing: voicingName || "base",
+        };
+        const xValue: Record<HTarget, string> = {
+          none: "",
+          move: "",
+          length: lengthDisplay,
+          rptAmt: `${repeatAmount}`,
+          rptSpace: repeatSpaceDisplay,
+          arpOffset: `${arpOffset > 0 ? "+" : ""}${arpOffset}`,
+          arpVoices: `${arpVoices}`,
+        };
+
         return {
           rows: [
             { label: "", valueParts: row1Parts },
             { label: "", valueParts: row2Parts },
             {
               label: "",
-              valueParts: [{ text: `\u2195 ${yLabel}`, highlightRed: true }],
+              valueParts: yValue[vTarget]
+                ? [
+                    { text: `\u2195 ${yLabel}: `, highlightRed: true },
+                    { text: yValue[vTarget] },
+                  ]
+                : [{ text: `\u2195 ${yLabel}`, highlightRed: true }],
             },
             {
               label: "",
-              valueParts: [{ text: `\u2194 ${xLabel}`, highlight: true }],
+              valueParts: xValue[hTarget]
+                ? [
+                    { text: `\u2194 ${xLabel}: `, highlight: true },
+                    { text: xValue[hTarget] },
+                  ]
+                : [{ text: `\u2194 ${xLabel}`, highlight: true }],
             },
           ],
         };
@@ -611,17 +636,26 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         if (mMeta) {
           rows.push({
             label: "",
-            valueParts: [{ text: "\u2195 Sub-mode", highlightRed: true }],
+            valueParts: [
+              { text: "\u2195 Sub-mode: ", highlightRed: true },
+              { text: subModeLabel },
+            ],
           });
         } else {
           rows.push(
             {
               label: "",
-              valueParts: [{ text: "\u2195 Loop mode", highlightRed: true }],
+              valueParts: [
+                { text: "\u2195 Loop mode: ", highlightRed: true },
+                { text: loopModeLabel },
+              ],
             },
             {
               label: "",
-              valueParts: [{ text: "\u2194 Length", highlight: true }],
+              valueParts: [
+                { text: "\u2194 Length: ", highlight: true },
+                { text: `${arrLen}` },
+              ],
             },
           );
         }
@@ -638,7 +672,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       if (mMeta) {
         rows.push({
           label: "",
-          valueParts: [{ text: "\u2195 Sub-mode", highlightRed: true }],
+          valueParts: [
+            { text: "\u2195 Sub-mode: ", highlightRed: true },
+            { text: subModeLabel },
+          ],
         });
       }
       return { rows };
@@ -673,8 +710,14 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         {
           label: "",
           valueParts: lShift
-            ? [{ text: "\u2194 Start", highlight: true }]
-            : [{ text: "\u2194 End", highlight: true }],
+            ? [
+                { text: "\u2194 Start: ", highlight: true },
+                { text: tickToBeatDisplay(loopStart) },
+              ]
+            : [
+                { text: "\u2194 End: ", highlight: true },
+                { text: tickToBeatDisplay(loopEndTick) },
+              ],
         },
       ];
       return {
@@ -720,9 +763,18 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       rows.push(
         {
           label: "",
-          valueParts: [{ text: "\u2195 Scale", highlightRed: true }],
+          valueParts: [
+            { text: "\u2195 Scale: ", highlightRed: true },
+            { text: scaleName },
+          ],
         },
-        { label: "", valueParts: [{ text: "\u2194 Root", highlight: true }] },
+        {
+          label: "",
+          valueParts: [
+            { text: "\u2194 Root: ", highlight: true },
+            { text: scaleRootName },
+          ],
+        },
       );
     } else {
       rows.push({
