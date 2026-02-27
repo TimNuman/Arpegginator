@@ -499,8 +499,8 @@ static void get_chord_offsets_raw(
 uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset) {
     if (style == ARP_CHORD || chord_count <= 1) return 255; // sentinel: play all
 
-    // Apply offset to repeat index
-    int32_t effective = (int32_t)repeat_idx + (int32_t)offset;
+    // Subtract offset so positive values shift the arp cycle right visually
+    int32_t effective = (int32_t)repeat_idx - (int32_t)offset;
 
     if (style == ARP_UP) {
         effective = ((effective % chord_count) + chord_count) % chord_count;
