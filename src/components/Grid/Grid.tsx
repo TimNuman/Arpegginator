@@ -72,6 +72,11 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // Subscribe to render version — triggers re-render when markDirty() is called
   const renderVersion = useRenderVersion();
 
+  useEffect(() => {
+    console.log('[startup] Grid mounted, wasmEngine version=' + wasmEngine.getVersion());
+    return () => console.log('[startup] Grid unmounted');
+  }, [wasmEngine]);
+
   // ============ Read ALL state from WASM (single source of truth) ============
   const VISIBLE_ROWS = wasmEngine.getVisibleRows();
   const VISIBLE_COLS = wasmEngine.getVisibleCols();
@@ -243,6 +248,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(
     (visibleRow: number, visibleCol: number) => {
+      console.log('[grid] buttonPress row=' + visibleRow + ' col=' + visibleCol + ' wasmReady=' + wasmEngine.isReady());
       const mods = encodeModifiers(keyboardRef.current);
       wasmEngine.buttonPress(visibleRow, visibleCol, mods);
       markDirty();

@@ -58,6 +58,7 @@ function App() {
   const [wasmEngine, setWasmEngine] = useState<WasmEngine | null>(null);
 
   useEffect(() => {
+    console.log('[startup] Loading WASM engine...');
     const engine = new WasmEngine();
     engine.load().then(() => {
       // Full init (resets UI state, generates chord shapes, sets default loops/patterns)
@@ -104,7 +105,7 @@ function App() {
 
       setWasmEngine(engine);
       actions.setWasmEngine(engine);
-      console.log('WASM engine v' + engine.getVersion() + ' ready');
+      console.log('[startup] WASM engine v' + engine.getVersion() + ' ready, isEnabled=' + isEnabled);
     }).catch((err) => {
       console.warn('WASM engine not available:', err);
     });
@@ -222,6 +223,7 @@ function App() {
 
   // Wire up step trigger and note-off callbacks
   useEffect(() => {
+    console.log('[startup] Wiring callbacks: wasmEngine=' + !!wasmEngine);
     actions.setStepTriggerCallback(handleStepTrigger);
     actions.setNoteOffCallback(handleNoteOff);
     if (wasmEngine) {
@@ -293,6 +295,7 @@ function App() {
 
   // Don't render anything until both WASM and MIDI are ready
   if (!wasmEngine || !isEnabled) {
+    console.log('[startup] Gated: wasmEngine=' + !!wasmEngine + ' isEnabled=' + isEnabled);
     return (
       <ThemeProvider theme={darkTheme}>
         <CssBaseline />
@@ -305,6 +308,8 @@ function App() {
       </ThemeProvider>
     );
   }
+
+  console.log('[startup] Full render: wasmEngine=' + !!wasmEngine + ' isEnabled=' + isEnabled);
 
   return (
     <ThemeProvider theme={darkTheme}>

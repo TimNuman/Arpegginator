@@ -39,8 +39,10 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   }, [transportCallbacks]);
 
   useEffect(() => {
+    console.log('[startup] Enabling WebMidi...');
     WebMidi.enable()
       .then(() => {
+        console.log('[startup] WebMidi enabled, outputs=' + WebMidi.outputs.length + ' inputs=' + WebMidi.inputs.length);
         setIsEnabled(true);
         setOutputs(WebMidi.outputs);
         setInputs(WebMidi.inputs);
@@ -69,12 +71,14 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
           }
         }
 
-        WebMidi.addListener('connected', () => {
+        WebMidi.addListener('connected', (e) => {
+          console.log('[midi] Device connected:', e.port?.name, e.port?.type);
           setOutputs([...WebMidi.outputs]);
           setInputs([...WebMidi.inputs]);
         });
 
-        WebMidi.addListener('disconnected', () => {
+        WebMidi.addListener('disconnected', (e) => {
+          console.log('[midi] Device disconnected:', e.port?.name, e.port?.type);
           setOutputs([...WebMidi.outputs]);
           setInputs([...WebMidi.inputs]);
         });
