@@ -661,10 +661,21 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
         }
     }
 
-    // Alt+Shift+Up/Down: adjust arp voices (simultaneous chord notes per step)
+    // Alt+Shift+Up/Down: cycle chord voicing
     if ((mods & MOD_ALT) && (mods & MOD_SHIFT) && !(mods & MOD_META) && !(mods & MOD_CTRL)) {
-        if ((dir == DIR_UP || dir == DIR_DOWN) && ev->chord_amount > 1 && ev->arp_style != ARP_CHORD) {
-            engine_adjust_arp_voices(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+        if ((dir == DIR_UP || dir == DIR_DOWN) && ev->chord_amount > 1) {
+            engine_cycle_chord_voicing(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
+            // Camera follows edge note
+            int8_t offsets[MAX_CHORD_SIZE];
+            uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+            int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
+            follow_note(s, follow_row, ev->position);
+            play_event_preview(s, ev, tpc);
+            return;
+        }
+        // Alt+Shift+Left/Right: adjust arp voices
+        if ((dir == DIR_LEFT || dir == DIR_RIGHT) && ev->chord_amount > 1 && ev->arp_style != ARP_CHORD) {
+            engine_adjust_arp_voices(s, (uint16_t)s->selected_event_idx, dir == DIR_RIGHT ? 1 : -1);
             return;
         }
     }

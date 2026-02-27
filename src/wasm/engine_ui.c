@@ -90,7 +90,7 @@ static int16_t resolve_render_sub_mode(const EngineState* s, const NoteEvent_C* 
 
 // ============ Rendered notes expansion ============
 
-// Get chord offsets for a note event (amount + space model)
+// Get chord offsets for a note event (voicing table + inversions)
 uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out) {
     uint8_t amount = ev->chord_amount;
     if (amount <= 1) {
@@ -100,22 +100,48 @@ uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* o
     if (amount > MAX_CHORD_SIZE) amount = MAX_CHORD_SIZE;
     if (amount > max_out) amount = max_out;
 
-    // Build base chord: [0, space, 2*space, ...]
+    // Get base offsets from voicing table
+    const VoicingList* vl = get_voicing_list(amount, ev->chord_space);
     int16_t offsets16[MAX_CHORD_SIZE];
-    for (uint8_t i = 0; i < amount; i++) {
-        offsets16[i] = (int16_t)(i * ev->chord_space);
+    if (vl && ev->chord_voicing < vl->count) {
+        for (uint8_t i = 0; i < amount; i++) {
+            offsets16[i] = (int16_t)vl->entries[ev->chord_voicing].offsets[i];
+        }
+    } else {
+        for (uint8_t i = 0; i < amount; i++) {
+            offsets16[i] = (int16_t)(i * ev->chord_space);
+        }
     }
 
     // Apply inversions using scale-dependent octave
+    // After each shift, resolve collisions (e.g. octave note landing on root)
     int16_t octave = (int16_t)s->scale_octave_size;
     int8_t inv = ev->chord_inversion;
     if (inv > 0) {
         for (int8_t n = 0; n < inv; n++) {
-            offsets16[n % amount] += octave;
+            uint8_t idx = n % amount;
+            offsets16[idx] += octave;
+            for (int retry = 0; retry < 4; retry++) {
+                int collision = 0;
+                for (uint8_t j = 0; j < amount; j++) {
+                    if (j != idx && offsets16[j] == offsets16[idx]) { collision = 1; break; }
+                }
+                if (!collision) break;
+                offsets16[idx] += octave;
+            }
         }
     } else if (inv < 0) {
         for (int8_t n = 0; n < -inv; n++) {
-            offsets16[amount - 1 - (n % amount)] -= octave;
+            uint8_t idx = amount - 1 - (n % amount);
+            offsets16[idx] -= octave;
+            for (int retry = 0; retry < 4; retry++) {
+                int collision = 0;
+                for (uint8_t j = 0; j < amount; j++) {
+                    if (j != idx && offsets16[j] == offsets16[idx]) { collision = 1; break; }
+                }
+                if (!collision) break;
+                offsets16[idx] -= octave;
+            }
         }
     }
 

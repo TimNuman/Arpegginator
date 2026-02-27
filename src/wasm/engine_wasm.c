@@ -215,6 +215,7 @@ int32_t engine_get_field_offset(int32_t field_id) {
         case 9: return (int32_t)(uintptr_t)&base->chord_inversion;
         case 10: return (int32_t)(uintptr_t)&base->event_index;
         case 11: return (int32_t)(uintptr_t)&base->arp_style;
+        case 14: return (int32_t)(uintptr_t)&base->chord_voicing;
         case 12: return (int32_t)(uintptr_t)&base->arp_offset;
         case 13: return (int32_t)(uintptr_t)&base->arp_voices;
         default: return -1;
@@ -553,6 +554,22 @@ EMSCRIPTEN_KEEPALIVE
 int8_t engine_get_sel_chord_inversion(void) {
     const NoteEvent_C* ev = _get_selected_event();
     return ev ? ev->chord_inversion : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_sel_chord_voicing(void) {
+    const NoteEvent_C* ev = _get_selected_event();
+    return ev ? ev->chord_voicing : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t engine_get_voicing_count_export(uint8_t amount, uint8_t distance) {
+    return get_voicing_count(amount, distance);
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* engine_get_voicing_name_export(uint8_t amount, uint8_t distance, uint8_t idx) {
+    return get_voicing_name(amount, distance, idx);
 }
 
 EMSCRIPTEN_KEEPALIVE

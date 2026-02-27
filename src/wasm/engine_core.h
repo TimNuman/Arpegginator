@@ -94,6 +94,7 @@ typedef struct {
     uint8_t       chord_amount;      // 1 = single note, 2-5 = chord
     uint8_t       chord_space;       // row offset between chord notes (default 2)
     int8_t        chord_inversion;   // infinite inversions (scale-dependent octave)
+    uint8_t       chord_voicing;     // voicing index into predefined shape table (0 = base)
     uint8_t       arp_style;         // ARP_CHORD, ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_DOWN_UP
     int8_t        arp_offset;        // starting offset into arp cycle (shifts which chord note plays first)
     uint8_t       arp_voices;        // simultaneous chord notes per arp step (1 = single, max = chord_amount-1)
@@ -243,6 +244,33 @@ uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_
  * For ARP_CHORD style (or chord_count <= 1), always returns 1.
  */
 uint8_t is_arp_chord_active(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset, uint8_t voices, uint8_t chord_idx);
+
+// ============ Chord Voicings ============
+
+#define MAX_VOICING_COUNT    8   // max voicings per (amount, distance) pair
+#define MAX_CHORD_DISTANCE   7   // up to octave (diatonic)
+
+typedef struct {
+    int8_t offsets[MAX_CHORD_SIZE];
+    const char* name;
+} VoicingEntry;
+
+typedef struct {
+    VoicingEntry entries[MAX_VOICING_COUNT];
+    uint8_t count;
+} VoicingList;
+
+/** Look up the voicing list for an (amount, distance) pair. Returns NULL if out of range. */
+const VoicingList* get_voicing_list(uint8_t amount, uint8_t distance);
+
+/** Get number of available voicings for an (amount, distance) pair. */
+uint8_t get_voicing_count(uint8_t amount, uint8_t distance);
+
+/** Get display name for a voicing. Returns "" for invalid indices. */
+const char* get_voicing_name(uint8_t amount, uint8_t distance, uint8_t idx);
+
+/** Get offsets for a voicing. Returns count written to out_offsets. */
+uint8_t get_voicing_offsets(uint8_t amount, uint8_t distance, uint8_t idx, int8_t* out_offsets);
 
 // ============ Version ============
 

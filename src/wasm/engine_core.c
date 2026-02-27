@@ -224,6 +224,209 @@ static int16_t resolve_sub_mode_preview(
     }
 }
 
+// ============ Chord Voicing Table ============
+
+// Voicing tables indexed by [distance-1][amount-2]
+// Distance 1: consecutive notes, only one option each
+static const VoicingList VOICINGS_D1[7] = {
+    // amount=2
+    { .entries = { { {0,1}, "base" } }, .count = 1 },
+    // amount=3
+    { .entries = { { {0,1,2}, "base" } }, .count = 1 },
+    // amount=4
+    { .entries = { { {0,1,2,3}, "base" } }, .count = 1 },
+    // amount=5
+    { .entries = { { {0,1,2,3,4}, "base" } }, .count = 1 },
+    // amount=6
+    { .entries = { { {0,1,2,3,4,5}, "base" } }, .count = 1 },
+    // amount=7
+    { .entries = { { {0,1,2,3,4,5,6}, "base" } }, .count = 1 },
+    // amount=8
+    { .entries = { { {0,1,2,3,4,5,6,7}, "base" } }, .count = 1 },
+};
+
+// Distance 2: thirds-based (richest set)
+static const VoicingList VOICINGS_D2[7] = {
+    // amount=2: single interval, use distance to change
+    { .entries = {
+        { {0,2}, "3rd" },
+    }, .count = 1 },
+    // amount=3
+    { .entries = {
+        { {0,2,4}, "triad" },
+        { {0,1,4}, "sus2" },
+        { {0,3,4}, "sus4" },
+    }, .count = 3 },
+    // amount=4
+    { .entries = {
+        { {0,2,4,6}, "7th" },
+        { {0,2,4,7}, "triad+oct" },
+        { {0,1,4,6}, "sus2 7" },
+        { {0,3,4,6}, "sus4 7" },
+        { {0,1,4,7}, "sus2 oct" },
+        { {0,3,4,7}, "sus4 oct" },
+    }, .count = 6 },
+    // amount=5
+    { .entries = {
+        { {0,2,4,6,8}, "9th" },
+        { {0,2,4,6,9}, "7+oct" },
+        { {0,2,4,7,9}, "triad+2oct" },
+    }, .count = 3 },
+    // amount=6
+    { .entries = {
+        { {0,2,4,6,8,10}, "11th" },
+        { {0,2,4,6,9,11}, "7+2oct" },
+    }, .count = 2 },
+    // amount=7
+    { .entries = {
+        { {0,2,4,6,8,10,12}, "13th" },
+    }, .count = 1 },
+    // amount=8
+    { .entries = {
+        { {0,2,4,6,8,10,12,14}, "base" },
+    }, .count = 1 },
+};
+
+// Distance 3: fourths-based
+static const VoicingList VOICINGS_D3[7] = {
+    // amount=2: single interval, use distance to change
+    { .entries = {
+        { {0,3}, "4th" },
+    }, .count = 1 },
+    // amount=3
+    { .entries = {
+        { {0,3,6}, "stacked 4" },
+        { {0,3,7}, "4th+oct" },
+        { {0,4,7}, "open triad" },
+    }, .count = 3 },
+    // amount=4
+    { .entries = {
+        { {0,3,6,9}, "stacked 4" },
+        { {0,3,6,10}, "4th+oct" },
+    }, .count = 2 },
+    // amount=5
+    { .entries = {
+        { {0,3,6,9,12}, "base" },
+    }, .count = 1 },
+    // amount=6
+    { .entries = {
+        { {0,3,6,9,12,15}, "base" },
+    }, .count = 1 },
+    // amount=7
+    { .entries = {
+        { {0,3,6,9,12,15,18}, "base" },
+    }, .count = 1 },
+    // amount=8
+    { .entries = {
+        { {0,3,6,9,12,15,18,21}, "base" },
+    }, .count = 1 },
+};
+
+// Distance 4: fifths-based
+static const VoicingList VOICINGS_D4[7] = {
+    // amount=2: single interval, use distance to change
+    { .entries = {
+        { {0,4}, "5th" },
+    }, .count = 1 },
+    // amount=3
+    { .entries = {
+        { {0,4,8}, "stacked 5" },
+        { {0,4,7}, "5th+oct" },
+    }, .count = 2 },
+    // amount=4
+    { .entries = {
+        { {0,4,8,12}, "base" },
+        { {0,4,7,11}, "5+oct" },
+    }, .count = 2 },
+    // amount=5
+    { .entries = {
+        { {0,4,8,12,16}, "base" },
+    }, .count = 1 },
+    // amount=6
+    { .entries = {
+        { {0,4,8,12,16,20}, "base" },
+    }, .count = 1 },
+    // amount=7
+    { .entries = {
+        { {0,4,8,12,16,20,24}, "base" },
+    }, .count = 1 },
+    // amount=8
+    { .entries = {
+        { {0,4,8,12,16,20,24,28}, "base" },
+    }, .count = 1 },
+};
+
+// Distance 5 (sixths-based): base voicing only
+static const VoicingList VOICINGS_D5[7] = {
+    { .entries = { { {0,5}, "6th" } }, .count = 1 },
+    { .entries = { { {0,5,10}, "base" } }, .count = 1 },
+    { .entries = { { {0,5,10,15}, "base" } }, .count = 1 },
+    { .entries = { { {0,5,10,15,20}, "base" } }, .count = 1 },
+    { .entries = { { {0,5,10,15,20,25}, "base" } }, .count = 1 },
+    { .entries = { { {0,5,10,15,20,25,30}, "base" } }, .count = 1 },
+    { .entries = { { {0,5,10,15,20,25,30,35}, "base" } }, .count = 1 },
+};
+
+// Distance 6 (sevenths-based): base voicing only
+static const VoicingList VOICINGS_D6[7] = {
+    { .entries = { { {0,6}, "7th" } }, .count = 1 },
+    { .entries = { { {0,6,12}, "base" } }, .count = 1 },
+    { .entries = { { {0,6,12,18}, "base" } }, .count = 1 },
+    { .entries = { { {0,6,12,18,24}, "base" } }, .count = 1 },
+    { .entries = { { {0,6,12,18,24,30}, "base" } }, .count = 1 },
+    { .entries = { { {0,6,12,18,24,30,36}, "base" } }, .count = 1 },
+    { .entries = { { {0,6,12,18,24,30,36,42}, "base" } }, .count = 1 },
+};
+
+// Distance 7 (octave): base voicing only
+static const VoicingList VOICINGS_D7[7] = {
+    { .entries = { { {0,7}, "oct" } }, .count = 1 },
+    { .entries = { { {0,7,14}, "base" } }, .count = 1 },
+    { .entries = { { {0,7,14,21}, "base" } }, .count = 1 },
+    { .entries = { { {0,7,14,21,28}, "base" } }, .count = 1 },
+    { .entries = { { {0,7,14,21,28,35}, "base" } }, .count = 1 },
+    { .entries = { { {0,7,14,21,28,35,42}, "base" } }, .count = 1 },
+    { .entries = { { {0,7,14,21,28,35,42,49}, "base" } }, .count = 1 },
+};
+
+static const VoicingList* VOICING_TABLES[MAX_CHORD_DISTANCE] = {
+    VOICINGS_D1, VOICINGS_D2, VOICINGS_D3, VOICINGS_D4,
+    VOICINGS_D5, VOICINGS_D6, VOICINGS_D7
+};
+
+const VoicingList* get_voicing_list(uint8_t amount, uint8_t distance) {
+    if (distance < 1 || distance > MAX_CHORD_DISTANCE) return NULL;
+    if (amount < 2 || amount > MAX_CHORD_SIZE) return NULL;
+    return &VOICING_TABLES[distance - 1][amount - 2];
+}
+
+uint8_t get_voicing_count(uint8_t amount, uint8_t distance) {
+    const VoicingList* vl = get_voicing_list(amount, distance);
+    return vl ? vl->count : 1;
+}
+
+const char* get_voicing_name(uint8_t amount, uint8_t distance, uint8_t idx) {
+    const VoicingList* vl = get_voicing_list(amount, distance);
+    if (!vl || idx >= vl->count) return "";
+    return vl->entries[idx].name;
+}
+
+uint8_t get_voicing_offsets(uint8_t amount, uint8_t distance, uint8_t idx, int8_t* out_offsets) {
+    const VoicingList* vl = get_voicing_list(amount, distance);
+    if (!vl || idx >= vl->count) {
+        // Fallback: evenly spaced
+        for (uint8_t i = 0; i < amount && i < MAX_CHORD_SIZE; i++) {
+            out_offsets[i] = (int8_t)(i * distance);
+        }
+        return amount > MAX_CHORD_SIZE ? MAX_CHORD_SIZE : amount;
+    }
+    uint8_t n = amount > MAX_CHORD_SIZE ? MAX_CHORD_SIZE : amount;
+    for (uint8_t i = 0; i < n; i++) {
+        out_offsets[i] = vl->entries[idx].offsets[i];
+    }
+    return n;
+}
+
 // ============ Chord Offsets ============
 
 static void get_chord_offsets_raw(
@@ -231,6 +434,7 @@ static void get_chord_offsets_raw(
     uint8_t amount,
     uint8_t space,
     int8_t inversion,
+    uint8_t voicing,
     int16_t* out_offsets,
     uint8_t* out_count
 ) {
@@ -241,20 +445,49 @@ static void get_chord_offsets_raw(
     }
     uint8_t clamped = amount > MAX_CHORD_SIZE ? MAX_CHORD_SIZE : amount;
 
-    // Build base chord: [0, space, 2*space, ...]
-    for (uint8_t i = 0; i < clamped; i++) {
-        out_offsets[i] = (int16_t)(i * space);
+    // Use voicing table if distance is within range, else fall back to even spacing
+    const VoicingList* vl = get_voicing_list(amount, space);
+    if (vl && voicing < vl->count) {
+        for (uint8_t i = 0; i < clamped; i++) {
+            out_offsets[i] = (int16_t)vl->entries[voicing].offsets[i];
+        }
+    } else {
+        // Fallback: evenly spaced [0, space, 2*space, ...]
+        for (uint8_t i = 0; i < clamped; i++) {
+            out_offsets[i] = (int16_t)(i * space);
+        }
     }
 
     // Apply inversions using scale-dependent octave
+    // After each shift, resolve collisions (e.g. octave note landing on root)
     int16_t octave = (int16_t)s->scale_octave_size;
     if (inversion > 0) {
         for (int8_t n = 0; n < inversion; n++) {
-            out_offsets[n % clamped] += octave;
+            uint8_t idx = n % clamped;
+            out_offsets[idx] += octave;
+            // Resolve collision: keep pushing up until unique
+            for (int retry = 0; retry < 4; retry++) {
+                int collision = 0;
+                for (uint8_t j = 0; j < clamped; j++) {
+                    if (j != idx && out_offsets[j] == out_offsets[idx]) { collision = 1; break; }
+                }
+                if (!collision) break;
+                out_offsets[idx] += octave;
+            }
         }
     } else if (inversion < 0) {
         for (int8_t n = 0; n < -inversion; n++) {
-            out_offsets[clamped - 1 - (n % clamped)] -= octave;
+            uint8_t idx = clamped - 1 - (n % clamped);
+            out_offsets[idx] -= octave;
+            // Resolve collision: keep pushing down until unique
+            for (int retry = 0; retry < 4; retry++) {
+                int collision = 0;
+                for (uint8_t j = 0; j < clamped; j++) {
+                    if (j != idx && out_offsets[j] == out_offsets[idx]) { collision = 1; break; }
+                }
+                if (!collision) break;
+                out_offsets[idx] -= octave;
+            }
         }
     }
 
@@ -621,7 +854,8 @@ void engine_core_tick(EngineState* s) {
                     uint8_t offset_count;
                     int16_t offsets16[MAX_CHORD_SIZE];
                     get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
-                                         ev->chord_inversion, offsets16, &offset_count);
+                                         ev->chord_inversion, ev->chord_voicing,
+                                         offsets16, &offset_count);
                     for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
@@ -757,7 +991,8 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
                 uint8_t offset_count;
                     int16_t offsets16[MAX_CHORD_SIZE];
                     get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
-                                         ev->chord_inversion, offsets16, &offset_count);
+                                         ev->chord_inversion, ev->chord_voicing,
+                                         offsets16, &offset_count);
                     for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
                 for (uint8_t ci = 0; ci < offset_count; ci++) {
@@ -814,7 +1049,8 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
                     uint8_t offset_count;
                     int16_t offsets16[MAX_CHORD_SIZE];
                     get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
-                                         ev->chord_inversion, offsets16, &offset_count);
+                                         ev->chord_inversion, ev->chord_voicing,
+                                         offsets16, &offset_count);
                     for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {

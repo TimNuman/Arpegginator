@@ -80,6 +80,12 @@ void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direct
 void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t direction);
 
 /**
+ * Cycle chord voicing. direction: 1 = next, -1 = previous.
+ * Wraps within the voicing list for the current (amount, distance) pair.
+ */
+void engine_cycle_chord_voicing(EngineState* s, uint16_t event_idx, int8_t direction);
+
+/**
  * Cycle arp style. direction: 1 = next, -1 = previous.
  * Wraps around: CHORD → UP → DOWN → UP_DOWN → DOWN_UP → CHORD.
  */

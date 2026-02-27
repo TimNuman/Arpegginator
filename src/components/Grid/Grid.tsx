@@ -379,6 +379,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const chordAmount = wasmEngine.getSelChordAmount();
       const chordSpace = wasmEngine.getSelChordSpace();
       const chordInv = wasmEngine.getSelChordInversion();
+      const chordVoicing = wasmEngine.getSelChordVoicing();
       const arpStyle = wasmEngine.getSelArpStyle();
       const arpOffset = wasmEngine.getSelArpOffset();
       const arpVoices = wasmEngine.getSelArpVoices();
@@ -397,10 +398,12 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       const highlightRepeatSpace = keyboard.meta && keyboard.shift;
       const highlightChordAmount = keyboard.meta && !keyboard.shift;
       const highlightChordSpace = keyboard.meta && keyboard.shift;
+      const highlightVoicing = keyboard.alt && keyboard.shift && !keyboard.meta;
       const highlightArpStyle = keyboard.alt && !keyboard.meta && !keyboard.shift;
       const highlightArpVoices = keyboard.alt && keyboard.shift && !keyboard.meta;
       const showChord = keyboard.meta || keyboard.alt || chordAmount > 1;
       const chordName = chordAmount > 1 ? wasmEngine.getChordName() : '';
+      const voicingName = chordAmount > 1 ? wasmEngine.getVoicingName(chordAmount, chordSpace, chordVoicing) : '';
 
       return {
         rows: [
@@ -416,6 +419,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
                       {
                         text: chordName || `${chordAmount}x${chordSpace}`,
                         highlight: highlightChordAmount || highlightChordSpace,
+                      },
+                      {
+                        text: voicingName && voicingName !== 'base' ? ` [${voicingName}]` : '',
+                        highlight: highlightVoicing,
                       },
                       {
                         text: arpStyle > 0 ? ` ${ARP_STYLE_NAMES[arpStyle] ?? 'CHD'}` : '',

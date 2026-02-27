@@ -236,6 +236,7 @@ void engine_adjust_chord_stack(EngineState* s, uint16_t event_idx, int8_t direct
     if (new_amount > MAX_CHORD_SIZE) new_amount = MAX_CHORD_SIZE;
 
     ev->chord_amount = (uint8_t)new_amount;
+    ev->chord_voicing = 0; // reset voicing when amount changes
 }
 
 void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -247,9 +248,26 @@ void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direct
 
     int8_t new_space = (int8_t)ev->chord_space + direction;
     if (new_space < 1) new_space = 1;
-    if (new_space > 12) new_space = 12;
+    if (new_space > DIATONIC_OCTAVE) new_space = DIATONIC_OCTAVE;
 
     ev->chord_space = (uint8_t)new_space;
+    ev->chord_voicing = 0; // reset voicing when distance changes
+}
+
+void engine_cycle_chord_voicing(EngineState* s, uint16_t event_idx, int8_t direction) {
+    PatternData_C* pat = get_current_pattern(s);
+    if (event_idx >= pat->event_count) return;
+    NoteEvent_C* ev = &pat->events[event_idx];
+
+    if (ev->chord_amount <= 1) return;
+
+    uint8_t count = get_voicing_count(ev->chord_amount, ev->chord_space);
+    if (count <= 1) return;
+
+    int8_t new_v = (int8_t)ev->chord_voicing + direction;
+    if (new_v < 0) new_v = (int8_t)(count - 1);
+    if (new_v >= (int8_t)count) new_v = 0;
+    ev->chord_voicing = (uint8_t)new_v;
 }
 
 void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t direction) {

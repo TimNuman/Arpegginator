@@ -118,6 +118,9 @@ export class WasmEngine {
   private _getSelChordAmount!: () => number;
   private _getSelChordSpace!: () => number;
   private _getSelChordInversion!: () => number;
+  private _getSelChordVoicing!: () => number;
+  private _getVoicingCount!: (amount: number, distance: number) => number;
+  private _getVoicingName!: (amount: number, distance: number, idx: number) => number;
   private _getSelArpStyle!: () => number;
   private _getSelArpOffset!: () => number;
   private _getSelArpVoices!: () => number;
@@ -237,6 +240,9 @@ export class WasmEngine {
     this._getSelChordAmount = cw('engine_get_sel_chord_amount', 'number', []);
     this._getSelChordSpace = cw('engine_get_sel_chord_space', 'number', []);
     this._getSelChordInversion = cw('engine_get_sel_chord_inversion', 'number', []);
+    this._getSelChordVoicing = cw('engine_get_sel_chord_voicing', 'number', []);
+    this._getVoicingCount = cw('engine_get_voicing_count_export', 'number', ['number', 'number']);
+    this._getVoicingName = cw('engine_get_voicing_name_export', 'number', ['number', 'number', 'number']);
     this._getSelArpStyle = cw('engine_get_sel_arp_style', 'number', []);
     this._getSelArpOffset = cw('engine_get_sel_arp_offset', 'number', []);
     this._getSelArpVoices = cw('engine_get_sel_arp_voices', 'number', []);
@@ -282,7 +288,7 @@ export class WasmEngine {
     // Query struct layout from C
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
-    for (let i = 0; i <= 13; i++) {
+    for (let i = 0; i <= 14; i++) {
       this.fieldOffsets[i] = this._getFieldOffset(i);
     }
 
@@ -444,6 +450,7 @@ export class WasmEngine {
         chordAmount: mod.HEAPU8[ptr + this.fieldOffsets[7]],
         chordSpace: mod.HEAPU8[ptr + this.fieldOffsets[8]],
         chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),
+        chordVoicing: mod.HEAPU8[ptr + this.fieldOffsets[14]],
         arpStyle: mod.HEAPU8[ptr + this.fieldOffsets[11]],
         arpOffset: view.getInt8(ptr + this.fieldOffsets[12]),
         arpVoices: mod.HEAPU8[ptr + this.fieldOffsets[13]],
@@ -634,6 +641,12 @@ export class WasmEngine {
   getSelChordAmount(): number { return this._getSelChordAmount(); }
   getSelChordSpace(): number { return this._getSelChordSpace(); }
   getSelChordInversion(): number { return this._getSelChordInversion(); }
+  getSelChordVoicing(): number { return this._getSelChordVoicing(); }
+  getVoicingCount(amount: number, distance: number): number { return this._getVoicingCount(amount, distance); }
+  getVoicingName(amount: number, distance: number, idx: number): string {
+    const ptr = this._getVoicingName(amount, distance, idx);
+    return ptr ? this.module!.UTF8ToString(ptr) : '';
+  }
   getSelArpStyle(): number { return this._getSelArpStyle(); }
   getSelArpOffset(): number { return this._getSelArpOffset(); }
   getSelArpVoices(): number { return this._getSelArpVoices(); }
