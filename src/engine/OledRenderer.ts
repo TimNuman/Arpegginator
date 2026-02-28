@@ -77,6 +77,7 @@ export class OledRenderer {
   private _drawPixel: (x: number, y: number, color: number) => void;
   private _textWidth: (text: string, font: number) => number;
   private _fontHeight: (font: number) => number;
+  private _render: (modifiers: number) => void;
   private _getFramebufferPtr: () => number;
   private _getFramebufferSize: () => number;
 
@@ -161,6 +162,9 @@ export class OledRenderer {
     this._fontHeight = cw("oled_font_height", "number", [
       "number",
     ]) as (font: number) => number;
+    this._render = cw("oled_render", null, [
+      "number",
+    ]) as (modifiers: number) => void;
     this._getFramebufferPtr = cw(
       "oled_get_framebuffer",
       "number",
@@ -184,7 +188,14 @@ export class OledRenderer {
     this.imageData = this.ctx.createImageData(OLED_WIDTH, OLED_HEIGHT);
   }
 
-  // ============ Drawing API ============
+  // ============ High-level API ============
+
+  /** Render the full OLED screen (all logic in C). Modifier bitmask: shift=1, meta=2, alt=4, ctrl=8 */
+  render(modifiers: number): void {
+    this._render(modifiers);
+  }
+
+  // ============ Drawing API (low-level, kept for compatibility) ============
 
   clear(): void {
     this._clear();

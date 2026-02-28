@@ -115,6 +115,7 @@ EXPORTED_FUNCTIONS='[
     "_engine_get_visible_rows",
     "_engine_get_visible_cols",
     "_engine_get_num_channels",
+    "_oled_render",
     "_oled_init",
     "_oled_clear",
     "_oled_draw_text",
@@ -133,7 +134,7 @@ EXPORTED_FUNCTIONS='[
 EXPORTED_FUNCTIONS=$(echo "$EXPORTED_FUNCTIONS" | tr -d '[:space:]')
 
 emcc "$SCRIPT_DIR/engine_core.c" "$SCRIPT_DIR/engine_ui.c" "$SCRIPT_DIR/engine_edit.c" "$SCRIPT_DIR/engine_input.c" "$SCRIPT_DIR/engine_wasm.c" \
-    "$SCRIPT_DIR/oled_gfx.c" "$SCRIPT_DIR/oled_fonts.c" "$SCRIPT_DIR/oled_display.c" \
+    "$SCRIPT_DIR/oled_gfx.c" "$SCRIPT_DIR/oled_fonts.c" "$SCRIPT_DIR/oled_display.c" "$SCRIPT_DIR/oled_screen.c" \
     -O2 \
     -I"$SCRIPT_DIR" \
     -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAPU16","UTF8ToString"]' \

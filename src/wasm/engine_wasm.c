@@ -8,7 +8,7 @@
 
 // ============ Global Engine State ============
 
-static EngineState g_state;
+EngineState g_state;
 
 // ============ JS Callback Bridges (via EM_JS) ============
 

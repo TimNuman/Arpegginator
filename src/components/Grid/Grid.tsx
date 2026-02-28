@@ -10,18 +10,9 @@ import {
   markDirty,
 } from "../../store/renderStore";
 import * as actions from "../../actions";
-import { NOTE_NAMES } from "../../types/scales";
 import { getDrumName, DRUM_TOTAL_ROWS, DRUM_MIN_ROW } from "../../types/drums";
 import type { WasmEngine } from "../../engine/WasmEngine";
-import {
-  OledRenderer,
-  OLED_CYAN,
-  OLED_YELLOW,
-  OLED_RED,
-  OLED_DIM,
-  OLED_FONT_MAIN,
-  OLED_FONT_SMALL,
-} from "../../engine/OledRenderer";
+import { OledRenderer } from "../../engine/OledRenderer";
 import {
   gridOuterContainerStyles,
   gridInnerContainerStyles,
@@ -54,15 +45,10 @@ import {
   UI_MODE_NAMES,
   SUB_MODE_NAMES,
   TICKS_TO_SUBDIVISION,
-  SUB_MODE_CONFIG,
-  LOOP_MODE_NAMES,
 } from "./Grid.config";
 import {
   noop,
   midiNoteToName,
-  ticksToDisplay,
-  ticksToCanonicalName,
-  ticksToMusicalName,
   tickToBeatDisplay,
   uint32ToHex,
   encodeModifiers,
@@ -398,299 +384,17 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     [wasmEngine],
   );
 
-  // ============ OLED Display (canvas-rendered via WASM) ============
-  // Row Y baselines for font_main (yAdvance=18, ascent~10)
-  const ROW_Y = [14, 32, 50, 68, 86, 104];
-  const LABEL_X = 2;
-  const VALUE_X = 2;
-
-  // Helper: draw a labeled row (label in small dim font, value after)
-  const drawLabeledRow = (
-    oled: OledRenderer,
-    y: number,
-    label: string,
-    value: string,
-    valueColor = OLED_CYAN,
-  ) => {
-    if (label) {
-      oled.drawText(LABEL_X, y, label, OLED_DIM, OLED_FONT_SMALL);
-      const labelW = oled.textWidth(label + " ", OLED_FONT_SMALL);
-      oled.drawText(LABEL_X + labelW, y, value, valueColor);
-    } else {
-      oled.drawText(VALUE_X, y, value, valueColor);
-    }
-  };
-
-  // Helper: draw colored text segments at x, return new x
-  const drawSegments = (
-    oled: OledRenderer,
-    x: number,
-    y: number,
-    segments: Array<{ text: string; color: number }>,
-  ): number => {
-    let cx = x;
-    for (const seg of segments) {
-      oled.drawText(cx, y, seg.text, seg.color);
-      cx += oled.textWidth(seg.text);
-    }
-    return cx;
-  };
-
-  const renderOled = useCallback(() => {
+  // ============ OLED Display (rendered entirely in C/WASM) ============
+  useEffect(() => {
     const oled = oledRendererRef.current;
     if (!oled) return;
-    oled.clear();
-
-    if (uiMode === "pattern" && hasSelection) {
-      const selRow = wasmEngine.getSelRow();
-      const selLength = wasmEngine.getSelLength();
-      const repeatAmount = wasmEngine.getSelRepeatAmount();
-      const repeatSpace = wasmEngine.getSelRepeatSpace();
-      const chordAmount = wasmEngine.getSelChordAmount();
-      const chordSpace = wasmEngine.getSelChordSpace();
-      const arpStyle = wasmEngine.getSelArpStyle();
-      const arpOffset = wasmEngine.getSelArpOffset();
-      const arpVoices = wasmEngine.getSelArpVoices();
-      const ARP_STYLE_NAMES = ["CHD", "UP", "DN", "U/D", "D/U"];
-
-      const noteName = isDrumChannel
-        ? getDrumName(selRow)
-        : (() => {
-            const m = wasmEngine.noteToMidi(selRow);
-            return m >= 0 ? midiNoteToName(m) : "??";
-          })();
-      const lengthDisplay = ticksToMusicalName(selLength, ticksPerCol);
-      const repeatSpaceDisplay = ticksToCanonicalName(repeatSpace);
-      const chordVoicing =
-        chordAmount > 1 ? wasmEngine.getSelChordVoicing() : 0;
-      const voicingName =
-        chordAmount > 1
-          ? wasmEngine.getVoicingName(chordAmount, chordSpace, chordVoicing)
-          : "";
-      const rawChordName = chordAmount > 1 ? wasmEngine.getChordName() : "";
-      const octSuffix =
-        voicingName.match(/\+?(\d*oct)/)?.[0]?.replace(/^([^+])/, "+$1") ?? "";
-      const chordName = rawChordName
-        ? `${rawChordName}${octSuffix ? ` ${octSuffix}` : ""}`
-        : "";
-
-      const { shift, meta, alt } = keyboard;
-      type HTarget = "none" | "move" | "length" | "rptAmt" | "rptSpace" | "arpOffset" | "arpVoices";
-      type VTarget = "none" | "move" | "inversion" | "chdAmt" | "chdSpace" | "arpStyle" | "voicing";
-      let hTarget: HTarget = "none";
-      let vTarget: VTarget = "none";
-
-      if (meta && shift) { hTarget = "rptSpace"; vTarget = "chdSpace"; }
-      else if (meta) { hTarget = "rptAmt"; vTarget = "chdAmt"; }
-      else if (alt && shift) { hTarget = "arpVoices"; vTarget = "voicing"; }
-      else if (alt) { hTarget = "arpOffset"; vTarget = "arpStyle"; }
-      else if (shift) { hTarget = "length"; vTarget = "inversion"; }
-
-      // Row 0: note + chord info
-      let cx = VALUE_X;
-      oled.drawText(cx, ROW_Y[0], noteName, OLED_CYAN);
-      cx += oled.textWidth(noteName);
-      if (chordAmount > 1 && chordSpace === 1) {
-        const topRow = selRow + (chordAmount - 1);
-        const topName = isDrumChannel
-          ? getDrumName(topRow)
-          : (() => { const m = wasmEngine.noteToMidi(topRow); return m >= 0 ? midiNoteToName(m) : "??"; })();
-        oled.drawText(cx, ROW_Y[0], ` to ${topName}`, OLED_CYAN);
-      } else if (chordAmount === 2) {
-        const secondRow = selRow + chordSpace;
-        const secondName = isDrumChannel
-          ? getDrumName(secondRow)
-          : (() => { const m = wasmEngine.noteToMidi(secondRow); return m >= 0 ? midiNoteToName(m) : "??"; })();
-        const INTERVAL_NAMES = ["unison","min 2nd","2nd","min 3rd","3rd","4th","tritone","5th","min 6th","6th","min 7th","7th"];
-        const midi1 = wasmEngine.noteToMidi(selRow);
-        const midi2 = wasmEngine.noteToMidi(secondRow);
-        const semitones = Math.abs(midi2 - midi1);
-        const intervalName = semitones === 12 ? "octave"
-          : semitones > 12 ? `${INTERVAL_NAMES[semitones % 12]} +oct`
-          : INTERVAL_NAMES[semitones] ?? `${semitones}st`;
-        oled.drawText(cx, ROW_Y[0], ` - ${secondName} (${intervalName})`, OLED_CYAN);
-      } else if (chordAmount > 2) {
-        oled.drawText(cx, ROW_Y[0], " - ", OLED_CYAN);
-        cx += oled.textWidth(" - ");
-        const chordLabel = chordName || `${chordAmount}x${chordSpace}`;
-        oled.drawText(cx, ROW_Y[0], chordLabel, vTarget === "voicing" ? OLED_RED : OLED_CYAN);
-      }
-
-      // Row 1: length x amount @ space
-      drawSegments(oled, VALUE_X, ROW_Y[1], [
-        { text: lengthDisplay, color: hTarget === "length" ? OLED_YELLOW : OLED_CYAN },
-        { text: " x ", color: OLED_CYAN },
-        { text: `${repeatAmount}`, color: hTarget === "rptAmt" ? OLED_YELLOW : OLED_CYAN },
-        { text: " @ ", color: OLED_CYAN },
-        { text: repeatSpaceDisplay, color: hTarget === "rptSpace" ? OLED_YELLOW : OLED_CYAN },
-      ]);
-
-      // Row 2+: modifier legends or default "Move"
-      let xLabel = "Move";
-      let yLabel = "Move";
-      if (meta && shift) { xLabel = "Repeat space"; yLabel = "Stack space"; }
-      else if (meta) { xLabel = "Repeat amount"; yLabel = "Stack size"; }
-      else if (alt && shift) { xLabel = "Arp voices"; yLabel = "Voicing"; }
-      else if (alt) { xLabel = "Arp offset"; yLabel = "Arp style"; }
-      else if (shift) { xLabel = "Length"; yLabel = chordAmount > 1 ? "Inversion" : "Move octave"; }
-
-      const hasModifier = shift || meta || alt;
-      if (hasModifier) {
-        const inv = wasmEngine.getSelChordInversion();
-        const yValue: Record<VTarget, string> = {
-          none: "", move: "",
-          inversion: chordAmount > 1 ? `${inv >= 0 ? "+" : ""}${inv}` : "",
-          chdAmt: `${chordAmount}`, chdSpace: `${chordSpace}`,
-          arpStyle: ARP_STYLE_NAMES[arpStyle] ?? "CHD", voicing: voicingName || "base",
-        };
-        const xValue: Record<HTarget, string> = {
-          none: "", move: "",
-          length: lengthDisplay, rptAmt: `${repeatAmount}`, rptSpace: repeatSpaceDisplay,
-          arpOffset: `${arpOffset > 0 ? "+" : ""}${arpOffset}`, arpVoices: `${arpVoices}`,
-        };
-        // Vertical legend
-        const yLegend = `^v ${yLabel}: `;
-        oled.drawText(VALUE_X, ROW_Y[2], yLegend, OLED_RED);
-        if (yValue[vTarget]) {
-          oled.drawText(VALUE_X + oled.textWidth(yLegend), ROW_Y[2], yValue[vTarget], OLED_CYAN);
-        }
-        // Horizontal legend
-        const xLegend = `<> ${xLabel}: `;
-        oled.drawText(VALUE_X, ROW_Y[3], xLegend, OLED_YELLOW);
-        if (xValue[hTarget]) {
-          oled.drawText(VALUE_X + oled.textWidth(xLegend), ROW_Y[3], xValue[hTarget], OLED_CYAN);
-        }
-      } else {
-        oled.drawText(VALUE_X, ROW_Y[2], "<^v> Move", OLED_CYAN);
-      }
-    } else if (uiMode === "modify") {
-      const subModeLabel = SUB_MODE_CONFIG[modifySubMode].label;
-      if (hasSelection) {
-        const selRow = wasmEngine.getSelRow();
-        const noteName = isDrumChannel
-          ? getDrumName(selRow)
-          : (() => { const m = wasmEngine.noteToMidi(selRow); return m >= 0 ? midiNoteToName(m) : "??"; })();
-        const loopModeVal = wasmEngine.getSelSubModeLoopMode(modifySubModeIdx);
-        const loopMode = LOOP_MODE_NAMES[loopModeVal] ?? "reset";
-        const loopModeLabel = loopMode === "reset" ? "RST" : loopMode === "continue" ? "CNT" : "FIL";
-        const arrLen = wasmEngine.getSelSubModeArrayLength(modifySubModeIdx);
-        const { meta: mMeta } = keyboard;
-
-        // Row 0: note + sub-mode
-        drawSegments(oled, VALUE_X, ROW_Y[0], [
-          { text: noteName, color: OLED_CYAN },
-          { text: ` ${subModeLabel}`, color: mMeta ? OLED_RED : OLED_CYAN },
-        ]);
-        // Row 1: loop mode + length
-        drawSegments(oled, VALUE_X, ROW_Y[1], [
-          { text: loopModeLabel, color: !mMeta ? OLED_RED : OLED_CYAN },
-          { text: ` L${arrLen}`, color: !mMeta ? OLED_YELLOW : OLED_CYAN },
-        ]);
-
-        if (mMeta) {
-          const legend = `^v Sub-mode: `;
-          oled.drawText(VALUE_X, ROW_Y[2], legend, OLED_RED);
-          oled.drawText(VALUE_X + oled.textWidth(legend), ROW_Y[2], subModeLabel, OLED_CYAN);
-        } else {
-          const yLeg = `^v Loop mode: `;
-          oled.drawText(VALUE_X, ROW_Y[2], yLeg, OLED_RED);
-          oled.drawText(VALUE_X + oled.textWidth(yLeg), ROW_Y[2], loopModeLabel, OLED_CYAN);
-          const xLeg = `<> Length: `;
-          oled.drawText(VALUE_X, ROW_Y[3], xLeg, OLED_YELLOW);
-          oled.drawText(VALUE_X + oled.textWidth(xLeg), ROW_Y[3], `${arrLen}`, OLED_CYAN);
-        }
-      } else {
-        const { meta: mMeta } = keyboard;
-        oled.drawText(VALUE_X, ROW_Y[0], subModeLabel, mMeta ? OLED_RED : OLED_CYAN);
-        oled.drawText(VALUE_X, ROW_Y[1], "SELECT A NOTE", OLED_CYAN);
-        if (mMeta) {
-          const legend = `^v Sub-mode: `;
-          oled.drawText(VALUE_X, ROW_Y[2], legend, OLED_RED);
-          oled.drawText(VALUE_X + oled.textWidth(legend), ROW_Y[2], subModeLabel, OLED_CYAN);
-        }
-      }
-    } else if (uiMode === "channel") {
-      drawLabeledRow(oled, ROW_Y[0], "MODE", "CHANNEL");
-      drawLabeledRow(oled, ROW_Y[1], "SELECT", `CH ${currentChannel + 1}`);
-      drawLabeledRow(oled, ROW_Y[2], "PAT", `${currentPattern + 1}`);
-    } else if (uiMode === "loop") {
-      const lShift = keyboard.shift;
-      drawLabeledRow(oled, ROW_Y[0], "MODE", "LOOP");
-      drawSegments(oled, VALUE_X, ROW_Y[1], [
-        { text: `S ${tickToBeatDisplay(loopStart)}`, color: lShift ? OLED_YELLOW : OLED_CYAN },
-        { text: `  E ${tickToBeatDisplay(loopEndTick)}`, color: !lShift ? OLED_YELLOW : OLED_CYAN },
-      ]);
-      if (lShift) {
-        const leg = `<> Start: `;
-        oled.drawText(VALUE_X, ROW_Y[2], leg, OLED_YELLOW);
-        oled.drawText(VALUE_X + oled.textWidth(leg), ROW_Y[2], tickToBeatDisplay(loopStart), OLED_CYAN);
-      } else {
-        const leg = `<> End: `;
-        oled.drawText(VALUE_X, ROW_Y[2], leg, OLED_YELLOW);
-        oled.drawText(VALUE_X + oled.textWidth(leg), ROW_Y[2], tickToBeatDisplay(loopEndTick), OLED_CYAN);
-      }
-    } else if (keyboard.shift) {
-      drawLabeledRow(oled, ROW_Y[0], "MODE", "EXTEND");
-      drawLabeledRow(oled, ROW_Y[1], "NOTE", "DRAG");
-    } else {
-      // Default pattern mode (no selection)
-      const scaleRootName = NOTE_NAMES[scaleRoot];
-      const scaleName = wasmEngine.getScaleName();
-      const pAlt = keyboard.alt;
-
-      drawSegments(oled, VALUE_X, ROW_Y[0], [
-        { text: `CH ${currentChannel + 1}`, color: OLED_CYAN },
-        { text: `  PAT ${currentPattern + 1}`, color: OLED_CYAN },
-      ]);
-
-      if (isDrumChannel) {
-        drawLabeledRow(oled, ROW_Y[1], "TYPE", "DRUMS");
-      } else {
-        const lx = LABEL_X;
-        oled.drawText(lx, ROW_Y[1], "KEY", OLED_DIM, OLED_FONT_SMALL);
-        const kx = lx + oled.textWidth("KEY ", OLED_FONT_SMALL);
-        let cx2 = kx;
-        oled.drawText(cx2, ROW_Y[1], scaleRootName, pAlt ? OLED_YELLOW : OLED_CYAN);
-        cx2 += oled.textWidth(scaleRootName + " ");
-        oled.drawText(cx2, ROW_Y[1], scaleName, pAlt ? OLED_RED : OLED_CYAN);
-      }
-
-      if (pAlt && !isDrumChannel) {
-        const yLeg = `^v Scale: `;
-        oled.drawText(VALUE_X, ROW_Y[2], yLeg, OLED_RED);
-        oled.drawText(VALUE_X + oled.textWidth(yLeg), ROW_Y[2], scaleName, OLED_CYAN);
-        const xLeg = `<> Root: `;
-        oled.drawText(VALUE_X, ROW_Y[3], xLeg, OLED_YELLOW);
-        oled.drawText(VALUE_X + oled.textWidth(xLeg), ROW_Y[3], scaleRootName, OLED_CYAN);
-      } else {
-        drawLabeledRow(oled, ROW_Y[2], "LOOP",
-          `${tickToBeatDisplay(loopStart)}-${tickToBeatDisplay(loopEndTick)}`);
-      }
-    }
-
+    const mods =
+      (keyboard.shift ? 1 : 0) |
+      (keyboard.meta ? 2 : 0) |
+      (keyboard.alt ? 4 : 0) |
+      (keyboard.ctrl ? 8 : 0);
+    oled.render(mods);
     oled.blit();
-  }, [
-    uiMode,
-    modifySubMode,
-    modifySubModeIdx,
-    hasSelection,
-    keyboard,
-    currentChannel,
-    currentPattern,
-    loopStart,
-    loopLength,
-    loopEndTick,
-    ticksPerCol,
-    zoom,
-    scaleRoot,
-    isDrumChannel,
-    wasmEngine,
-    selectedEventIdx,
-  ]);
-
-  // Render OLED after every render (runs after canvas attach useEffect)
-  useEffect(() => {
-    renderOled();
   });
 
   return (
