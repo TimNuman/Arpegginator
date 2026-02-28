@@ -399,8 +399,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   );
 
   // ============ OLED Display (canvas-rendered via WASM) ============
-  // Row Y baselines for font_main (yAdvance=19, ascent~11)
-  const ROW_Y = [14, 33, 52, 71, 90, 109];
+  // Row Y baselines for font_main (yAdvance=18, ascent~10)
+  const ROW_Y = [14, 32, 50, 68, 86, 104];
   const LABEL_X = 2;
   const VALUE_X = 2;
 
