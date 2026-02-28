@@ -96,48 +96,7 @@ export const oledScreenStyles = css`
   box-shadow:
     inset 0 0 20px rgba(0, 0, 0, 0.8),
     0 2px 8px rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  padding: 8px;
-  font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  color: #0ff;
-  font-size: 11px;
   overflow: hidden;
-`;
-
-export const oledRowStyles = css`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex: 1;
-  min-height: 0;
-`;
-
-export const oledLabelStyles = css`
-  color: rgba(0, 255, 255, 0.5);
-  font-size: 9px;
-  text-transform: uppercase;
-`;
-
-export const oledValueStyles = css`
-  color: #0ff;
-  font-size: 12px;
-  font-weight: 500;
-  text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
-`;
-
-export const oledHighlightStyles = css`
-  color: #ff0;
-  font-size: 12px;
-  font-weight: 500;
-  text-shadow: 0 0 8px rgba(255, 255, 0, 0.5);
-`;
-
-export const oledHighlightRedStyles = css`
-  color: #f55;
-  font-size: 12px;
-  font-weight: 500;
-  text-shadow: 0 0 8px rgba(255, 85, 85, 0.5);
 `;
 
 export const rotaryEncoderStyles = css`

@@ -114,15 +114,29 @@ EXPORTED_FUNCTIONS='[
     "_engine_get_scale_id_idx",
     "_engine_get_visible_rows",
     "_engine_get_visible_cols",
-    "_engine_get_num_channels"
+    "_engine_get_num_channels",
+    "_oled_init",
+    "_oled_clear",
+    "_oled_draw_text",
+    "_oled_draw_hline",
+    "_oled_draw_vline",
+    "_oled_draw_line",
+    "_oled_draw_rect",
+    "_oled_fill_rect",
+    "_oled_draw_pixel",
+    "_oled_text_width",
+    "_oled_font_height",
+    "_oled_get_framebuffer",
+    "_oled_get_framebuffer_size"
 ]'
 # Remove whitespace from JSON
 EXPORTED_FUNCTIONS=$(echo "$EXPORTED_FUNCTIONS" | tr -d '[:space:]')
 
 emcc "$SCRIPT_DIR/engine_core.c" "$SCRIPT_DIR/engine_ui.c" "$SCRIPT_DIR/engine_edit.c" "$SCRIPT_DIR/engine_input.c" "$SCRIPT_DIR/engine_wasm.c" \
+    "$SCRIPT_DIR/oled_gfx.c" "$SCRIPT_DIR/oled_fonts.c" "$SCRIPT_DIR/oled_display.c" \
     -O2 \
     -I"$SCRIPT_DIR" \
-    -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","UTF8ToString"]' \
+    -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAPU16","UTF8ToString"]' \
     -s EXPORTED_FUNCTIONS="$EXPORTED_FUNCTIONS" \
     -s MODULARIZE=1 \
     -s EXPORT_NAME='createWasmEngine' \

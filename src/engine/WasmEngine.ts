@@ -1,6 +1,7 @@
 import type { NoteEvent, PatternData, VelocityLoopMode } from '../types/event';
 import type { StepTriggerExtras } from '../actions/playbackActions';
 import { markDirty } from '../store/renderStore';
+import { OledRenderer } from './OledRenderer';
 
 // ============ Emscripten Module Types ============
 
@@ -343,6 +344,13 @@ export class WasmEngine {
 
   isReady(): boolean {
     return this.module !== null;
+  }
+
+  /** Create an OledRenderer backed by the same WASM module */
+  createOledRenderer(): OledRenderer {
+    if (!this.module) throw new Error('WasmEngine not loaded');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return new OledRenderer(this.module as any);
   }
 
   getVersion(): number {

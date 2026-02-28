@@ -14,6 +14,15 @@ import { NOTE_NAMES } from "../../types/scales";
 import { getDrumName, DRUM_TOTAL_ROWS, DRUM_MIN_ROW } from "../../types/drums";
 import type { WasmEngine } from "../../engine/WasmEngine";
 import {
+  OledRenderer,
+  OLED_CYAN,
+  OLED_YELLOW,
+  OLED_RED,
+  OLED_DIM,
+  OLED_FONT_MAIN,
+  OLED_FONT_SMALL,
+} from "../../engine/OledRenderer";
+import {
   gridOuterContainerStyles,
   gridInnerContainerStyles,
   gridContainerStyles,
@@ -26,11 +35,6 @@ import {
   oledContainerStyles,
   oledColumnStyles,
   oledScreenStyles,
-  oledRowStyles,
-  oledLabelStyles,
-  oledValueStyles,
-  oledHighlightStyles,
-  oledHighlightRedStyles,
   rotaryEncoderStyles,
   rotaryKnobStyles,
   arrowButtonContainerStyles,
@@ -78,8 +82,21 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     console.log(
       "[startup] Grid mounted, wasmEngine version=" + wasmEngine.getVersion(),
     );
+    // Initialize OLED renderer
+    if (!oledRendererRef.current) {
+      oledRendererRef.current = wasmEngine.createOledRenderer();
+    }
     return () => console.log("[startup] Grid unmounted");
   }, [wasmEngine]);
+
+  // Attach canvas to renderer once
+  const oledCanvasAttached = useRef(false);
+  useEffect(() => {
+    if (!oledCanvasAttached.current && oledCanvasRef.current && oledRendererRef.current) {
+      oledRendererRef.current.setCanvas(oledCanvasRef.current);
+      oledCanvasAttached.current = true;
+    }
+  });
 
   // ============ Read ALL state from WASM (single source of truth) ============
   const VISIBLE_ROWS = wasmEngine.getVisibleRows();
@@ -134,6 +151,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     meta: false,
     alt: false,
   });
+  const oledCanvasRef = useRef<HTMLCanvasElement>(null);
+  const oledRendererRef = useRef<OledRenderer | null>(null);
 
   const handleKeyDown = useCallback(
     (
@@ -379,15 +398,49 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     [wasmEngine],
   );
 
-  // ============ OLED Display ============
-  type OledValuePart = {
-    text: string;
-    highlight?: boolean;
-    highlightRed?: boolean;
-  };
-  type OledRow = { label: string; valueParts: OledValuePart[] };
+  // ============ OLED Display (canvas-rendered via WASM) ============
+  // Row Y baselines for font_main (yAdvance=19, ascent~11)
+  const ROW_Y = [14, 33, 52, 71, 90, 109];
+  const LABEL_X = 2;
+  const VALUE_X = 2;
 
-  const getOledContent = useCallback((): { rows: OledRow[] } => {
+  // Helper: draw a labeled row (label in small dim font, value after)
+  const drawLabeledRow = (
+    oled: OledRenderer,
+    y: number,
+    label: string,
+    value: string,
+    valueColor = OLED_CYAN,
+  ) => {
+    if (label) {
+      oled.drawText(LABEL_X, y, label, OLED_DIM, OLED_FONT_SMALL);
+      const labelW = oled.textWidth(label + " ", OLED_FONT_SMALL);
+      oled.drawText(LABEL_X + labelW, y, value, valueColor);
+    } else {
+      oled.drawText(VALUE_X, y, value, valueColor);
+    }
+  };
+
+  // Helper: draw colored text segments at x, return new x
+  const drawSegments = (
+    oled: OledRenderer,
+    x: number,
+    y: number,
+    segments: Array<{ text: string; color: number }>,
+  ): number => {
+    let cx = x;
+    for (const seg of segments) {
+      oled.drawText(cx, y, seg.text, seg.color);
+      cx += oled.textWidth(seg.text);
+    }
+    return cx;
+  };
+
+  const renderOled = useCallback(() => {
+    const oled = oledRendererRef.current;
+    if (!oled) return;
+    oled.clear();
+
     if (uiMode === "pattern" && hasSelection) {
       const selRow = wasmEngine.getSelRow();
       const selLength = wasmEngine.getSelLength();
@@ -415,379 +468,207 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           ? wasmEngine.getVoicingName(chordAmount, chordSpace, chordVoicing)
           : "";
       const rawChordName = chordAmount > 1 ? wasmEngine.getChordName() : "";
-      // Append +oct/+2oct suffix from voicing name (pitch class dedup hides octave doublings)
       const octSuffix =
         voicingName.match(/\+?(\d*oct)/)?.[0]?.replace(/^([^+])/, "+$1") ?? "";
       const chordName = rawChordName
         ? `${rawChordName}${octSuffix ? ` ${octSuffix}` : ""}`
         : "";
 
-      // Determine what ↕ (red) and ↔ (yellow) will change
       const { shift, meta, alt } = keyboard;
-      // highlightX = yellow (←→), highlightY = red (↑↓)
-      type HTarget =
-        | "none"
-        | "move"
-        | "length"
-        | "rptAmt"
-        | "rptSpace"
-        | "arpOffset"
-        | "arpVoices";
-      type VTarget =
-        | "none"
-        | "move"
-        | "inversion"
-        | "chdAmt"
-        | "chdSpace"
-        | "arpStyle"
-        | "voicing";
+      type HTarget = "none" | "move" | "length" | "rptAmt" | "rptSpace" | "arpOffset" | "arpVoices";
+      type VTarget = "none" | "move" | "inversion" | "chdAmt" | "chdSpace" | "arpStyle" | "voicing";
       let hTarget: HTarget = "none";
       let vTarget: VTarget = "none";
 
-      if (meta && shift) {
-        hTarget = "rptSpace";
-        vTarget = "chdSpace";
-      } else if (meta) {
-        hTarget = "rptAmt";
-        vTarget = "chdAmt";
-      } else if (alt && shift) {
-        hTarget = "arpVoices";
-        vTarget = "voicing";
-      } else if (alt) {
-        hTarget = "arpOffset";
-        vTarget = "arpStyle";
-      } else if (shift) {
-        hTarget = "length";
-        vTarget = "inversion";
-      }
+      if (meta && shift) { hTarget = "rptSpace"; vTarget = "chdSpace"; }
+      else if (meta) { hTarget = "rptAmt"; vTarget = "chdAmt"; }
+      else if (alt && shift) { hTarget = "arpVoices"; vTarget = "voicing"; }
+      else if (alt) { hTarget = "arpOffset"; vTarget = "arpStyle"; }
+      else if (shift) { hTarget = "length"; vTarget = "inversion"; }
 
-      // Row 1: note + chord condensed
-      const row1Parts: OledValuePart[] = [{ text: noteName }];
+      // Row 0: note + chord info
+      let cx = VALUE_X;
+      oled.drawText(cx, ROW_Y[0], noteName, OLED_CYAN);
+      cx += oled.textWidth(noteName);
       if (chordAmount > 1 && chordSpace === 1) {
-        // Cluster chord (space=1): show as range
         const topRow = selRow + (chordAmount - 1);
         const topName = isDrumChannel
           ? getDrumName(topRow)
-          : (() => {
-              const m = wasmEngine.noteToMidi(topRow);
-              return m >= 0 ? midiNoteToName(m) : "??";
-            })();
-        row1Parts.push({ text: ` to ${topName}` });
+          : (() => { const m = wasmEngine.noteToMidi(topRow); return m >= 0 ? midiNoteToName(m) : "??"; })();
+        oled.drawText(cx, ROW_Y[0], ` to ${topName}`, OLED_CYAN);
       } else if (chordAmount === 2) {
-        // Interval (2-note stack): show both notes + interval name
         const secondRow = selRow + chordSpace;
         const secondName = isDrumChannel
           ? getDrumName(secondRow)
-          : (() => {
-              const m = wasmEngine.noteToMidi(secondRow);
-              return m >= 0 ? midiNoteToName(m) : "??";
-            })();
-        const INTERVAL_NAMES = [
-          "unison", "min 2nd", "2nd", "min 3rd", "3rd", "4th",
-          "tritone", "5th", "min 6th", "6th", "min 7th", "7th",
-        ];
+          : (() => { const m = wasmEngine.noteToMidi(secondRow); return m >= 0 ? midiNoteToName(m) : "??"; })();
+        const INTERVAL_NAMES = ["unison","min 2nd","2nd","min 3rd","3rd","4th","tritone","5th","min 6th","6th","min 7th","7th"];
         const midi1 = wasmEngine.noteToMidi(selRow);
         const midi2 = wasmEngine.noteToMidi(secondRow);
         const semitones = Math.abs(midi2 - midi1);
-        const intervalName = semitones === 12
-          ? "octave"
-          : semitones > 12
-            ? `${INTERVAL_NAMES[semitones % 12]} +oct`
-            : INTERVAL_NAMES[semitones] ?? `${semitones}st`;
-        row1Parts.push({ text: ` - ${secondName} (${intervalName})` });
+        const intervalName = semitones === 12 ? "octave"
+          : semitones > 12 ? `${INTERVAL_NAMES[semitones % 12]} +oct`
+          : INTERVAL_NAMES[semitones] ?? `${semitones}st`;
+        oled.drawText(cx, ROW_Y[0], ` - ${secondName} (${intervalName})`, OLED_CYAN);
       } else if (chordAmount > 2) {
-        row1Parts.push({ text: " - " });
-        row1Parts.push({
-          text: chordName || `${chordAmount}x${chordSpace}`,
-          highlightRed: vTarget === "voicing",
-        });
+        oled.drawText(cx, ROW_Y[0], " - ", OLED_CYAN);
+        cx += oled.textWidth(" - ");
+        const chordLabel = chordName || `${chordAmount}x${chordSpace}`;
+        oled.drawText(cx, ROW_Y[0], chordLabel, vTarget === "voicing" ? OLED_RED : OLED_CYAN);
       }
 
-      // Row 2: length x amount @ space + arp
-      const row2Parts: OledValuePart[] = [
-        { text: lengthDisplay, highlight: hTarget === "length" },
-        { text: " x " },
-        { text: `${repeatAmount}`, highlight: hTarget === "rptAmt" },
-        { text: " @ " },
-        { text: repeatSpaceDisplay, highlight: hTarget === "rptSpace" },
-      ];
+      // Row 1: length x amount @ space
+      drawSegments(oled, VALUE_X, ROW_Y[1], [
+        { text: lengthDisplay, color: hTarget === "length" ? OLED_YELLOW : OLED_CYAN },
+        { text: " x ", color: OLED_CYAN },
+        { text: `${repeatAmount}`, color: hTarget === "rptAmt" ? OLED_YELLOW : OLED_CYAN },
+        { text: " @ ", color: OLED_CYAN },
+        { text: repeatSpaceDisplay, color: hTarget === "rptSpace" ? OLED_YELLOW : OLED_CYAN },
+      ]);
 
-      // Row 3: modifier legend — what current held keys do
+      // Row 2+: modifier legends or default "Move"
       let xLabel = "Move";
       let yLabel = "Move";
-
-      if (meta && shift) {
-        xLabel = "Repeat space";
-        yLabel = "Stack space";
-      } else if (meta) {
-        xLabel = "Repeat amount";
-        yLabel = "Stack size";
-      } else if (alt && shift) {
-        xLabel = "Arp voices";
-        yLabel = "Voicing";
-      } else if (alt) {
-        xLabel = "Arp offset";
-        yLabel = "Arp style";
-      } else if (shift) {
-        xLabel = "Length";
-        yLabel = chordAmount > 1 ? "Inversion" : "Move octave";
-      }
+      if (meta && shift) { xLabel = "Repeat space"; yLabel = "Stack space"; }
+      else if (meta) { xLabel = "Repeat amount"; yLabel = "Stack size"; }
+      else if (alt && shift) { xLabel = "Arp voices"; yLabel = "Voicing"; }
+      else if (alt) { xLabel = "Arp offset"; yLabel = "Arp style"; }
+      else if (shift) { xLabel = "Length"; yLabel = chordAmount > 1 ? "Inversion" : "Move octave"; }
 
       const hasModifier = shift || meta || alt;
-
       if (hasModifier) {
-        // Build current value strings for the legend rows
         const inv = wasmEngine.getSelChordInversion();
         const yValue: Record<VTarget, string> = {
-          none: "",
-          move: "",
+          none: "", move: "",
           inversion: chordAmount > 1 ? `${inv >= 0 ? "+" : ""}${inv}` : "",
-          chdAmt: `${chordAmount}`,
-          chdSpace: `${chordSpace}`,
-          arpStyle: ARP_STYLE_NAMES[arpStyle] ?? "CHD",
-          voicing: voicingName || "base",
+          chdAmt: `${chordAmount}`, chdSpace: `${chordSpace}`,
+          arpStyle: ARP_STYLE_NAMES[arpStyle] ?? "CHD", voicing: voicingName || "base",
         };
         const xValue: Record<HTarget, string> = {
-          none: "",
-          move: "",
-          length: lengthDisplay,
-          rptAmt: `${repeatAmount}`,
-          rptSpace: repeatSpaceDisplay,
-          arpOffset: `${arpOffset > 0 ? "+" : ""}${arpOffset}`,
-          arpVoices: `${arpVoices}`,
+          none: "", move: "",
+          length: lengthDisplay, rptAmt: `${repeatAmount}`, rptSpace: repeatSpaceDisplay,
+          arpOffset: `${arpOffset > 0 ? "+" : ""}${arpOffset}`, arpVoices: `${arpVoices}`,
         };
-
-        return {
-          rows: [
-            { label: "", valueParts: row1Parts },
-            { label: "", valueParts: row2Parts },
-            {
-              label: "",
-              valueParts: yValue[vTarget]
-                ? [
-                    { text: `\u2195 ${yLabel}: `, highlightRed: true },
-                    { text: yValue[vTarget] },
-                  ]
-                : [{ text: `\u2195 ${yLabel}`, highlightRed: true }],
-            },
-            {
-              label: "",
-              valueParts: xValue[hTarget]
-                ? [
-                    { text: `\u2194 ${xLabel}: `, highlight: true },
-                    { text: xValue[hTarget] },
-                  ]
-                : [{ text: `\u2194 ${xLabel}`, highlight: true }],
-            },
-          ],
-        };
+        // Vertical legend
+        const yLegend = `^v ${yLabel}: `;
+        oled.drawText(VALUE_X, ROW_Y[2], yLegend, OLED_RED);
+        if (yValue[vTarget]) {
+          oled.drawText(VALUE_X + oled.textWidth(yLegend), ROW_Y[2], yValue[vTarget], OLED_CYAN);
+        }
+        // Horizontal legend
+        const xLegend = `<> ${xLabel}: `;
+        oled.drawText(VALUE_X, ROW_Y[3], xLegend, OLED_YELLOW);
+        if (xValue[hTarget]) {
+          oled.drawText(VALUE_X + oled.textWidth(xLegend), ROW_Y[3], xValue[hTarget], OLED_CYAN);
+        }
+      } else {
+        oled.drawText(VALUE_X, ROW_Y[2], "<^v> Move", OLED_CYAN);
       }
-
-      return {
-        rows: [
-          { label: "", valueParts: row1Parts },
-          { label: "", valueParts: row2Parts },
-          {
-            label: "",
-            valueParts: [{ text: "\u2190\u2191\u2192\u2193 Move" }],
-          },
-        ],
-      };
-    }
-
-    if (uiMode === "modify") {
+    } else if (uiMode === "modify") {
       const subModeLabel = SUB_MODE_CONFIG[modifySubMode].label;
       if (hasSelection) {
         const selRow = wasmEngine.getSelRow();
         const noteName = isDrumChannel
           ? getDrumName(selRow)
-          : (() => {
-              const m = wasmEngine.noteToMidi(selRow);
-              return m >= 0 ? midiNoteToName(m) : "??";
-            })();
+          : (() => { const m = wasmEngine.noteToMidi(selRow); return m >= 0 ? midiNoteToName(m) : "??"; })();
         const loopModeVal = wasmEngine.getSelSubModeLoopMode(modifySubModeIdx);
         const loopMode = LOOP_MODE_NAMES[loopModeVal] ?? "reset";
-        const loopModeLabel =
-          loopMode === "reset"
-            ? "RST"
-            : loopMode === "continue"
-              ? "CNT"
-              : "FIL";
+        const loopModeLabel = loopMode === "reset" ? "RST" : loopMode === "continue" ? "CNT" : "FIL";
         const arrLen = wasmEngine.getSelSubModeArrayLength(modifySubModeIdx);
         const { meta: mMeta } = keyboard;
 
-        const rows: OledRow[] = [
-          {
-            label: "",
-            valueParts: [
-              { text: noteName },
-              { text: ` ${subModeLabel}`, highlightRed: mMeta },
-            ],
-          },
-          {
-            label: "",
-            valueParts: [
-              { text: loopModeLabel, highlightRed: !mMeta },
-              { text: ` L${arrLen}`, highlight: !mMeta },
-            ],
-          },
-        ];
+        // Row 0: note + sub-mode
+        drawSegments(oled, VALUE_X, ROW_Y[0], [
+          { text: noteName, color: OLED_CYAN },
+          { text: ` ${subModeLabel}`, color: mMeta ? OLED_RED : OLED_CYAN },
+        ]);
+        // Row 1: loop mode + length
+        drawSegments(oled, VALUE_X, ROW_Y[1], [
+          { text: loopModeLabel, color: !mMeta ? OLED_RED : OLED_CYAN },
+          { text: ` L${arrLen}`, color: !mMeta ? OLED_YELLOW : OLED_CYAN },
+        ]);
 
         if (mMeta) {
-          rows.push({
-            label: "",
-            valueParts: [
-              { text: "\u2195 Sub-mode: ", highlightRed: true },
-              { text: subModeLabel },
-            ],
-          });
+          const legend = `^v Sub-mode: `;
+          oled.drawText(VALUE_X, ROW_Y[2], legend, OLED_RED);
+          oled.drawText(VALUE_X + oled.textWidth(legend), ROW_Y[2], subModeLabel, OLED_CYAN);
         } else {
-          rows.push(
-            {
-              label: "",
-              valueParts: [
-                { text: "\u2195 Loop mode: ", highlightRed: true },
-                { text: loopModeLabel },
-              ],
-            },
-            {
-              label: "",
-              valueParts: [
-                { text: "\u2194 Length: ", highlight: true },
-                { text: `${arrLen}` },
-              ],
-            },
-          );
+          const yLeg = `^v Loop mode: `;
+          oled.drawText(VALUE_X, ROW_Y[2], yLeg, OLED_RED);
+          oled.drawText(VALUE_X + oled.textWidth(yLeg), ROW_Y[2], loopModeLabel, OLED_CYAN);
+          const xLeg = `<> Length: `;
+          oled.drawText(VALUE_X, ROW_Y[3], xLeg, OLED_YELLOW);
+          oled.drawText(VALUE_X + oled.textWidth(xLeg), ROW_Y[3], `${arrLen}`, OLED_CYAN);
         }
-        return { rows };
+      } else {
+        const { meta: mMeta } = keyboard;
+        oled.drawText(VALUE_X, ROW_Y[0], subModeLabel, mMeta ? OLED_RED : OLED_CYAN);
+        oled.drawText(VALUE_X, ROW_Y[1], "SELECT A NOTE", OLED_CYAN);
+        if (mMeta) {
+          const legend = `^v Sub-mode: `;
+          oled.drawText(VALUE_X, ROW_Y[2], legend, OLED_RED);
+          oled.drawText(VALUE_X + oled.textWidth(legend), ROW_Y[2], subModeLabel, OLED_CYAN);
+        }
       }
-      const { meta: mMeta } = keyboard;
-      const rows: OledRow[] = [
-        {
-          label: "",
-          valueParts: [{ text: subModeLabel, highlightRed: mMeta }],
-        },
-        { label: "", valueParts: [{ text: "SELECT A NOTE" }] },
-      ];
-      if (mMeta) {
-        rows.push({
-          label: "",
-          valueParts: [
-            { text: "\u2195 Sub-mode: ", highlightRed: true },
-            { text: subModeLabel },
-          ],
-        });
-      }
-      return { rows };
-    }
-
-    if (uiMode === "channel") {
-      return {
-        rows: [
-          { label: "MODE", valueParts: [{ text: "CHANNEL" }] },
-          {
-            label: "SELECT",
-            valueParts: [{ text: `CH ${currentChannel + 1}` }],
-          },
-          { label: "PAT", valueParts: [{ text: `${currentPattern + 1}` }] },
-        ],
-      };
-    }
-
-    if (uiMode === "loop") {
+    } else if (uiMode === "channel") {
+      drawLabeledRow(oled, ROW_Y[0], "MODE", "CHANNEL");
+      drawLabeledRow(oled, ROW_Y[1], "SELECT", `CH ${currentChannel + 1}`);
+      drawLabeledRow(oled, ROW_Y[2], "PAT", `${currentPattern + 1}`);
+    } else if (uiMode === "loop") {
       const lShift = keyboard.shift;
-      const rows: OledRow[] = [
-        {
-          label: "",
-          valueParts: [
-            { text: `S ${tickToBeatDisplay(loopStart)}`, highlight: lShift },
-            {
-              text: `  E ${tickToBeatDisplay(loopEndTick)}`,
-              highlight: !lShift,
-            },
-          ],
-        },
-        {
-          label: "",
-          valueParts: lShift
-            ? [
-                { text: "\u2194 Start: ", highlight: true },
-                { text: tickToBeatDisplay(loopStart) },
-              ]
-            : [
-                { text: "\u2194 End: ", highlight: true },
-                { text: tickToBeatDisplay(loopEndTick) },
-              ],
-        },
-      ];
-      return {
-        rows: [{ label: "MODE", valueParts: [{ text: "LOOP" }] }, ...rows],
-      };
-    }
-
-    if (keyboard.shift) {
-      return {
-        rows: [
-          { label: "MODE", valueParts: [{ text: "EXTEND" }] },
-          { label: "NOTE", valueParts: [{ text: "DRAG" }] },
-          { label: "", valueParts: [] },
-        ],
-      };
-    }
-
-    const scaleRootName = NOTE_NAMES[scaleRoot];
-    const scaleName = wasmEngine.getScaleName();
-    const pAlt = keyboard.alt;
-
-    const rows: OledRow[] = [
-      {
-        label: "CH",
-        valueParts: [
-          { text: `${currentChannel + 1}` },
-          { text: `  PAT ${currentPattern + 1}` },
-        ],
-      },
-      isDrumChannel
-        ? { label: "TYPE", valueParts: [{ text: "DRUMS" }] }
-        : {
-            label: "KEY",
-            valueParts: [
-              { text: scaleRootName, highlight: pAlt },
-              { text: " " },
-              { text: scaleName, highlightRed: pAlt },
-            ],
-          },
-    ];
-
-    if (pAlt && !isDrumChannel) {
-      rows.push(
-        {
-          label: "",
-          valueParts: [
-            { text: "\u2195 Scale: ", highlightRed: true },
-            { text: scaleName },
-          ],
-        },
-        {
-          label: "",
-          valueParts: [
-            { text: "\u2194 Root: ", highlight: true },
-            { text: scaleRootName },
-          ],
-        },
-      );
+      drawLabeledRow(oled, ROW_Y[0], "MODE", "LOOP");
+      drawSegments(oled, VALUE_X, ROW_Y[1], [
+        { text: `S ${tickToBeatDisplay(loopStart)}`, color: lShift ? OLED_YELLOW : OLED_CYAN },
+        { text: `  E ${tickToBeatDisplay(loopEndTick)}`, color: !lShift ? OLED_YELLOW : OLED_CYAN },
+      ]);
+      if (lShift) {
+        const leg = `<> Start: `;
+        oled.drawText(VALUE_X, ROW_Y[2], leg, OLED_YELLOW);
+        oled.drawText(VALUE_X + oled.textWidth(leg), ROW_Y[2], tickToBeatDisplay(loopStart), OLED_CYAN);
+      } else {
+        const leg = `<> End: `;
+        oled.drawText(VALUE_X, ROW_Y[2], leg, OLED_YELLOW);
+        oled.drawText(VALUE_X + oled.textWidth(leg), ROW_Y[2], tickToBeatDisplay(loopEndTick), OLED_CYAN);
+      }
+    } else if (keyboard.shift) {
+      drawLabeledRow(oled, ROW_Y[0], "MODE", "EXTEND");
+      drawLabeledRow(oled, ROW_Y[1], "NOTE", "DRAG");
     } else {
-      rows.push({
-        label: "LOOP",
-        valueParts: [
-          {
-            text: `${tickToBeatDisplay(loopStart)}-${tickToBeatDisplay(loopEndTick)}`,
-          },
-        ],
-      });
+      // Default pattern mode (no selection)
+      const scaleRootName = NOTE_NAMES[scaleRoot];
+      const scaleName = wasmEngine.getScaleName();
+      const pAlt = keyboard.alt;
+
+      drawSegments(oled, VALUE_X, ROW_Y[0], [
+        { text: `CH ${currentChannel + 1}`, color: OLED_CYAN },
+        { text: `  PAT ${currentPattern + 1}`, color: OLED_CYAN },
+      ]);
+
+      if (isDrumChannel) {
+        drawLabeledRow(oled, ROW_Y[1], "TYPE", "DRUMS");
+      } else {
+        const lx = LABEL_X;
+        oled.drawText(lx, ROW_Y[1], "KEY", OLED_DIM, OLED_FONT_SMALL);
+        const kx = lx + oled.textWidth("KEY ", OLED_FONT_SMALL);
+        let cx2 = kx;
+        oled.drawText(cx2, ROW_Y[1], scaleRootName, pAlt ? OLED_YELLOW : OLED_CYAN);
+        cx2 += oled.textWidth(scaleRootName + " ");
+        oled.drawText(cx2, ROW_Y[1], scaleName, pAlt ? OLED_RED : OLED_CYAN);
+      }
+
+      if (pAlt && !isDrumChannel) {
+        const yLeg = `^v Scale: `;
+        oled.drawText(VALUE_X, ROW_Y[2], yLeg, OLED_RED);
+        oled.drawText(VALUE_X + oled.textWidth(yLeg), ROW_Y[2], scaleName, OLED_CYAN);
+        const xLeg = `<> Root: `;
+        oled.drawText(VALUE_X, ROW_Y[3], xLeg, OLED_YELLOW);
+        oled.drawText(VALUE_X + oled.textWidth(xLeg), ROW_Y[3], scaleRootName, OLED_CYAN);
+      } else {
+        drawLabeledRow(oled, ROW_Y[2], "LOOP",
+          `${tickToBeatDisplay(loopStart)}-${tickToBeatDisplay(loopEndTick)}`);
+      }
     }
 
-    return { rows };
+    oled.blit();
   }, [
     uiMode,
     modifySubMode,
@@ -807,7 +688,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     selectedEventIdx,
   ]);
 
-  const oledContent = getOledContent();
+  // Render OLED after every render (runs after canvas attach useEffect)
+  useEffect(() => {
+    renderOled();
+  });
 
   return (
     <Box css={gridOuterContainerStyles}>
@@ -903,27 +787,12 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       <Box css={oledContainerStyles}>
         <Box css={oledColumnStyles}>
           <Box css={oledScreenStyles}>
-            {oledContent.rows.map((row, index) => (
-              <Box key={index} css={oledRowStyles}>
-                <span css={oledLabelStyles}>{row.label}</span>
-                <span>
-                  {row.valueParts.map((part, partIndex) => (
-                    <span
-                      key={partIndex}
-                      css={
-                        part.highlightRed
-                          ? oledHighlightRedStyles
-                          : part.highlight
-                            ? oledHighlightStyles
-                            : oledValueStyles
-                      }
-                    >
-                      {part.text}
-                    </span>
-                  ))}
-                </span>
-              </Box>
-            ))}
+            <canvas
+              ref={oledCanvasRef}
+              width={160}
+              height={128}
+              style={{ width: '100%', height: '100%', imageRendering: 'pixelated' }}
+            />
           </Box>
           <Box css={rotaryEncoderStyles}>
             <Box css={rotaryKnobStyles} />
