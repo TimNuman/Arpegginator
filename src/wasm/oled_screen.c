@@ -21,9 +21,9 @@ extern EngineState g_state;
 extern const char* engine_get_chord_name(void);
 
 // ============ Layout constants ============
-static const int16_t ROW_Y[6] = {14, 32, 50, 68, 86, 104};
-#define LABEL_X 2
-#define VALUE_X 2
+static const int16_t ROW_Y[6] = {18, 38, 58, 78, 98, 118};
+#define LABEL_X 6
+#define VALUE_X 6
 
 // ============ Color lookup (index → RGB565) ============
 static const uint16_t COLOR_TABLE[] = {
@@ -229,9 +229,9 @@ static void draw_legend(int16_t y, const char* prefix, const char* value, uint8_
 
 static void get_note_display(int16_t row, uint8_t is_drum, char* buf) {
     if (is_drum) {
-        int8_t midi = note_to_midi(row, &g_state);
-        if (midi >= 0) get_drum_name(midi, buf);
-        else { buf[0] = '?'; buf[1] = '?'; buf[2] = 0; }
+        // For drum channels, the row IS the MIDI note directly
+        int8_t midi = (int8_t)(row < 0 ? 0 : (row > 127 ? 127 : row));
+        get_drum_name(midi, buf);
     } else {
         int8_t midi = note_to_midi(row, &g_state);
         if (midi >= 0) midi_note_to_name(midi, buf);
