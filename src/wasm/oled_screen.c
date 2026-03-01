@@ -225,6 +225,98 @@ static void draw_legend(int16_t y, const char* prefix, const char* value, uint8_
     }
 }
 
+// ============ Arrow icons (13x13, centered on text baseline) ============
+
+#define ICON_SIZE 13
+#define ICON_PAD  4  // space after icon before text
+
+// Vertical arrows icon (up + down)
+static void draw_icon_vertical(int16_t x, int16_t y, uint16_t color) {
+    int16_t cy = y - 5;  // vertically centered on text glyphs
+    int16_t mx = x + 6;  // horizontal center
+    // Up arrowhead
+    gfx_pixel(mx, cy - 5, color);
+    gfx_hline(mx - 1, cy - 4, 3, color);
+    gfx_hline(mx - 2, cy - 3, 5, color);
+    gfx_hline(mx - 3, cy - 2, 7, color);
+    // Shaft
+    gfx_vline(mx, cy - 2, 5, color);
+    // Down arrowhead
+    gfx_hline(mx - 3, cy + 2, 7, color);
+    gfx_hline(mx - 2, cy + 3, 5, color);
+    gfx_hline(mx - 1, cy + 4, 3, color);
+    gfx_pixel(mx, cy + 5, color);
+}
+
+// Horizontal arrows icon (left + right)
+static void draw_icon_horizontal(int16_t x, int16_t y, uint16_t color) {
+    int16_t cy = y - 5;
+    int16_t mx = x + 6;
+    // Left arrowhead
+    gfx_pixel(mx - 6, cy, color);
+    gfx_vline(mx - 5, cy - 1, 3, color);
+    gfx_vline(mx - 4, cy - 2, 5, color);
+    gfx_vline(mx - 3, cy - 3, 7, color);
+    // Shaft
+    gfx_hline(mx - 3, cy, 7, color);
+    // Right arrowhead
+    gfx_vline(mx + 3, cy - 3, 7, color);
+    gfx_vline(mx + 4, cy - 2, 5, color);
+    gfx_vline(mx + 5, cy - 1, 3, color);
+    gfx_pixel(mx + 6, cy, color);
+}
+
+// All-directions icon (4 arrows)
+static void draw_icon_all_dirs(int16_t x, int16_t y, uint16_t color) {
+    int16_t cy = y - 5;
+    int16_t mx = x + 6;
+    // Cross lines
+    gfx_hline(mx - 5, cy, 11, color);
+    gfx_vline(mx, cy - 5, 11, color);
+    // Up arrowhead
+    gfx_hline(mx - 1, cy - 4, 3, color);
+    gfx_hline(mx - 2, cy - 3, 5, color);
+    // Down arrowhead
+    gfx_hline(mx - 1, cy + 4, 3, color);
+    gfx_hline(mx - 2, cy + 3, 5, color);
+    // Left arrowhead
+    gfx_vline(mx - 4, cy - 1, 3, color);
+    gfx_vline(mx - 3, cy - 2, 5, color);
+    // Right arrowhead
+    gfx_vline(mx + 3, cy - 2, 5, color);
+    gfx_vline(mx + 4, cy - 1, 3, color);
+}
+
+typedef enum { ICON_VERTICAL, ICON_HORIZONTAL, ICON_ALL_DIRS } IconType;
+
+static void draw_icon(IconType type, int16_t x, int16_t y, uint16_t color) {
+    switch (type) {
+        case ICON_VERTICAL:   draw_icon_vertical(x, y, color); break;
+        case ICON_HORIZONTAL: draw_icon_horizontal(x, y, color); break;
+        case ICON_ALL_DIRS:   draw_icon_all_dirs(x, y, color); break;
+    }
+}
+
+// Draw icon + label + ": " in legend_color, then value in OLED_CYAN
+static void draw_icon_legend(int16_t y, IconType icon, const char* label, const char* value, uint8_t legend_color) {
+    draw_icon(icon, VALUE_X, y, color_rgb(legend_color));
+    int16_t tx = VALUE_X + ICON_SIZE + ICON_PAD;
+    char prefix[32];
+    snprintf(prefix, sizeof(prefix), "%s: ", label);
+    gfx_text(tx, y, prefix, color_rgb(legend_color), &font_main);
+    if (value && value[0]) {
+        int16_t w = gfx_text_width(prefix, &font_main);
+        gfx_text(tx + w, y, value, color_rgb(OLED_CYAN), &font_main);
+    }
+}
+
+// Draw icon + text label (no value)
+static void draw_icon_text(int16_t y, IconType icon, const char* text, uint8_t color) {
+    draw_icon(icon, VALUE_X, y, color_rgb(color));
+    int16_t tx = VALUE_X + ICON_SIZE + ICON_PAD;
+    gfx_text(tx, y, text, color_rgb(color), &font_main);
+}
+
 // ============ Helper to get note display name ============
 
 static void get_note_display(int16_t row, uint8_t is_drum, char* buf) {
@@ -442,16 +534,12 @@ static void render_pattern_selected(uint8_t mods) {
         }
 
         // Vertical legend (row 2)
-        char y_legend[32];
-        snprintf(y_legend, sizeof(y_legend), "^v %s: ", y_label);
-        draw_legend(ROW_Y[2], y_legend, y_value, OLED_RED);
+        draw_icon_legend(ROW_Y[2], ICON_VERTICAL, y_label, y_value, OLED_RED);
 
         // Horizontal legend (row 3)
-        char x_legend[32];
-        snprintf(x_legend, sizeof(x_legend), "<> %s: ", x_label);
-        draw_legend(ROW_Y[3], x_legend, x_value, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[3], ICON_HORIZONTAL, x_label, x_value, OLED_YELLOW);
     } else {
-        gfx_text(VALUE_X, ROW_Y[2], "<^v> Move", color_rgb(OLED_CYAN), &font_main);
+        draw_icon_text(ROW_Y[2], ICON_ALL_DIRS, "Move", OLED_CYAN);
     }
 }
 
@@ -493,23 +581,19 @@ static void render_modify(uint8_t mods) {
         draw_segments(VALUE_X, ROW_Y[1], row1, 2);
 
         if (m_meta) {
-            char legend[32];
-            snprintf(legend, sizeof(legend), "^v Sub-mode: ");
-            draw_legend(ROW_Y[2], legend, sub_label, OLED_RED);
+            draw_icon_legend(ROW_Y[2], ICON_VERTICAL, "Sub-mode", sub_label, OLED_RED);
         } else {
-            draw_legend(ROW_Y[2], "^v Loop mode: ", loop_label, OLED_RED);
+            draw_icon_legend(ROW_Y[2], ICON_VERTICAL, "Loop mode", loop_label, OLED_RED);
             char len_str[8];
             snprintf(len_str, sizeof(len_str), "%d", arr_len);
-            draw_legend(ROW_Y[3], "<> Length: ", len_str, OLED_YELLOW);
+            draw_icon_legend(ROW_Y[3], ICON_HORIZONTAL, "Length", len_str, OLED_YELLOW);
         }
     } else {
         // No selection
         gfx_text(VALUE_X, ROW_Y[0], sub_label, color_rgb(m_meta ? OLED_RED : OLED_CYAN), &font_main);
         gfx_text(VALUE_X, ROW_Y[1], "SELECT A NOTE", color_rgb(OLED_CYAN), &font_main);
         if (m_meta) {
-            char legend[32];
-            snprintf(legend, sizeof(legend), "^v Sub-mode: ");
-            draw_legend(ROW_Y[2], legend, sub_label, OLED_RED);
+            draw_icon_legend(ROW_Y[2], ICON_VERTICAL, "Sub-mode", sub_label, OLED_RED);
         }
     }
 }
@@ -551,13 +635,9 @@ static void render_loop(uint8_t mods) {
     draw_segments(VALUE_X, ROW_Y[1], row1, 2);
 
     if (l_shift) {
-        char leg[24];
-        snprintf(leg, sizeof(leg), "<> Start: ");
-        draw_legend(ROW_Y[2], leg, s_buf, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[2], ICON_HORIZONTAL, "Start", s_buf, OLED_YELLOW);
     } else {
-        char leg[24];
-        snprintf(leg, sizeof(leg), "<> End: ");
-        draw_legend(ROW_Y[2], leg, e_buf, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[2], ICON_HORIZONTAL, "End", e_buf, OLED_YELLOW);
     }
 }
 
@@ -608,8 +688,8 @@ static void render_pattern_default(uint8_t mods) {
     if (p_alt && !is_drum) {
         const char* scale_name = engine_get_scale_name_str(&g_state);
         const char* scale_root_name = NOTE_NAMES[g_state.scale_root % 12];
-        draw_legend(ROW_Y[2], "^v Scale: ", scale_name, OLED_RED);
-        draw_legend(ROW_Y[3], "<> Root: ", scale_root_name, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[2], ICON_VERTICAL, "Scale", scale_name, OLED_RED);
+        draw_icon_legend(ROW_Y[3], ICON_HORIZONTAL, "Root", scale_root_name, OLED_YELLOW);
     } else {
         PatternLoop_C* loop = &g_state.loops[ch][pat];
         char s_buf[16], e_buf[16], loop_str[32];
