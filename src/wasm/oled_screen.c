@@ -353,7 +353,7 @@ static void render_pattern_selected(uint8_t mods) {
     }
 
     // ---- Row 1: length x amount @ space ----
-    char amt_str[8], rpt_str[16];
+    char amt_str[8];
     snprintf(amt_str, sizeof(amt_str), "%d", repeat_amount);
     Segment row1[] = {
         { length_display, (h_target == T_LENGTH) ? OLED_YELLOW : OLED_CYAN },
