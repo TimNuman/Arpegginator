@@ -6,7 +6,8 @@ The sequencer engine is written in C and compiled to WebAssembly for performance
 
 ## Features
 
-**Sequencing**
+### Sequencing
+
 - 8 independent channels (6 melodic, 2 drum) with 8 patterns each
 - Tick-based timing at 480 PPQN with zoom levels from 1/4 to 1/64 notes
 - Per-note repeat system with configurable spacing
@@ -14,38 +15,44 @@ The sequencer engine is written in C and compiled to WebAssembly for performance
 - Pattern queuing with synchronized switching at loop boundaries
 - Mute and solo per channel
 
-**Chords and Arpeggios**
+### Chords and Arpeggios
+
 - Stack notes in scale degrees (thirds, fourths, etc.) to build chords
 - Multiple chord voicings per interval/size combination
 - Inversions (infinite, up, down)
 - Arpeggio styles: up, down, up-down, down-up, or all notes together
 - Configurable arp voices (how many chord notes play simultaneously per step)
 
-**Per-Repeat Modulation**
+### Per-Repeat Modulation
+
 Each note has 5 sub-mode arrays that cycle across repeats, each with its own loop behavior (reset, continue, or fill):
+
 - **Velocity** -- per-repeat velocity values
 - **Hit chance** -- probability that a repeat fires
 - **Timing offset** -- micro-timing nudge as percentage of a step
 - **Flam** -- grace note count per repeat
 - **Modulate** -- general-purpose modulation value
 
-**Scales**
+### Scales
+
 - Notes are mapped through a configurable scale so the grid always stays in key
 - Multiple scale types with root selection by circle of fifths
 - Drum channels bypass the scale and map directly to GM MIDI notes
 
-**MIDI**
+### MIDI
+
 - Sends note-on/off to any connected MIDI device via Web MIDI API
 - Receives MIDI clock for external sync (start, stop, continue, tempo detection)
 - Device selections persist across sessions
 
-**Display**
+### Display
+
 - Simulated 160x128 OLED screen showing note parameters, chord names, voicings, and playback state -- rendered entirely in C and blitted to a canvas via an RGB565 framebuffer
 - Color-coded channels on the grid with visual flags for playhead, beat markers, loop boundaries, and selected notes
 
 ## Architecture
 
-```
+```table
 ┌─────────────────────────────────────────────┐
 │  React UI (TypeScript)                      │
 │  Grid, Transport, TouchStrip, OLED canvas   │
@@ -76,6 +83,7 @@ Row 7:  Z X C V B N M ,
 ```
 
 Other keys:
+
 - **Space** -- play / stop
 - **Arrow keys** -- navigate (with modifiers for mode-specific actions)
 - **Backspace** -- deselect / reset
@@ -121,7 +129,7 @@ npm run watch:wasm
 
 ## Project Structure
 
-```
+```tree
 src/
 ├── wasm/              C engine source (core, edit, input, UI, OLED)
 ├── engine/            TypeScript wrappers for WASM module
