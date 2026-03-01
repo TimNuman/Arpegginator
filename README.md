@@ -1,8 +1,8 @@
 # Arpegginator
 
-A browser-based MIDI step sequencer and arpeggiator with a hardware-inspired interface. Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW.
+Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a Raspberry Pi Zero 2W driving a physical grid with RGB LEDs and an OLED display. This browser version serves as the development environment for the C engine -- the same code that runs here as WebAssembly will compile natively for the Pi.
 
-The sequencer engine is written in C and compiled to WebAssembly for performance. The UI is a React app that reads directly from WASM memory each frame, giving you a tight feedback loop between what you see on the grid and what gets played.
+Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware interface (button grid, display, transport controls) while the C engine underneath handles all sequencer state and logic, keeping the path to hardware short.
 
 ## Features
 
