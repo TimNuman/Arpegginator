@@ -298,7 +298,46 @@ static void render_pattern_selected(uint8_t mods) {
     gfx_text(cx, ROW_Y[0], note_name, color_rgb(OLED_CYAN), &font_main);
     cx += gfx_text_width(note_name, &font_main);
 
-    if (chord_amount > 1 && chord_space == 1) {
+    if (chord_amount > 1 && is_drum) {
+        // Drum mode: comma-separated list with overflow count
+        // "Kick, Snare, +1" — fits within row width
+        int16_t max_x = GFX_WIDTH - VALUE_X;
+        uint8_t shown = 1; // first name already drawn
+        for (uint8_t i = 1; i < chord_amount; i++) {
+            int16_t row_i = sel_row + (int16_t)chord_space * i;
+            char name_i[16];
+            get_note_display(row_i, 1, name_i);
+            // Build ", Name" candidate
+            char candidate[24];
+            snprintf(candidate, sizeof(candidate), ", %s", name_i);
+            int16_t cand_w = gfx_text_width(candidate, &font_main);
+            // Check if remaining notes need a "+N" suffix
+            uint8_t remaining = chord_amount - i - 1;
+            if (remaining > 0) {
+                char plus_buf[8];
+                snprintf(plus_buf, sizeof(plus_buf), ", +%d", remaining + 1);
+                int16_t plus_w = gfx_text_width(plus_buf, &font_main);
+                if (cx + cand_w + plus_w > max_x) {
+                    // Won't fit with remaining — show +N for all unshown
+                    snprintf(plus_buf, sizeof(plus_buf), ", +%d", chord_amount - shown);
+                    gfx_text(cx, ROW_Y[0], plus_buf, color_rgb(OLED_CYAN), &font_main);
+                    goto drum_row0_done;
+                }
+            } else {
+                // Last note — just check if it fits
+                if (cx + cand_w > max_x) {
+                    char plus_buf[8];
+                    snprintf(plus_buf, sizeof(plus_buf), ", +%d", chord_amount - shown);
+                    gfx_text(cx, ROW_Y[0], plus_buf, color_rgb(OLED_CYAN), &font_main);
+                    goto drum_row0_done;
+                }
+            }
+            gfx_text(cx, ROW_Y[0], candidate, color_rgb(OLED_CYAN), &font_main);
+            cx += cand_w;
+            shown++;
+        }
+        drum_row0_done: ;
+    } else if (chord_amount > 1 && chord_space == 1) {
         // Single-spaced chord: show "to TopNote"
         int16_t top_row = sel_row + (chord_amount - 1);
         char top_name[16];
