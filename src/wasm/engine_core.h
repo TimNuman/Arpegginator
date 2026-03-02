@@ -61,7 +61,11 @@ typedef enum { SM_VELOCITY = 0, SM_HIT = 1, SM_TIMING = 2, SM_FLAM = 3, SM_MODUL
 #define ARP_DOWN      2   // Cycle high→low
 #define ARP_UP_DOWN   3   // Bounce: endpoints once (C E G E C E G E...)
 #define ARP_DOWN_UP   4   // Bounce reverse (G E C E G E C E...)
-#define ARP_STYLE_COUNT 5
+#define ARP_CHORD_UP       5   // Rep 0: all, then cycle up
+#define ARP_CHORD_DOWN     6   // Rep 0: all, then cycle down
+#define ARP_CHORD_UP_DOWN  7   // Rep 0: all, then bounce up/down
+#define ARP_CHORD_DOWN_UP  8   // Rep 0: all, then bounce down/up
+#define ARP_STYLE_COUNT 9
 
 // UI modes
 typedef enum { UI_PATTERN = 0, UI_CHANNEL = 1, UI_LOOP = 2, UI_MODIFY = 3 } UiMode;

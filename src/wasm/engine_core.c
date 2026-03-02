@@ -491,6 +491,17 @@ static void get_chord_offsets_raw(
         }
     }
 
+    // Sort offsets by pitch so arp index 0 = lowest note
+    for (uint8_t i = 1; i < clamped; i++) {
+        int16_t key = out_offsets[i];
+        uint8_t j = i;
+        while (j > 0 && out_offsets[j - 1] > key) {
+            out_offsets[j] = out_offsets[j - 1];
+            j--;
+        }
+        out_offsets[j] = key;
+    }
+
     *out_count = clamped;
 }
 
@@ -498,6 +509,25 @@ static void get_chord_offsets_raw(
 
 uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset) {
     if (style == ARP_CHORD || chord_count <= 1) return 255; // sentinel: play all
+
+    // Chord+arp styles: same cycle as base style, chord replaces position 0
+    // Offset only shifts single notes; chord stays at cycle boundaries
+    if (style >= ARP_CHORD_UP && style <= ARP_CHORD_DOWN_UP) {
+        static const uint8_t base_style[] = { ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_DOWN_UP };
+        uint8_t base = base_style[style - ARP_CHORD_UP];
+
+        uint16_t cycle;
+        if (base == ARP_UP || base == ARP_DOWN) {
+            cycle = chord_count;
+        } else {
+            cycle = 2 * (chord_count - 1);
+        }
+
+        if (repeat_idx % cycle == 0) return 255; // chord at start of each cycle
+
+        // Delegate to base style — offset shifts which single notes play
+        return get_arp_chord_index(base, chord_count, repeat_idx % cycle, offset);
+    }
 
     // Subtract offset so positive values shift the arp cycle right visually
     int32_t effective = (int32_t)repeat_idx - (int32_t)offset;

@@ -204,6 +204,81 @@ static void test_arp_active_all_voices(void) {
     CU_ASSERT_EQUAL(is_arp_chord_active(ARP_UP, 3, 0, 0, 3, 2), 1);
 }
 
+// ============ Chord+Arp styles ============
+
+static void test_arp_chord_up_repeating_cycle(void) {
+    // CHORD_UP with 4 notes: cycle=4 [all, 1, 2, 3, all, 1, 2, 3, ...]
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP, 4, 0, 0), 255);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP, 4, 1, 0), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP, 4, 2, 0), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP, 4, 3, 0), 3);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP, 4, 4, 0), 255); // chord again
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP, 4, 5, 0), 1);
+}
+
+static void test_arp_chord_down_repeating_cycle(void) {
+    // CHORD_DOWN with 4 notes: cycle=4 [all, 2, 1, 0, all, 2, 1, 0, ...]
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN, 4, 0, 0), 255);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN, 4, 1, 0), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN, 4, 2, 0), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN, 4, 3, 0), 0);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN, 4, 4, 0), 255); // chord again
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN, 4, 5, 0), 2);
+}
+
+static void test_arp_chord_up_down_repeating_cycle(void) {
+    // CHORD_UP_DOWN with 4 notes: cycle=6 [all, 1, 2, 3, 2, 1, all, ...]
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 0, 0), 255);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 1, 0), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 2, 0), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 3, 0), 3);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 4, 0), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 5, 0), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 6, 0), 255); // chord again
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 7, 0), 1);
+}
+
+static void test_arp_chord_down_up_repeating_cycle(void) {
+    // CHORD_DOWN_UP with 4 notes: cycle=6 [all, 2, 1, 0, 1, 2, all, ...]
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 0, 0), 255);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 1, 0), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 2, 0), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 3, 0), 0);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 4, 0), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 5, 0), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 6, 0), 255); // chord again
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_DOWN_UP, 4, 7, 0), 2);
+}
+
+static void test_arp_chord_up_down_with_offset(void) {
+    // C.U/D with 4 notes, offset=-2: [all, 3, 2, 1, 0, 1, all, 3, ...]
+    // Chord at cycle boundaries (0, 6, 12...), offset shifts single notes
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 0, -2), 255);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 1, -2), 3);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 2, -2), 2);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 3, -2), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 4, -2), 0);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 5, -2), 1);
+    CU_ASSERT_EQUAL(get_arp_chord_index(ARP_CHORD_UP_DOWN, 4, 6, -2), 255); // chord again
+}
+
+static void test_arp_chord_active_on_chord_beat(void) {
+    // On chord beats (rep 0, 4, 8...), all notes should be active (cycle=4 for UP)
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 0, 0, 1, 0), 1);
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 0, 0, 1, 1), 1);
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 0, 0, 1, 3), 1);
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 4, 0, 1, 0), 1); // next cycle
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 4, 0, 1, 3), 1);
+}
+
+static void test_arp_chord_active_on_single_beat(void) {
+    // On single-note beats, only the active note should play (rep 1 = index 1)
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 1, 0, 1, 0), 0);
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 1, 0, 1, 1), 1);
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 1, 0, 1, 2), 0);
+    CU_ASSERT_EQUAL(is_arp_chord_active(ARP_CHORD_UP, 4, 1, 0, 1, 3), 0);
+}
+
 // ============ Voicings ============
 
 static void test_voicing_count_valid(void) {
@@ -272,6 +347,14 @@ void register_core_tests(void) {
     CU_add_test(suite, "arp_active_single_voice", test_arp_active_single_voice);
     CU_add_test(suite, "arp_active_multi_voice_window", test_arp_active_multi_voice_window);
     CU_add_test(suite, "arp_active_all_voices", test_arp_active_all_voices);
+
+    CU_add_test(suite, "arp_chord_up_repeating_cycle", test_arp_chord_up_repeating_cycle);
+    CU_add_test(suite, "arp_chord_down_repeating_cycle", test_arp_chord_down_repeating_cycle);
+    CU_add_test(suite, "arp_chord_up_down_repeating_cycle", test_arp_chord_up_down_repeating_cycle);
+    CU_add_test(suite, "arp_chord_down_up_repeating_cycle", test_arp_chord_down_up_repeating_cycle);
+    CU_add_test(suite, "arp_chord_up_down_with_offset", test_arp_chord_up_down_with_offset);
+    CU_add_test(suite, "arp_chord_active_on_chord_beat", test_arp_chord_active_on_chord_beat);
+    CU_add_test(suite, "arp_chord_active_on_single_beat", test_arp_chord_active_on_single_beat);
 
     CU_add_test(suite, "voicing_count_valid", test_voicing_count_valid);
     CU_add_test(suite, "voicing_offsets_basic", test_voicing_offsets_basic);

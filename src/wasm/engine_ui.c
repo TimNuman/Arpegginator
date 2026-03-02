@@ -145,6 +145,17 @@ uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* o
         }
     }
 
+    // Sort offsets by pitch so arp index 0 = lowest note
+    for (uint8_t i = 1; i < amount; i++) {
+        int16_t key = offsets16[i];
+        uint8_t j = i;
+        while (j > 0 && offsets16[j - 1] > key) {
+            offsets16[j] = offsets16[j - 1];
+            j--;
+        }
+        offsets16[j] = key;
+    }
+
     for (uint8_t i = 0; i < amount; i++) {
         offsets[i] = (int8_t)offsets16[i];
     }

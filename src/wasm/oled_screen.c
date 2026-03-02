@@ -180,7 +180,7 @@ static void get_drum_name(int8_t midi, char* buf) {
 
 static const char* SUB_MODE_LABELS[5] = { "VEL", "HIT", "TIME", "FLAM", "MOD" };
 static const char* LOOP_MODE_LABELS[3] = { "RST", "CNT", "FIL" };
-static const char* ARP_STYLE_NAMES[5] = { "CHD", "UP", "DN", "U/D", "D/U" };
+static const char* ARP_STYLE_NAMES[ARP_STYLE_COUNT] = { "CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U" };
 
 static const char* INTERVAL_NAMES[12] = {
     "unison", "min 2nd", "2nd", "min 3rd", "3rd", "4th",
@@ -520,7 +520,7 @@ static void render_pattern_selected(uint8_t mods) {
                 break;
             case V_CHD_AMT: snprintf(y_value, sizeof(y_value), "%d", chord_amount); break;
             case V_CHD_SPACE: snprintf(y_value, sizeof(y_value), "%d", chord_space); break;
-            case V_ARP_STYLE: snprintf(y_value, sizeof(y_value), "%s", ARP_STYLE_NAMES[arp_style < 5 ? arp_style : 0]); break;
+            case V_ARP_STYLE: snprintf(y_value, sizeof(y_value), "%s", ARP_STYLE_NAMES[arp_style < ARP_STYLE_COUNT ? arp_style : 0]); break;
             case V_VOICING: snprintf(y_value, sizeof(y_value), "%s", (voicing_name && voicing_name[0]) ? voicing_name : "base"); break;
             default: break;
         }
