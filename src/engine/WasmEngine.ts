@@ -3,18 +3,110 @@ import type { StepTriggerExtras } from '../actions/playbackActions';
 import { markDirty } from '../store/renderStore';
 import { OledRenderer } from './OledRenderer';
 
-// ============ Emscripten Module Types ============
+// ============ WASM Module Types ============
 
-interface EmscriptenModule {
+interface WasmModule {
   cwrap: (
     ident: string,
     returnType: string | null,
     argTypes: string[],
   ) => (...args: number[]) => number;
   HEAPU8: Uint8Array;
+  UTF8ToString: (ptr: number) => string;
 }
 
-type WasmFactory = (config?: object) => Promise<EmscriptenModule>;
+type WasmFactory = (config?: object) => Promise<WasmModule>;
+
+// ============ Engine Type Detection ============
+
+function getEngineType(): 'c' | 'rust' {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('engine') === 'rust') return 'rust';
+  }
+  return 'c';
+}
+
+// ============ Rust WASM Adapter ============
+
+/** Wraps a raw WebAssembly.Instance to match the Emscripten-style WasmModule interface. */
+class RustWasmAdapter implements WasmModule {
+  private instance: WebAssembly.Instance;
+  private memory: WebAssembly.Memory;
+  HEAPU8: Uint8Array;
+
+  constructor(instance: WebAssembly.Instance) {
+    this.instance = instance;
+    this.memory = instance.exports.memory as WebAssembly.Memory;
+    this.HEAPU8 = new Uint8Array(this.memory.buffer);
+  }
+
+  /** Refresh typed array views after memory growth. */
+  private refreshViews(): void {
+    if (this.HEAPU8.buffer !== this.memory.buffer) {
+      this.HEAPU8 = new Uint8Array(this.memory.buffer);
+    }
+  }
+
+  UTF8ToString(ptr: number): string {
+    this.refreshViews();
+    let end = ptr;
+    while (this.HEAPU8[end] !== 0) end++;
+    return new TextDecoder().decode(this.HEAPU8.subarray(ptr, end));
+  }
+
+  cwrap(name: string, _returnType: string | null, argTypes: string[]): (...args: number[]) => number {
+    const fn = this.instance.exports[name] as Function;
+    if (!fn) throw new Error(`WASM export "${name}" not found`);
+
+    const hasStringArgs = argTypes.some(t => t === 'string');
+    if (!hasStringArgs) {
+      return fn as (...args: number[]) => number;
+    }
+
+    const alloc = this.instance.exports.wasm_alloc as (size: number) => number;
+    const free = this.instance.exports.wasm_free as (ptr: number, size: number) => void;
+    const encoder = new TextEncoder();
+
+    return (...args: unknown[]) => {
+      this.refreshViews();
+      const allocated: { ptr: number; size: number }[] = [];
+      const wasmArgs = args.map((arg, i) => {
+        if (argTypes[i] === 'string') {
+          const encoded = encoder.encode((arg as string) + '\0');
+          const ptr = alloc(encoded.length);
+          this.refreshViews();
+          this.HEAPU8.set(encoded, ptr);
+          allocated.push({ ptr, size: encoded.length });
+          return ptr;
+        }
+        return arg as number;
+      });
+      const result = fn(...wasmArgs);
+      allocated.forEach(({ ptr, size }) => free(ptr, size));
+      return result;
+    };
+  }
+}
+
+/** Load the Rust WASM module directly (no Emscripten glue). */
+async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmModule> {
+  const importObject = {
+    env: {
+      js_step_trigger: callbacks.stepTrigger ?? (() => {}),
+      js_note_off: callbacks.noteOff ?? (() => {}),
+      js_set_current_tick: callbacks.setCurrentTick ?? (() => {}),
+      js_set_current_patterns: callbacks.setCurrentPatterns ?? (() => {}),
+      js_clear_queued_pattern: callbacks.clearQueuedPattern ?? (() => {}),
+      js_preview_value: callbacks.previewValue ?? (() => {}),
+      js_play_preview_note: callbacks.playPreviewNote ?? (() => {}),
+    },
+  };
+
+  const response = await fetch('/wasm-rust/engine.wasm');
+  const { instance } = await WebAssembly.instantiateStreaming(response, importObject);
+  return new RustWasmAdapter(instance);
+}
 
 // Sub-mode order must match C enum: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4
 const SUB_MODE_FIELDS: Array<{
@@ -52,7 +144,8 @@ function loadGlueScript(url: string): Promise<WasmFactory> {
 }
 
 export class WasmEngine {
-  private module: EmscriptenModule | null = null;
+  private module: WasmModule | null = null;
+  private engineType: 'c' | 'rust' = 'c';
 
   // Struct layout info (queried from C at load time)
   private noteEventSize = 0;
@@ -177,10 +270,41 @@ export class WasmEngine {
   async load(): Promise<void> {
     if (this.module) return;
 
-    const factory = await loadGlueScript('/wasm/engine.js');
-    this.module = await factory();
+    this.engineType = getEngineType();
 
-    // Wire cwrap bindings
+    // Build callback table (used by both engine types)
+    const callbacks = {
+      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number) => {
+        if (!this.onStepTrigger) return;
+        const extras: StepTriggerExtras = {};
+        if (timing !== 0) extras.timingOffsetPercent = timing;
+        if (flam > 0) extras.flamCount = flam;
+        const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
+        this.onStepTrigger(ch, note, tick, len, vel, hasExtras ? extras : undefined);
+      },
+      noteOff: (ch: number, note: number) => {
+        this.onNoteOff?.(ch, note);
+      },
+      setCurrentTick: (_tick: number) => { markDirty(); },
+      setCurrentPatterns: (_ptr: number) => { markDirty(); },
+      clearQueuedPattern: (_ch: number) => { markDirty(); },
+      previewValue: () => {},
+      playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
+        this.onPlayPreviewNote?.(ch, row, lengthTicks);
+      },
+    };
+
+    if (this.engineType === 'rust') {
+      this.module = await loadRustWasm(callbacks);
+    } else {
+      const factory = await loadGlueScript('/wasm/engine.js');
+      this.module = await factory();
+      // Register JS callbacks on Emscripten module
+      const mod = this.module as unknown as Record<string, unknown>;
+      mod._callbacks = callbacks;
+    }
+
+    // Wire cwrap bindings (identical for both engine types)
     const cw = (name: string, ret: string | null, args: string[]) =>
       this.module!.cwrap(name, ret, args);
 
@@ -286,7 +410,7 @@ export class WasmEngine {
     // Edit operations
     this._clearPattern = cw('engine_clear_pattern_export', null, []) as unknown as () => void;
 
-    // Query struct layout from C
+    // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
     for (let i = 0; i <= 14; i++) {
@@ -303,43 +427,8 @@ export class WasmEngine {
       }
     }
 
-    // Register JS callbacks on module
-    this.wireCallbacks();
-
-    console.log('WASM engine loaded, version:', this.getVersion(),
-      `(NoteEvent_C: ${this.noteEventSize} bytes, SubModeArray: ${this.subModeArraySize} bytes)`);
-  }
-
-  private wireCallbacks(): void {
-    const mod = this.module as unknown as Record<string, unknown>;
-    mod._callbacks = {
-      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number) => {
-        if (!this.onStepTrigger) return;
-        const extras: StepTriggerExtras = {};
-        if (timing !== 0) extras.timingOffsetPercent = timing;
-        if (flam > 0) extras.flamCount = flam;
-        const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
-        this.onStepTrigger(ch, note, tick, len, vel, hasExtras ? extras : undefined);
-      },
-      noteOff: (ch: number, note: number) => {
-        this.onNoteOff?.(ch, note);
-      },
-      setCurrentTick: (_tick: number) => {
-        // WASM updates tick internally; just trigger re-render
-        markDirty();
-      },
-      setCurrentPatterns: (_patterns: number[]) => {
-        // WASM updates current_patterns internally; just trigger re-render
-        markDirty();
-      },
-      clearQueuedPattern: (_ch: number) => {
-        // WASM updates queued_patterns internally; just trigger re-render
-        markDirty();
-      },
-      playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
-        this.onPlayPreviewNote?.(ch, row, lengthTicks);
-      },
-    };
+    console.log(`WASM engine loaded (${this.engineType}), version:`, this.getVersion(),
+      `(NoteEvent: ${this.noteEventSize} bytes, SubModeArray: ${this.subModeArraySize} bytes)`);
   }
 
   isReady(): boolean {
@@ -662,7 +751,7 @@ export class WasmEngine {
   getSelSubModeArrayLength(sm: number): number { return this._getSelSubModeArrayLength(sm); }
   getChordName(): string {
     const ptr = this._getChordName();
-    return (this.module as unknown as { UTF8ToString: (ptr: number) => string }).UTF8ToString(ptr);
+    return this.module!.UTF8ToString(ptr);
   }
 
   // Current pattern/loop getters
@@ -677,7 +766,7 @@ export class WasmEngine {
   noteToMidi(row: number): number { return this._noteToMidi(row); }
   getScaleName(): string {
     const ptr = this._getScaleName();
-    return (this.module as unknown as { UTF8ToString: (ptr: number) => string }).UTF8ToString(ptr);
+    return this.module!.UTF8ToString(ptr);
   }
   getScaleCount(): number { return this._getScaleCount(); }
   getScaleZeroIndex(): number { return this._getScaleZeroIndex(); }

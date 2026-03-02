@@ -13,6 +13,10 @@ dist
 # WASM build outputs
 public/wasm/engine.js
 public/wasm/engine.wasm
+public/wasm-rust/engine.wasm
+
+# Rust build artifacts
+src/wasm-rust/target/
 dist-ssr
 *.local
 
