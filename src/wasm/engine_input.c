@@ -99,36 +99,20 @@ static int16_t find_event_overlapping(const EngineState* s, int16_t row, int32_t
     return -1;
 }
 
-// Find event whose chord tone occupies (row, tick).
-// Only matches chord tones that are actually visible (respects arp style filtering).
+// Find event whose rendered note occupies (row, tick).
+// Uses cached rendered notes — repeats, chords, modulation all applied.
+// This catches chord tones, modulated repeats, etc. that the simpler
+// engine_find_event_at / find_event_overlapping miss.
 static int16_t find_event_by_chord(const EngineState* s, int16_t row, int32_t tick) {
     uint8_t ch = s->current_channel;
-    uint8_t pat = s->current_patterns[ch];
-    const PatternData_C* pd = &s->patterns[ch][pat];
+    const RenderedNote* notes = s->rendered_notes[ch];
+    uint16_t count = s->rendered_count[ch];
 
-    for (uint16_t i = 0; i < pd->event_count; i++) {
-        const NoteEvent_C* ev = &pd->events[i];
-        if (!ev->enabled) continue;
-        if (ev->chord_amount <= 1) continue;  // no chord, skip
-
-        int8_t offsets[MAX_CHORD_SIZE];
-        uint8_t chord_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
-
-        // Check if tick falls within any repeat, and if so whether
-        // the clicked row matches a visible chord tone for that repeat
-        for (uint16_t r = 0; r < ev->repeat_amount; r++) {
-            int32_t pos = ev->position + (int32_t)r * ev->repeat_space;
-            int32_t end = pos + ev->length;
-            if (tick < pos || tick >= end) continue;
-
-            // Which chord notes are visible on this repeat?
-            for (uint8_t c = 0; c < chord_count; c++) {
-                if (!is_arp_chord_active(ev->arp_style, chord_count, r, ev->arp_offset, ev->arp_voices, c)) continue;
-                if (ev->row + offsets[c] == row) {
-                    return (int16_t)i;
-                }
-            }
-        }
+    for (uint16_t i = 0; i < count; i++) {
+        const RenderedNote* rn = &notes[i];
+        if (rn->row != row) continue;
+        if (tick < rn->position || tick >= rn->position + rn->length) continue;
+        return (int16_t)rn->source_idx;
     }
     return -1;
 }
@@ -247,6 +231,7 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
 
         s->selected_event_idx = (int16_t)new_idx;
         engine_update_has_notes(s, s->current_channel, s->current_patterns[s->current_channel]);
+        engine_mark_dirty(s, s->current_channel);
         play_event_preview(s, &pat->events[new_idx], tpc);
         return;
     }
@@ -261,6 +246,7 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
             if (s->selected_event_idx == idx) {
                 s->selected_event_idx = -1;
             }
+            engine_mark_dirty(s, s->current_channel);
         }
         return;
     }
@@ -291,6 +277,7 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
                 sel->position = start;
             }
             sel->length = new_len;
+            engine_mark_dirty(s, s->current_channel);
             play_event_preview(s, sel, tpc);
             return;
         }
@@ -302,6 +289,7 @@ static void handle_pattern_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
         // Re-enable disabled event
         if (!pat->events[idx].enabled) {
             pat->events[idx].enabled = 1;
+            engine_mark_dirty(s, s->current_channel);
             if (s->selected_event_idx >= 0) {
                 engine_place_event(s, (uint16_t)s->selected_event_idx);
             }
@@ -387,7 +375,7 @@ static void handle_channel_press(EngineState* s, uint8_t vis_row, uint8_t vis_co
     // Select this channel and pattern
     s->current_channel = ch_idx;
     s->current_patterns[ch_idx] = pat_idx;
-    // Could also queue pattern change during playback — for now just set directly
+    engine_mark_dirty(s, ch_idx);
 
     // Switch to pattern mode
     s->ui_mode = UI_PATTERN;

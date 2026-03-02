@@ -49,6 +49,7 @@ const char* engine_get_chord_name(void) {
 void register_core_tests(void);
 void register_edit_tests(void);
 void register_oled_tests(void);
+void register_rendered_tests(void);
 
 // ============ Main ============
 
@@ -59,6 +60,7 @@ int main(void) {
     register_core_tests();
     register_edit_tests();
     register_oled_tests();
+    register_rendered_tests();
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();

@@ -201,13 +201,12 @@ uint16_t engine_render_events(
                 if (!is_arp_chord_active(ev->arp_style, chord_count, r, ev->arp_offset, ev->arp_voices, c)) continue;
 
                 RenderedNote* rn = &out[count++];
-                rn->source_row = ev->row;
                 rn->row = ev->row + mod_offset + chord_offsets[c];
                 rn->position = pos;
                 rn->length = ev->length;
                 rn->source_idx = e;
-                rn->is_repeat = (r > 0 || c > 0) ? 1 : 0;
                 rn->repeat_index = r;
+                rn->chord_index = c;
                 rn->chord_offset = chord_offsets[c];
             }
         }
@@ -229,6 +228,26 @@ uint16_t engine_render_events(
     }
 
     return count;
+}
+
+// ============ Rendered notes cache ============
+
+void engine_mark_dirty(EngineState* s, uint8_t channel) {
+    if (channel < NUM_CHANNELS) {
+        s->rendered_dirty[channel] = 1;
+    }
+}
+
+void engine_ensure_rendered(EngineState* s, uint8_t channel) {
+    if (channel >= NUM_CHANNELS) return;
+    if (!s->rendered_dirty[channel]) return;
+    uint8_t pat = s->current_patterns[channel];
+    s->rendered_count[channel] = engine_render_events(
+        s, channel, pat,
+        s->rendered_notes[channel],
+        MAX_RENDERED_NOTES
+    );
+    s->rendered_dirty[channel] = 0;
 }
 
 // ============ Helpers for grid coordinate calculations ============
@@ -747,15 +766,11 @@ static void apply_ctrl_overlay(EngineState* s) {
 
 // ============ Main Entry Point ============
 
-// Scratch buffer for rendered notes
-static RenderedNote g_rendered_notes[MAX_RENDERED_NOTES];
-
 #define EASE_FACTOR   0.12f
 #define EASE_SNAP     0.001f
 
 void engine_compute_grid(EngineState* s) {
     uint8_t ch = s->current_channel;
-    uint8_t pat = s->current_patterns[ch];
 
     // Ease row offset toward target (smooth float lerp, snap at end)
     float cur = s->row_offsets[ch];
@@ -774,22 +789,24 @@ void engine_compute_grid(EngineState* s) {
     memset(s->button_values, 0, sizeof(s->button_values));
     memset(s->color_overrides, 0, sizeof(s->color_overrides));
 
-    // Expand current pattern's events to rendered notes
-    uint16_t note_count = engine_render_events(s, ch, pat, g_rendered_notes, MAX_RENDERED_NOTES);
+    // Ensure rendered notes cache is up-to-date
+    engine_ensure_rendered(s, ch);
+    const RenderedNote* notes = s->rendered_notes[ch];
+    uint16_t note_count = s->rendered_count[ch];
 
     switch (s->ui_mode) {
         case UI_CHANNEL:
-            render_channel_mode(s, g_rendered_notes, note_count);
+            render_channel_mode(s, notes, note_count);
             break;
         case UI_LOOP:
-            render_loop_mode(s, g_rendered_notes, note_count);
+            render_loop_mode(s, notes, note_count);
             break;
         case UI_MODIFY:
             render_modify_mode(s);
             break;
         case UI_PATTERN:
         default:
-            render_pattern_mode(s, g_rendered_notes, note_count);
+            render_pattern_mode(s, notes, note_count);
             break;
     }
 

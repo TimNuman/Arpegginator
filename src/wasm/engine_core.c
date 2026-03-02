@@ -1,4 +1,5 @@
 #include "engine_core.h"
+#include "engine_ui.h"
 #include "engine_platform.h"
 #include <string.h>
 
@@ -133,6 +134,8 @@ void engine_cycle_scale(EngineState* s, int8_t direction) {
     idx = ((idx % NUM_SCALES) + NUM_SCALES) % NUM_SCALES;
     s->scale_id_idx = (uint8_t)idx;
     engine_rebuild_scale(s);
+    // Scale change affects chord inversion octave size
+    for (int i = 0; i < NUM_CHANNELS; i++) s->rendered_dirty[i] = 1;
 }
 
 /**
@@ -170,6 +173,8 @@ void engine_cycle_scale_root(EngineState* s, int8_t direction) {
     // Change root and rebuild scale
     s->scale_root = (uint8_t)new_root_midi;
     engine_rebuild_scale(s);
+    // Scale change + note row shift → all caches invalid
+    for (int i = 0; i < NUM_CHANNELS; i++) s->rendered_dirty[i] = 1;
 }
 
 const char* engine_get_scale_name_str(const EngineState* s) {
@@ -427,84 +432,6 @@ uint8_t get_voicing_offsets(uint8_t amount, uint8_t distance, uint8_t idx, int8_
     return n;
 }
 
-// ============ Chord Offsets ============
-
-static void get_chord_offsets_raw(
-    const EngineState* s,
-    uint8_t amount,
-    uint8_t space,
-    int8_t inversion,
-    uint8_t voicing,
-    int16_t* out_offsets,
-    uint8_t* out_count
-) {
-    if (amount <= 1) {
-        out_offsets[0] = 0;
-        *out_count = 1;
-        return;
-    }
-    uint8_t clamped = amount > MAX_CHORD_SIZE ? MAX_CHORD_SIZE : amount;
-
-    // Use voicing table if distance is within range, else fall back to even spacing
-    const VoicingList* vl = get_voicing_list(amount, space);
-    if (vl && voicing < vl->count) {
-        for (uint8_t i = 0; i < clamped; i++) {
-            out_offsets[i] = (int16_t)vl->entries[voicing].offsets[i];
-        }
-    } else {
-        // Fallback: evenly spaced [0, space, 2*space, ...]
-        for (uint8_t i = 0; i < clamped; i++) {
-            out_offsets[i] = (int16_t)(i * space);
-        }
-    }
-
-    // Apply inversions using scale-dependent octave
-    // After each shift, resolve collisions (e.g. octave note landing on root)
-    int16_t octave = (int16_t)s->scale_octave_size;
-    if (inversion > 0) {
-        for (int8_t n = 0; n < inversion; n++) {
-            uint8_t idx = n % clamped;
-            out_offsets[idx] += octave;
-            // Resolve collision: keep pushing up until unique
-            for (int retry = 0; retry < 4; retry++) {
-                int collision = 0;
-                for (uint8_t j = 0; j < clamped; j++) {
-                    if (j != idx && out_offsets[j] == out_offsets[idx]) { collision = 1; break; }
-                }
-                if (!collision) break;
-                out_offsets[idx] += octave;
-            }
-        }
-    } else if (inversion < 0) {
-        for (int8_t n = 0; n < -inversion; n++) {
-            uint8_t idx = clamped - 1 - (n % clamped);
-            out_offsets[idx] -= octave;
-            // Resolve collision: keep pushing down until unique
-            for (int retry = 0; retry < 4; retry++) {
-                int collision = 0;
-                for (uint8_t j = 0; j < clamped; j++) {
-                    if (j != idx && out_offsets[j] == out_offsets[idx]) { collision = 1; break; }
-                }
-                if (!collision) break;
-                out_offsets[idx] -= octave;
-            }
-        }
-    }
-
-    // Sort offsets by pitch so arp index 0 = lowest note
-    for (uint8_t i = 1; i < clamped; i++) {
-        int16_t key = out_offsets[i];
-        uint8_t j = i;
-        while (j > 0 && out_offsets[j - 1] > key) {
-            out_offsets[j] = out_offsets[j - 1];
-            j--;
-        }
-        out_offsets[j] = key;
-    }
-
-    *out_count = clamped;
-}
-
 // ============ Arpeggio ============
 
 uint8_t get_arp_chord_index(uint8_t style, uint8_t chord_count, uint16_t repeat_idx, int8_t offset) {
@@ -741,6 +668,11 @@ void engine_core_init(EngineState* s) {
     // Default RNG seed
     if (s->rng_state == 0) s->rng_state = 12345;
 
+    // Mark all rendered note caches as dirty
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+        s->rendered_dirty[i] = 1;
+    }
+
     // Build initial scale mapping (default: C Major)
     s->scale_root = 0;
     s->scale_id_idx = 0;
@@ -764,6 +696,9 @@ void engine_core_play_init(EngineState* s) {
     // Clear continue counters and snapshots
     memset(s->continue_counters, 0, sizeof(s->continue_counters));
     memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
+
+    // Counters reset → modulation cache invalid
+    for (int i = 0; i < NUM_CHANNELS; i++) s->rendered_dirty[i] = 1;
 }
 
 /**
@@ -780,6 +715,8 @@ void engine_core_play_init_from_tick(EngineState* s, int32_t tick) {
 
     memset(s->continue_counters, 0, sizeof(s->continue_counters));
     memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
+
+    for (int i = 0; i < NUM_CHANNELS; i++) s->rendered_dirty[i] = 1;
 }
 
 void engine_core_stop(EngineState* s) {
@@ -795,6 +732,9 @@ void engine_core_stop(EngineState* s) {
     // Clear counters
     memset(s->continue_counters, 0, sizeof(s->continue_counters));
     memset(s->counter_snapshots, 0, sizeof(s->counter_snapshots));
+
+    // Counters reset → modulation cache invalid
+    for (int i = 0; i < NUM_CHANNELS; i++) s->rendered_dirty[i] = 1;
 
     // NOTE: current_tick is intentionally NOT reset here.
     // The playhead stays visible at the last position.
@@ -830,6 +770,7 @@ void engine_core_tick(EngineState* s) {
         if (channel_tick == loop->start) {
             kill_active_notes_for_channel(s, ch);
             snapshot_and_preview_channel(s, ch);
+            s->rendered_dirty[ch] = 1;  // counter snapshots changed
 
             if (s->queued_patterns[ch] >= 0) {
                 switch_channels[switch_count] = ch;
@@ -881,12 +822,7 @@ void engine_core_tick(EngineState* s) {
 
                     // Chord expansion
                     int8_t offsets[MAX_CHORD_SIZE];
-                    uint8_t offset_count;
-                    int16_t offsets16[MAX_CHORD_SIZE];
-                    get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
-                                         ev->chord_inversion, ev->chord_voicing,
-                                         offsets16, &offset_count);
-                    for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
+                    uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         // Skip notes not selected by arpeggio
@@ -930,6 +866,7 @@ void engine_core_tick(EngineState* s) {
         // Recompute previews for switched channels
         for (uint8_t i = 0; i < switch_count; i++) {
             compute_preview_for_channel(s, switch_channels[i]);
+            s->rendered_dirty[switch_channels[i]] = 1;  // new pattern
         }
     }
 
@@ -1018,12 +955,7 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
 
                 // Chord expansion
                 int8_t offsets[MAX_CHORD_SIZE];
-                uint8_t offset_count;
-                    int16_t offsets16[MAX_CHORD_SIZE];
-                    get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
-                                         ev->chord_inversion, ev->chord_voicing,
-                                         offsets16, &offset_count);
-                    for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
+                uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
 
                 for (uint8_t ci = 0; ci < offset_count; ci++) {
                     int16_t chord_row = effective_row + offsets[ci];
@@ -1076,12 +1008,7 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
                     int16_t effective_row = ev->row + mod_val;
 
                     int8_t offsets[MAX_CHORD_SIZE];
-                    uint8_t offset_count;
-                    int16_t offsets16[MAX_CHORD_SIZE];
-                    get_chord_offsets_raw(s, ev->chord_amount, ev->chord_space,
-                                         ev->chord_inversion, ev->chord_voicing,
-                                         offsets16, &offset_count);
-                    for (uint8_t _ci = 0; _ci < offset_count; _ci++) offsets[_ci] = (int8_t)offsets16[_ci];
+                    uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         int16_t chord_row = effective_row + offsets[ci];

@@ -127,6 +127,21 @@ typedef struct {
     uint8_t  active;  // 1 = in use, 0 = free slot
 } ActiveNote;
 
+// ============ Rendered Note ============
+// Expanded note instance — repeats, chords, arp filtering all applied.
+// Single source of truth for both grid display and playback.
+#define MAX_RENDERED_NOTES  1024
+
+typedef struct {
+    int16_t  row;            // Final display row (ev->row + mod_offset + chord_offset)
+    int32_t  position;       // Tick position (after repeat expansion + wrap)
+    int32_t  length;         // Duration in ticks (capped to prevent overlap)
+    uint16_t source_idx;     // Index into pattern events[]
+    uint16_t repeat_index;   // Which repeat (0 = original)
+    uint8_t  chord_index;    // Which chord note (0 = lowest after sort)
+    int8_t   chord_offset;   // Scale-degree offset from root
+} RenderedNote;
+
 typedef struct {
     // ============ Pattern data ============
     PatternData_C patterns[NUM_CHANNELS][NUM_PATTERNS];
@@ -195,6 +210,11 @@ typedef struct {
 
     // ============ Event ID Counter ============
     uint16_t    next_event_id;
+
+    // ============ Rendered Notes Cache ============
+    RenderedNote rendered_notes[NUM_CHANNELS][MAX_RENDERED_NOTES];
+    uint16_t    rendered_count[NUM_CHANNELS];
+    uint8_t     rendered_dirty[NUM_CHANNELS];
 } EngineState;
 
 // ============ Core Functions ============

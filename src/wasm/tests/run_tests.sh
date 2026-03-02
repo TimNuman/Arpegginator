@@ -15,8 +15,11 @@ cc -o tests/test_runner \
     tests/test_core.c \
     tests/test_edit.c \
     tests/test_oled.c \
+    tests/test_rendered.c \
     engine_core.c \
+    engine_ui.c \
     engine_edit.c \
+    engine_input.c \
     oled_gfx.c \
     oled_fonts.c \
     -I. -I"${CUNIT_PREFIX}/include" \

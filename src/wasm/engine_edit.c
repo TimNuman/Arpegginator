@@ -1,4 +1,5 @@
 #include "engine_edit.h"
+#include "engine_ui.h"
 #include "engine_platform.h"
 #include <string.h>
 
@@ -95,6 +96,7 @@ int16_t engine_toggle_event(EngineState* s, int16_t row, int32_t tick, int32_t l
             // Remove it
             remove_event_at(pat, i);
             engine_update_has_notes(s, s->current_channel, s->current_patterns[s->current_channel]);
+            engine_mark_dirty(s, s->current_channel);
             return -1;
         }
     }
@@ -109,6 +111,7 @@ int16_t engine_toggle_event(EngineState* s, int16_t row, int32_t tick, int32_t l
     pat->event_count++;
 
     engine_update_has_notes(s, s->current_channel, s->current_patterns[s->current_channel]);
+    engine_mark_dirty(s, s->current_channel);
     return (int16_t)new_idx;
 }
 
@@ -126,6 +129,7 @@ void engine_remove_event(EngineState* s, uint16_t event_idx) {
     }
 
     engine_update_has_notes(s, s->current_channel, s->current_patterns[s->current_channel]);
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_move_event(EngineState* s, uint16_t event_idx, int16_t new_row, int32_t new_position) {
@@ -133,12 +137,14 @@ void engine_move_event(EngineState* s, uint16_t event_idx, int16_t new_row, int3
     if (event_idx >= pat->event_count) return;
     pat->events[event_idx].row = new_row;
     pat->events[event_idx].position = new_position;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_set_event_length(EngineState* s, uint16_t event_idx, int32_t length) {
     PatternData_C* pat = get_current_pattern(s);
     if (event_idx >= pat->event_count) return;
     pat->events[event_idx].length = i32_max(1, length);
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_place_event(EngineState* s, uint16_t event_idx) {
@@ -146,6 +152,7 @@ void engine_place_event(EngineState* s, uint16_t event_idx) {
     if (event_idx >= pat->event_count) return;
     NoteEvent_C* ev = &pat->events[event_idx];
     truncate_overlapping(s, pat, ev->row, ev->position, event_idx);
+    engine_mark_dirty(s, s->current_channel);
 }
 
 // ============ Repeat Operations ============
@@ -156,6 +163,7 @@ void engine_set_event_repeat_amount(EngineState* s, uint16_t event_idx, uint16_t
     NoteEvent_C* ev = &pat->events[event_idx];
 
     ev->repeat_amount = repeat_amount;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_set_event_repeat_space(EngineState* s, uint16_t event_idx, int32_t repeat_space) {
@@ -164,6 +172,7 @@ void engine_set_event_repeat_space(EngineState* s, uint16_t event_idx, int32_t r
     NoteEvent_C* ev = &pat->events[event_idx];
 
     ev->repeat_space = repeat_space;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 // ============ Sub-Mode Operations ============
@@ -202,6 +211,7 @@ void engine_set_sub_mode_value(EngineState* s, uint16_t event_idx, uint8_t sub_m
     if (repeat_idx < arr->length) {
         arr->values[repeat_idx] = value;
     }
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_set_sub_mode_length(EngineState* s, uint16_t event_idx, uint8_t sub_mode, uint8_t new_length) {
@@ -212,6 +222,7 @@ void engine_set_sub_mode_length(EngineState* s, uint16_t event_idx, uint8_t sub_
 
     uint8_t clamped = new_length < 1 ? 1 : (new_length > MAX_SUB_MODE_LEN ? MAX_SUB_MODE_LEN : new_length);
     materialize_sub_mode(arr, clamped);
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_toggle_sub_mode_loop_mode(EngineState* s, uint16_t event_idx, uint8_t sub_mode) {
@@ -222,6 +233,7 @@ void engine_toggle_sub_mode_loop_mode(EngineState* s, uint16_t event_idx, uint8_
 
     // Cycle: reset(0) → continue(1) → fill(2) → reset(0)
     arr->loop_mode = (arr->loop_mode + 1) % 3;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 // ============ Chord Operations ============
@@ -237,6 +249,7 @@ void engine_adjust_chord_stack(EngineState* s, uint16_t event_idx, int8_t direct
 
     ev->chord_amount = (uint8_t)new_amount;
     ev->chord_voicing = 0; // reset voicing when amount changes
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -252,6 +265,7 @@ void engine_adjust_chord_space(EngineState* s, uint16_t event_idx, int8_t direct
 
     ev->chord_space = (uint8_t)new_space;
     ev->chord_voicing = 0; // reset voicing when distance changes
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_cycle_chord_voicing(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -268,6 +282,7 @@ void engine_cycle_chord_voicing(EngineState* s, uint16_t event_idx, int8_t direc
     if (new_v < 0) new_v = (int8_t)(count - 1);
     if (new_v >= (int8_t)count) new_v = 0;
     ev->chord_voicing = (uint8_t)new_v;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -284,6 +299,7 @@ void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t dir
         int16_t new_row = ev->row + (direction > 0 ? octave : -octave);
         if (new_row < min_row || new_row > max_row) return;
         ev->row = new_row;
+        engine_mark_dirty(s, s->current_channel);
         return;
     }
 
@@ -320,6 +336,8 @@ void engine_cycle_chord_inversion(EngineState* s, uint16_t event_idx, int8_t dir
         // Rollback
         ev->chord_inversion = old_inv;
         ev->row = old_row;
+    } else {
+        engine_mark_dirty(s, s->current_channel);
     }
 }
 
@@ -334,6 +352,7 @@ void engine_cycle_arp_style(EngineState* s, uint16_t event_idx, int8_t direction
     if (new_style < 0) new_style = ARP_STYLE_COUNT - 1;
     if (new_style >= ARP_STYLE_COUNT) new_style = 0;
     ev->arp_style = (uint8_t)new_style;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_adjust_arp_voices(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -349,6 +368,7 @@ void engine_adjust_arp_voices(EngineState* s, uint16_t event_idx, int8_t directi
     if (new_voices >= (int8_t)ev->chord_amount) new_voices = (int8_t)ev->chord_amount - 1;
 
     ev->arp_voices = (uint8_t)new_voices;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 void engine_adjust_arp_offset(EngineState* s, uint16_t event_idx, int8_t direction) {
@@ -359,6 +379,7 @@ void engine_adjust_arp_offset(EngineState* s, uint16_t event_idx, int8_t directi
     if (ev->chord_amount <= 1 || ev->arp_style == ARP_CHORD) return;
 
     ev->arp_offset += direction;
+    engine_mark_dirty(s, s->current_channel);
 }
 
 // ============ Pattern Operations ============
@@ -381,6 +402,7 @@ void engine_copy_pattern(EngineState* s, uint8_t target_pattern) {
     s->loops[ch][target_pattern] = s->loops[ch][src];
 
     engine_update_has_notes(s, ch, target_pattern);
+    engine_mark_dirty(s, ch);
 }
 
 void engine_clear_pattern(EngineState* s) {
@@ -399,4 +421,5 @@ void engine_clear_pattern(EngineState* s) {
     s->selected_event_idx = -1;
 
     engine_update_has_notes(s, ch, pat);
+    engine_mark_dirty(s, ch);
 }

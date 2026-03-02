@@ -12,21 +12,7 @@
  */
 void engine_compute_grid(EngineState* s);
 
-// ============ Rendered Note (internal) ============
-// Expanded note instance for display — repeats, chords expanded.
-
-#define MAX_RENDERED_NOTES  1024
-
-typedef struct {
-    int16_t  row;            // Display row (scale-relative, after modulation)
-    int32_t  position;       // Tick position
-    int32_t  length;         // Length in ticks
-    uint16_t source_idx;     // Index into pattern events array
-    int16_t  source_row;     // Original row of parent event
-    uint8_t  is_repeat;      // 1 if this is a repeat (not original)
-    uint16_t repeat_index;   // Which repeat (0 = original)
-    int8_t   chord_offset;   // Scale-degree offset (0 = root)
-} RenderedNote;
+// RenderedNote and MAX_RENDERED_NOTES defined in engine_core.h
 
 /**
  * Expand events for current channel/pattern into rendered notes.
@@ -39,6 +25,17 @@ uint16_t engine_render_events(
     RenderedNote* out,
     uint16_t max_out
 );
+
+/**
+ * Ensure rendered notes cache is up-to-date for given channel.
+ * Re-renders if dirty flag is set.
+ */
+void engine_ensure_rendered(EngineState* s, uint8_t channel);
+
+/**
+ * Mark a channel's rendered note cache as dirty (needs re-render).
+ */
+void engine_mark_dirty(EngineState* s, uint8_t channel);
 
 // ============ Sub-mode rendering config ============
 
