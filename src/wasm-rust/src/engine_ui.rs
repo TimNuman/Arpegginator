@@ -58,7 +58,7 @@ pub fn engine_get_default_modify_scroll(levels: &[i16], count: u8, render_style:
 
 fn resolve_render_sub_mode(s: &EngineState, ev: &NoteEvent, sm: usize, repeat_idx: u16, channel: u8) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
-    resolve_render_sub_mode_inline(arr, repeat_idx, s.counter_snapshots[sm][channel as usize][ev.event_index as usize])
+    resolve_render_sub_mode_inline(arr, repeat_idx, s.counter_snapshots[sm][channel as usize][(ev.event_index as usize) % MAX_EVENTS])
 }
 
 /// Variant that works with a pre-extracted SubModeArray and counter snapshot, avoiding borrow conflicts
@@ -332,8 +332,8 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
         for sm in 0..NUM_SUB_MODES {
             ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
         }
-        ev_hit_snapshots[i] = s.counter_snapshots[SubModeId::Hit as usize][ch][ev_idx as usize];
-        ev_vel_snapshots[i] = s.counter_snapshots[SubModeId::Velocity as usize][ch][ev_idx as usize];
+        ev_hit_snapshots[i] = s.counter_snapshots[SubModeId::Hit as usize][ch][(ev_idx as usize) % MAX_EVENTS];
+        ev_vel_snapshots[i] = s.counter_snapshots[SubModeId::Velocity as usize][ch][(ev_idx as usize) % MAX_EVENTS];
     });
 
     let selected_idx = s.selected_event_idx;
@@ -605,7 +605,7 @@ fn render_modify_mode(s: &mut EngineState) {
             let tick_end = tick_start + ev_length;
             if looped_tick >= tick_start && looped_tick < tick_end {
                 if loop_mode == LoopMode::Continue as u8 {
-                    let counter = s.continue_counters[sm][ch][ev_event_index as usize];
+                    let counter = s.continue_counters[sm][ch][(ev_event_index as usize) % MAX_EVENTS];
                     let last_used = if counter > 0 { counter - 1 } else { 0 };
                     Some((last_used % array_length as u16) as i16)
                 } else {

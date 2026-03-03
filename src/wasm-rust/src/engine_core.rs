@@ -645,7 +645,7 @@ fn resolve_sub_mode(
     let len = arr.length as u16;
     match arr.mode() {
         LoopMode::Continue => {
-            let idx = ev.event_index as usize;
+            let idx = (ev.event_index as usize) % MAX_EVENTS;
             let count = s.continue_counters[sm][channel as usize][idx];
             let val = arr.values[(count % len) as usize];
             s.continue_counters[sm][channel as usize][idx] = count + 1;
@@ -672,7 +672,7 @@ pub fn resolve_sub_mode_preview(
     let len = arr.length as u16;
     match arr.mode() {
         LoopMode::Continue => {
-            let snapshot = s.counter_snapshots[sm][channel as usize][ev.event_index as usize];
+            let snapshot = s.counter_snapshots[sm][channel as usize][(ev.event_index as usize) % MAX_EVENTS];
             arr.values[((snapshot + repeat_index) % len) as usize]
         }
         LoopMode::Fill => {
@@ -968,7 +968,7 @@ fn snapshot_counters_for_channel(s: &mut EngineState, ch: u8) {
         let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
         let ev = &s.event_pool.slots[h as usize];
         if ev.enabled == 0 { return; }
-        let eidx = ev.event_index as usize;
+        let eidx = (ev.event_index as usize) % MAX_EVENTS;
         (0..NUM_SUB_MODES).for_each(|sm| {
             s.counter_snapshots[sm][ch as usize][eidx] =
                 s.continue_counters[sm][ch as usize][eidx];

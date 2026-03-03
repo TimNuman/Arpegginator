@@ -431,6 +431,7 @@ fn handle_channel_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
 
     s.current_channel = ch_idx as u8;
     s.current_patterns[ch_idx] = pat_idx as u8;
+    s.selected_event_idx = -1;
     engine_mark_dirty(s, ch_idx as u8);
     s.ui_mode = UiMode::Pattern as u8;
 }

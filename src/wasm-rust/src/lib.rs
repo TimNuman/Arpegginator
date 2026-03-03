@@ -297,10 +297,10 @@ pub extern "C" fn engine_get_pool_handle_none() -> u16 {
 #[no_mangle]
 pub extern "C" fn engine_get_continue_counter(sub_mode: u8, channel: u8, event_index: u16) -> u16 {
     let s = state_ref();
-    if (sub_mode as usize) >= NUM_SUB_MODES || (channel as usize) >= NUM_CHANNELS || (event_index as usize) >= MAX_EVENTS {
+    if (sub_mode as usize) >= NUM_SUB_MODES || (channel as usize) >= NUM_CHANNELS {
         return 0;
     }
-    s.continue_counters[sub_mode as usize][channel as usize][event_index as usize]
+    s.continue_counters[sub_mode as usize][channel as usize][(event_index as usize) % MAX_EVENTS]
 }
 
 // ============ UI State Setters ============
