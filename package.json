@@ -10,6 +10,7 @@
     "build:wasm-rust": "bash src/wasm-rust/build.sh",
     "build:all": "npm run build:wasm && npm run build:wasm-rust && tsc -b && vite build",
     "watch:wasm": "bash src/wasm/watch.sh",
+    "watch:wasm-rust": "bash src/wasm-rust/watch.sh",
     "dev:rust": "npm run build:wasm-rust && vite",
     "lint": "eslint .",
     "preview": "vite preview",
