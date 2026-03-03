@@ -1,8 +1,8 @@
 # Arpegginator
 
-Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a Raspberry Pi Zero 2W driving a physical grid with RGB LEDs and an OLED display. This browser version serves as the development environment for the C engine -- the same code that runs here as WebAssembly will compile natively for the Pi.
+Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a Raspberry Pi Zero 2W driving a physical grid with RGB LEDs and an OLED display. This browser version serves as the development environment for the Rust engine -- the same code that runs here as WebAssembly will compile natively for the Pi.
 
-Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware interface (button grid, display, transport controls) while the C engine underneath handles all sequencer state and logic, keeping the path to hardware short.
+Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware interface (button grid, display, transport controls) while the Rust engine underneath handles all sequencer state and logic, keeping the path to hardware short.
 
 ## Features
 
@@ -47,26 +47,26 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 
 ### Display
 
-- Simulated 160x128 OLED screen showing note parameters, chord names, voicings, and playback state -- rendered entirely in C and blitted to a canvas via an RGB565 framebuffer
+- Simulated 160x128 OLED screen showing note parameters, chord names, voicings, and playback state -- rendered entirely in Rust and blitted to a canvas via an RGB565 framebuffer
 - Color-coded channels on the grid with visual flags for playhead, beat markers, loop boundaries, and selected notes
 
 ## Architecture
 
 ```table
-┌─────────────────────────────────────────────┐
-│  React UI (TypeScript)                      │
-│  Grid, Transport, TouchStrip, OLED canvas   │
-├──────────────┬──────────────────────────────┤
-│  WasmEngine  │  Actions / Playback loop     │
-│  (JS↔C glue) │  (tick scheduling, BPM)      │
-├──────────────┴──────────────────────────────┤
-│  C Engine (compiled to WASM via Emscripten) │
-│  Pattern storage, playback tick processing, │
-│  grid computation, input handling, OLED     │
-├─────────────────────────────────────────────┤
-│  Web MIDI API                               │
-│  Note output, clock sync input              │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  React UI (TypeScript)                          │
+│  Grid, Transport, TouchStrip, OLED canvas       │
+├──────────────┬──────────────────────────────────┤
+│  WasmEngine  │  Actions / Playback loop         │
+│  (JS↔Rust)   │  (tick scheduling, BPM)          │
+├──────────────┴──────────────────────────────────┤
+│  Rust Engine (compiled to WASM via wasm32 target│
+│  Pattern storage, playback tick processing,     │
+│  grid computation, input handling, OLED         │
+├─────────────────────────────────────────────────┤
+│  Web MIDI API                                   │
+│  Note output, clock sync input                  │
+└─────────────────────────────────────────────────┘
 ```
 
 WASM is the single source of truth for all sequencer state. React reads grid buffers and UI state directly from WASM linear memory on each render. The JS side owns the transport timer loop (1ms `setTimeout`) and MIDI I/O.
@@ -96,7 +96,7 @@ The grid also responds to mouse clicks and touch input with drag support.
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18+)
-- [Emscripten](https://emscripten.org/) (for building the WASM engine)
+- [Rust](https://www.rust-lang.org/tools/install) with the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`)
 - A browser with [Web MIDI API](https://developer.mozilla.org/en-US/docs/Web/API/Web_MIDI_API) support (Chrome, Edge, Opera)
 
 ## Getting Started
@@ -105,7 +105,7 @@ The grid also responds to mouse clicks and touch input with drag support.
 # Install dependencies
 npm install
 
-# Build the WASM engine (requires Emscripten)
+# Build the WASM engine (requires Rust + wasm32-unknown-unknown target)
 npm run build:wasm
 
 # Start the dev server
@@ -125,13 +125,16 @@ npm run build:wasm
 
 # Watch WASM sources for changes during development
 npm run watch:wasm
+
+# Run Rust unit tests
+npm run test:rust
 ```
 
 ## Project Structure
 
 ```tree
 src/
-├── wasm/              C engine source (core, edit, input, UI, OLED)
+├── wasm-rust/         Rust engine crate (core, edit, input, UI, OLED)
 ├── engine/            TypeScript wrappers for WASM module
 ├── components/        React components (Grid, Transport, ButtonGrid, TouchStrip)
 ├── actions/           Playback and pattern actions (transport loop, MIDI scheduling)
@@ -142,7 +145,7 @@ src/
 
 ## Tech Stack
 
-- **C / Emscripten** -- sequencer engine compiled to WebAssembly
+- **Rust** -- sequencer engine compiled to WebAssembly (wasm32-unknown-unknown)
 - **React 19** + **TypeScript** -- UI
 - **Vite** -- build tooling
 - **Emotion** + **MUI** -- styling
