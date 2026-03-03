@@ -15,18 +15,6 @@ interface WasmModule {
   UTF8ToString: (ptr: number) => string;
 }
 
-type WasmFactory = (config?: object) => Promise<WasmModule>;
-
-// ============ Engine Type Detection ============
-
-function getEngineType(): 'c' | 'rust' {
-  if (typeof window !== 'undefined') {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('engine') === 'rust') return 'rust';
-  }
-  return 'c';
-}
-
 // ============ Rust WASM Adapter ============
 
 /** Wraps a raw WebAssembly.Instance to match the Emscripten-style WasmModule interface. */
@@ -119,7 +107,7 @@ async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmMo
   return new RustWasmAdapter(instance);
 }
 
-// Sub-mode order must match C enum: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
+// Sub-mode order must match Rust enum: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
 const SUB_MODE_FIELDS: Array<{
   arrayField: keyof NoteEvent;
   loopModeField: keyof NoteEvent;
@@ -132,32 +120,13 @@ const SUB_MODE_FIELDS: Array<{
   { arrayField: 'inversion', loopModeField: 'inversionLoopMode' },
 ];
 
-// C enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
+// Rust enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
 const SUB_MODE_NAME_TO_ID: Record<string, number> = {
   velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4, inversion: 5,
 };
 
-/** Load the Emscripten glue script and return the factory function. */
-function loadGlueScript(url: string): Promise<WasmFactory> {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = url;
-    script.onload = () => {
-      const factory = (window as unknown as Record<string, WasmFactory>).createWasmEngine;
-      if (!factory) {
-        reject(new Error('createWasmEngine not found on window'));
-        return;
-      }
-      resolve(factory);
-    };
-    script.onerror = () => reject(new Error(`Failed to load ${url}`));
-    document.head.appendChild(script);
-  });
-}
-
 export class WasmEngine {
   private module: WasmModule | null = null;
-  private engineType: 'c' | 'rust' = 'c';
 
   // Struct layout info (queried from C at load time)
   private noteEventSize = 0;
@@ -282,9 +251,7 @@ export class WasmEngine {
   async load(): Promise<void> {
     if (this.module) return;
 
-    this.engineType = getEngineType();
-
-    // Build callback table (used by both engine types)
+    // Build callback table
     const callbacks = {
       stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number) => {
         if (!this.onStepTrigger) return;
@@ -306,15 +273,7 @@ export class WasmEngine {
       },
     };
 
-    if (this.engineType === 'rust') {
-      this.module = await loadRustWasm(callbacks);
-    } else {
-      const factory = await loadGlueScript('/wasm/engine.js');
-      this.module = await factory();
-      // Register JS callbacks on Emscripten module
-      const mod = this.module as unknown as Record<string, unknown>;
-      mod._callbacks = callbacks;
-    }
+    this.module = await loadRustWasm(callbacks);
 
     // Wire cwrap bindings (identical for both engine types)
     const cw = (name: string, ret: string | null, args: string[]) =>
@@ -439,7 +398,7 @@ export class WasmEngine {
       }
     }
 
-    console.log(`WASM engine loaded (${this.engineType}), version:`, this.getVersion(),
+    console.log('WASM engine loaded (rust), version:', this.getVersion(),
       `(NoteEvent: ${this.noteEventSize} bytes, SubModeArray: ${this.subModeArraySize} bytes)`);
   }
 
