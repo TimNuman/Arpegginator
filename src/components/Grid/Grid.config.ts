@@ -75,6 +75,7 @@ export const SUB_MODE_NAMES: ModifySubMode[] = [
   "timing",
   "flam",
   "modulate",
+  "inversion",
 ];
 
 // Subdivision names indexed by ticks-per-col (reverse lookup)
@@ -90,6 +91,7 @@ export const SUB_MODE_CONFIG: Record<ModifySubMode, { label: string }> = {
   timing: { label: "TIME" },
   flam: { label: "FLAM" },
   modulate: { label: "MOD" },
+  inversion: { label: "INV" },
 };
 
 // Loop mode names (index = C enum value)

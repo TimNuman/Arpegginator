@@ -820,9 +820,13 @@ void engine_core_tick(EngineState* s) {
 
                     int16_t effective_row = ev->row + mod_val;
 
-                    // Chord expansion
+                    // Chord expansion (with per-repeat inversion)
+                    int8_t inv_extra = 0;
+                    if (ev->sub_modes[SM_INVERSION].length > 0) {
+                        inv_extra = (int8_t)resolve_sub_mode(s, ev, SM_INVERSION, r, ch);
+                    }
                     int8_t offsets[MAX_CHORD_SIZE];
-                    uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                    uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, inv_extra);
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         // Skip notes not selected by arpeggio
@@ -953,9 +957,13 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
                 int16_t mod_val  = resolve_sub_mode_preview(s, ev, SM_MODULATE, r, ch);
                 int16_t effective_row = ev->row + mod_val;
 
-                // Chord expansion
+                // Chord expansion (with per-repeat inversion)
+                int8_t inv_extra = 0;
+                if (ev->sub_modes[SM_INVERSION].length > 0) {
+                    inv_extra = (int8_t)resolve_sub_mode_preview(s, ev, SM_INVERSION, r, ch);
+                }
                 int8_t offsets[MAX_CHORD_SIZE];
-                uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, inv_extra);
 
                 for (uint8_t ci = 0; ci < offset_count; ci++) {
                     int16_t chord_row = effective_row + offsets[ci];
@@ -1007,8 +1015,12 @@ void engine_core_scrub_to_tick(EngineState* s, int32_t target_tick) {
                     int16_t mod_val = resolve_sub_mode_preview(s, ev, SM_MODULATE, r, view_ch);
                     int16_t effective_row = ev->row + mod_val;
 
+                    int8_t inv_extra = 0;
+                    if (ev->sub_modes[SM_INVERSION].length > 0) {
+                        inv_extra = (int8_t)resolve_sub_mode_preview(s, ev, SM_INVERSION, r, view_ch);
+                    }
                     int8_t offsets[MAX_CHORD_SIZE];
-                    uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                    uint8_t offset_count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, inv_extra);
 
                     for (uint8_t ci = 0; ci < offset_count; ci++) {
                         int16_t chord_row = effective_row + offsets[ci];

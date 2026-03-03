@@ -5,7 +5,7 @@
 export type VelocityLoopMode = "reset" | "continue" | "fill";
 
 // Modify sub-modes: velocity and different aspects of randomization per repeat
-export type ModifySubMode = "velocity" | "hit" | "timing" | "flam" | "modulate";
+export type ModifySubMode = "velocity" | "hit" | "timing" | "flam" | "modulate" | "inversion";
 
 // ============ Time Constants ============
 
@@ -56,6 +56,8 @@ export interface NoteEvent {
   flamLoopMode: VelocityLoopMode;
   modulate: number[];
   modulateLoopMode: VelocityLoopMode;
+  inversion: number[];
+  inversionLoopMode: VelocityLoopMode;
 
   // Chord (pitch stacking on Y axis)
   chordAmount: number;          // 1 = single note, 2-5 = chord

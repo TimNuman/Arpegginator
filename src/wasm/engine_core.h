@@ -9,7 +9,7 @@
 #define NUM_PATTERNS        8
 #define MAX_EVENTS          128
 #define MAX_SUB_MODE_LEN    32
-#define NUM_SUB_MODES       5
+#define NUM_SUB_MODES       6
 #define MAX_CHORD_SIZE      8
 #define MAX_SCALE_NOTES     128
 #define NUM_SCALES          32
@@ -53,7 +53,7 @@
 
 typedef enum { LOOP_RESET = 0, LOOP_CONTINUE = 1, LOOP_FILL = 2 } LoopMode;
 typedef enum { CH_MELODIC = 0, CH_DRUM = 1 } ChannelType;
-typedef enum { SM_VELOCITY = 0, SM_HIT = 1, SM_TIMING = 2, SM_FLAM = 3, SM_MODULATE = 4 } SubModeId;
+typedef enum { SM_VELOCITY = 0, SM_HIT = 1, SM_TIMING = 2, SM_FLAM = 3, SM_MODULATE = 4, SM_INVERSION = 5 } SubModeId;
 
 // Arpeggio styles (chord notes on repeats)
 #define ARP_CHORD     0   // All chord notes play together (default)

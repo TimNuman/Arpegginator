@@ -127,7 +127,7 @@ static void play_event_preview(const EngineState* s, const NoteEvent_C* ev, int3
         return;
     }
     int8_t offsets[MAX_CHORD_SIZE];
-    uint8_t count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+    uint8_t count = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, 0);
     for (uint8_t c = 0; c < count; c++) {
         platform_play_preview_note(ch, ev->row + offsets[c], length_ticks);
     }
@@ -516,8 +516,8 @@ static int32_t zoom_cycle(int32_t current, int8_t direction) {
 }
 
 // Modify sub-mode cycling
-static const uint8_t MODIFY_SUB_MODE_ORDER[] = { SM_VELOCITY, SM_MODULATE, SM_HIT, SM_FLAM, SM_TIMING };
-#define NUM_MODIFY_ORDER 5
+static const uint8_t MODIFY_SUB_MODE_ORDER[] = { SM_VELOCITY, SM_MODULATE, SM_INVERSION, SM_HIT, SM_FLAM, SM_TIMING };
+#define NUM_MODIFY_ORDER 6
 
 // Triplet tick values
 static const int32_t TRIPLETS[] = { 40, 80, 160, 320, 640 };
@@ -591,7 +591,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
             // Camera follows highest note when going up, lowest when going down
             if (ev->chord_amount > 1) {
                 int8_t offsets[MAX_CHORD_SIZE];
-                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, 0);
                 int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
                 follow_note(s, follow_row, ev->position);
             }
@@ -607,7 +607,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
             // Camera follows highest note when going up, lowest when going down
             if (ev->chord_amount > 1) {
                 int8_t offsets[MAX_CHORD_SIZE];
-                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, 0);
                 int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
                 follow_note(s, follow_row, ev->position);
             }
@@ -623,7 +623,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
             int16_t follow_row;
             if (ev->chord_amount > 1) {
                 int8_t offsets[MAX_CHORD_SIZE];
-                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, 0);
                 int8_t min_off = offsets[0], max_off = offsets[0];
                 for (uint8_t i = 1; i < cnt; i++) {
                     if (offsets[i] < min_off) min_off = offsets[i];
@@ -655,7 +655,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
             engine_cycle_chord_voicing(s, (uint16_t)s->selected_event_idx, dir == DIR_UP ? 1 : -1);
             // Camera follows edge note
             int8_t offsets[MAX_CHORD_SIZE];
-            uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+            uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, 0);
             int16_t follow_row = ev->row + offsets[dir == DIR_UP ? cnt - 1 : 0];
             follow_note(s, follow_row, ev->position);
             play_event_preview(s, ev, tpc);
@@ -765,7 +765,7 @@ static void handle_arrow_pattern(EngineState* s, uint8_t dir, uint8_t mods) {
             int16_t follow_row = new_row;
             if (ev->chord_amount > 1 && (dir == DIR_UP || dir == DIR_DOWN)) {
                 int8_t offsets[MAX_CHORD_SIZE];
-                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE);
+                uint8_t cnt = get_chord_offsets(s, ev, offsets, MAX_CHORD_SIZE, 0);
                 int8_t min_off = offsets[0], max_off = offsets[0];
                 for (uint8_t i = 1; i < cnt; i++) {
                     if (offsets[i] < min_off) min_off = offsets[i];
