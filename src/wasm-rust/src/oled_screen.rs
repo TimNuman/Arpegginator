@@ -781,9 +781,9 @@ pub fn oled_render(modifiers: u8) {
             if has_sel { render_pattern_selected(s, modifiers); }
             else { render_pattern_default(s, modifiers); }
         },
-        1 => render_modify(s, modifiers),   // UI_MODIFY
-        2 => render_channel(s),             // UI_CHANNEL
-        3 => render_loop(s, modifiers),     // UI_LOOP
+        1 => render_channel(s),             // UI_CHANNEL
+        2 => render_loop(s, modifiers),     // UI_LOOP
+        3 => render_modify(s, modifiers),   // UI_MODIFY
         _ => render_pattern_default(s, modifiers),
     }
 }
