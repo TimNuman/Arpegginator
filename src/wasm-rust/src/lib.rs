@@ -191,9 +191,15 @@ pub extern "C" fn engine_get_version() -> i32 {
 // ============ Buffer Accessors ============
 
 #[no_mangle]
-pub extern "C" fn engine_get_event_buffer(ch: u8, pat: u8) -> *mut NoteEvent {
-    let s = state();
-    s.patterns[ch as usize][pat as usize].events.as_mut_ptr()
+pub extern "C" fn engine_get_event_pool_base_ptr() -> *const NoteEvent {
+    let s = state_ref();
+    s.event_pool.slots.as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_event_handles_buffer(ch: u8, pat: u8) -> *const u16 {
+    let s = state_ref();
+    s.patterns[ch as usize][pat as usize].event_handles.as_ptr()
 }
 
 #[no_mangle]
@@ -541,7 +547,8 @@ fn get_selected_event() -> Option<&'static NoteEvent> {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return None; }
-    Some(&s.patterns[ch][pat].events[s.selected_event_idx as usize])
+    let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+    Some(&s.event_pool.slots[h as usize])
 }
 
 #[no_mangle]

@@ -301,7 +301,8 @@ fn get_note_display(row: i16, is_drum: bool, s: &EngineState) -> alloc::string::
 fn render_pattern_selected(s: &EngineState, mods: u8) {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
-    let ev = &s.patterns[ch][pat].events[s.selected_event_idx as usize];
+    let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+    let ev = &s.event_pool.slots[h as usize];
     let is_drum = s.channel_types[ch] == CH_DRUM;
 
     let sel_row = ev.row;
@@ -498,7 +499,8 @@ fn render_modify(s: &EngineState, mods: u8) {
     if has_sel {
         let ch = s.current_channel as usize;
         let pat = s.current_patterns[ch] as usize;
-        let ev = &s.patterns[ch][pat].events[s.selected_event_idx as usize];
+        let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+        let ev = &s.event_pool.slots[h as usize];
         let is_drum = s.channel_types[ch] == CH_DRUM;
 
         let note_name = get_note_display(ev.row, is_drum, s);

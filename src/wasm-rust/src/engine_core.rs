@@ -20,6 +20,7 @@ pub const TICKS_PER_QUARTER: i32 = 480;
 pub const MAX_RENDERED_NOTES: usize = 1024;
 
 pub const POOL_CAPACITY: usize = 1024;
+pub const EVENT_POOL_CAPACITY: usize = 512;
 pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
 
 pub const DEFAULT_PATTERN_TICKS: i32 = TICKS_PER_QUARTER * 4 * 4; // 4 bars of 4/4 = 7680
@@ -235,6 +236,42 @@ pub fn get_sub_mode_mut<'a>(pool: &'a mut SubModePool, handles: &mut [u16; NUM_S
     &mut pool.slots[handles[sm] as usize]
 }
 
+// ============ Event Pool ============
+
+pub struct NoteEventPool {
+    pub slots: [NoteEvent; EVENT_POOL_CAPACITY],
+    pub free_list: [u16; EVENT_POOL_CAPACITY],
+    pub free_count: u16,
+}
+
+pub fn event_alloc(pool: &mut NoteEventPool) -> u16 {
+    assert!(pool.free_count > 0, "event pool exhausted");
+    pool.free_count -= 1;
+    pool.free_list[pool.free_count as usize]
+}
+
+pub fn event_free(pool: &mut NoteEventPool, handle: u16) {
+    if handle == POOL_HANDLE_NONE { return; }
+    pool.free_list[pool.free_count as usize] = handle;
+    pool.free_count += 1;
+}
+
+pub fn event_free_with_sub_modes(event_pool: &mut NoteEventPool, sm_pool: &mut SubModePool, handle: u16) {
+    if handle == POOL_HANDLE_NONE { return; }
+    pool_free_event_handles(sm_pool, &mut event_pool.slots[handle as usize].sub_mode_handles);
+    event_free(event_pool, handle);
+}
+
+#[inline]
+pub fn get_event(pool: &NoteEventPool, handle: u16) -> &NoteEvent {
+    &pool.slots[handle as usize]
+}
+
+#[inline]
+pub fn get_event_mut(pool: &mut NoteEventPool, handle: u16) -> &mut NoteEvent {
+    &mut pool.slots[handle as usize]
+}
+
 #[derive(Clone)]
 #[repr(C)]
 pub struct NoteEvent {
@@ -279,7 +316,7 @@ impl Default for NoteEvent {
 
 #[derive(Clone)]
 pub struct PatternData {
-    pub events: [NoteEvent; MAX_EVENTS],
+    pub event_handles: [u16; MAX_EVENTS],
     pub event_count: u16,
     pub length_ticks: i32,
 }
@@ -287,7 +324,7 @@ pub struct PatternData {
 impl Default for PatternData {
     fn default() -> Self {
         Self {
-            events: core::array::from_fn(|_| NoteEvent::default()),
+            event_handles: [POOL_HANDLE_NONE; MAX_EVENTS],
             event_count: 0,
             length_ticks: DEFAULT_PATTERN_TICKS,
         }
@@ -328,6 +365,7 @@ pub struct RenderedNote {
 pub struct EngineState {
     pub patterns: Box<[[PatternData; NUM_PATTERNS]; NUM_CHANNELS]>,
     pub sub_mode_pool: Box<SubModePool>,
+    pub event_pool: Box<NoteEventPool>,
     pub loops: [[PatternLoop; NUM_PATTERNS]; NUM_CHANNELS],
 
     pub current_patterns: [u8; NUM_CHANNELS],
@@ -404,6 +442,16 @@ impl Default for EngineState {
                 pool.free_count = POOL_CAPACITY as u16;
                 pool
             },
+            event_pool: {
+                let mut pool = unsafe {
+                    let layout = alloc::alloc::Layout::new::<NoteEventPool>();
+                    let ptr = alloc::alloc::alloc_zeroed(layout) as *mut NoteEventPool;
+                    Box::from_raw(ptr)
+                };
+                (0..EVENT_POOL_CAPACITY).for_each(|i| { pool.free_list[i] = i as u16; });
+                pool.free_count = EVENT_POOL_CAPACITY as u16;
+                pool
+            },
             loops: [[PatternLoop::default(); NUM_PATTERNS]; NUM_CHANNELS],
             current_patterns: [0; NUM_CHANNELS],
             queued_patterns: [-1; NUM_CHANNELS],
@@ -438,7 +486,7 @@ impl Default for EngineState {
             color_overrides: [[0; VISIBLE_COLS]; VISIBLE_ROWS],
             patterns_have_notes: [[0; NUM_PATTERNS]; NUM_CHANNELS],
             channels_playing_now: [0; NUM_CHANNELS],
-            next_event_id: 1,
+            next_event_id: 0,
             rendered_notes: [[RenderedNote::default(); MAX_RENDERED_NOTES]; NUM_CHANNELS],
             rendered_count: [0; NUM_CHANNELS],
             rendered_dirty: [1; NUM_CHANNELS],
@@ -568,7 +616,8 @@ pub fn engine_cycle_scale_root(s: &mut EngineState, direction: i8) {
         (0..NUM_PATTERNS).for_each(|pat| {
             let ec = s.patterns[ch][pat].event_count as usize;
             (0..ec).for_each(|e| {
-                s.patterns[ch][pat].events[e].row -= offset;
+                let h = s.patterns[ch][pat].event_handles[e];
+                s.event_pool.slots[h as usize].row -= offset;
             });
         });
     });
@@ -916,7 +965,8 @@ fn snapshot_counters_for_channel(s: &mut EngineState, ch: u8) {
     let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
 
     (0..ec as usize).for_each(|ei| {
-        let ev = &s.patterns[ch as usize][pat_idx as usize].events[ei];
+        let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
+        let ev = &s.event_pool.slots[h as usize];
         if ev.enabled == 0 { return; }
         let eidx = ev.event_index as usize;
         (0..NUM_SUB_MODES).for_each(|sm| {
@@ -933,7 +983,8 @@ fn compute_preview_for_channel(s: &mut EngineState, ch: u8) {
     let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
 
     (0..ec as usize).for_each(|ei| {
-        let ev = &s.patterns[ch as usize][pat_idx as usize].events[ei];
+        let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
+        let ev = &s.event_pool.slots[h as usize];
         if ev.enabled == 0 { return; }
 
         (0..NUM_SUB_MODES).for_each(|sm| {
@@ -973,7 +1024,7 @@ pub fn engine_core_init(s: &mut EngineState) {
     s.target_row_offsets = [0.0; NUM_CHANNELS];
 
     if s.bpm < 20.0 { s.bpm = 120.0; }
-    if s.next_event_id == 0 { s.next_event_id = 1; }
+    // next_event_id 0 is valid — counter arrays are indexed by event_index (0..MAX_EVENTS-1)
 
     s.button_values = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
     s.color_overrides = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
@@ -1064,8 +1115,9 @@ pub fn engine_core_tick(s: &mut EngineState) {
             let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
 
             (0..ec as usize).for_each(|ei| {
-                // Must re-borrow each iteration due to mutable borrows in resolve_sub_mode
-                let ev = s.patterns[ch as usize][pat_idx as usize].events[ei].clone();
+                // Must clone because resolve_sub_mode borrows s mutably
+                let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
+                let ev = s.event_pool.slots[h as usize].clone();
                 if ev.enabled == 0 { return; }
 
                 (0..ev.repeat_amount).for_each(|r| {
@@ -1184,7 +1236,8 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
         let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
 
         (0..ec as usize).for_each(|ei| {
-            let ev = s.patterns[ch as usize][pat_idx as usize].events[ei].clone();
+            let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
+            let ev = s.event_pool.slots[h as usize].clone();
             if ev.enabled == 0 { return; }
 
             (0..ev.repeat_amount).for_each(|r| {
@@ -1234,7 +1287,8 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
         let vec = s.patterns[view_ch][view_pat].event_count;
 
         (0..vec as usize).for_each(|ei| {
-            let ev = s.patterns[view_ch][view_pat].events[ei].clone();
+            let h = s.patterns[view_ch][view_pat].event_handles[ei];
+            let ev = s.event_pool.slots[h as usize].clone();
             if ev.enabled == 0 { return; }
 
             (0..ev.repeat_amount).for_each(|r| {

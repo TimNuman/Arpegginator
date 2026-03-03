@@ -120,6 +120,7 @@ export class WasmEngine {
   private fieldOffsets: number[] = [];
   private subModeArraySize = 0;
   private poolBasePtr = 0;
+  private eventPoolBasePtr = 0;
   private poolHandleNone = 0xFFFF;
 
   // Core functions
@@ -133,7 +134,8 @@ export class WasmEngine {
   private _getVersion!: () => number;
 
   // Buffer accessors
-  private _getEventBuffer!: (ch: number, pat: number) => number;
+  private _getEventPoolBasePtr!: () => number;
+  private _getEventHandlesBuffer!: (ch: number, pat: number) => number;
   private _setEventCount!: (ch: number, pat: number, count: number) => void;
   private _setPatternLength!: (ch: number, pat: number, len: number) => void;
   private _getLoopsBuffer!: () => number;
@@ -277,7 +279,8 @@ export class WasmEngine {
     this._engineScrubEnd = cw('engine_scrub_end', null, []) as unknown as () => void;
     this._engineStop = cw('engine_stop', null, []) as unknown as () => void;
     this._getVersion = cw('engine_get_version', 'number', []);
-    this._getEventBuffer = cw('engine_get_event_buffer', 'number', ['number', 'number']);
+    this._getEventPoolBasePtr = cw('engine_get_event_pool_base_ptr', 'number', []) as unknown as () => number;
+    this._getEventHandlesBuffer = cw('engine_get_event_handles_buffer', 'number', ['number', 'number']);
     this._setEventCount = cw('engine_set_event_count', null, ['number', 'number', 'number']) as unknown as (ch: number, pat: number, count: number) => void;
     this._setPatternLength = cw('engine_set_pattern_length', null, ['number', 'number', 'number']) as unknown as (ch: number, pat: number, len: number) => void;
     this._getLoopsBuffer = cw('engine_get_loops_buffer', 'number', []);
@@ -416,6 +419,7 @@ export class WasmEngine {
   fullInit(): void {
     this._engineInit();
     this.poolBasePtr = this._getPoolBasePtr();
+    this.eventPoolBasePtr = this._getEventPoolBasePtr();
   }
 
   /** Playback init — resets only playback state (active notes, counters, tick). */
@@ -458,7 +462,7 @@ export class WasmEngine {
    */
   readPatternData(ch: number, pat: number): PatternData {
     const mod = this.module!;
-    const bufferPtr = this._getEventBuffer(ch, pat);
+    const handlesPtr = this._getEventHandlesBuffer(ch, pat);
     const eventCount = this._getEventCount(ch, pat);
     const lengthTicks = this._getPatternLength(ch, pat);
     const view = new DataView(mod.HEAPU8.buffer);
@@ -467,7 +471,9 @@ export class WasmEngine {
     const LOOP_MODE_REVERSE: VelocityLoopMode[] = ['reset', 'continue', 'fill'];
 
     for (let i = 0; i < eventCount; i++) {
-      const ptr = bufferPtr + i * this.noteEventSize;
+      // Read handle from pattern's handle array, then dereference via event pool
+      const handle = view.getUint16(handlesPtr + i * 2, true);
+      const ptr = this.eventPoolBasePtr + handle * this.noteEventSize;
 
       // Read sub-mode handles and dereference via pool
       const handlesBase = ptr + this.fieldOffsets[6];

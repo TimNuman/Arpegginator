@@ -154,7 +154,8 @@ pub fn engine_render_events(
     let mut count = 0usize;
 
     (0..pat.event_count as usize).for_each(|e| {
-        let ev = &pat.events[e];
+        let h = pat.event_handles[e];
+        let ev = &s.event_pool.slots[h as usize];
         if ev.enabled == 0 || count >= max_out { return; }
 
         (0..ev.repeat_amount).for_each(|r| {
@@ -319,14 +320,17 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     // Pre-extract event data to avoid borrow conflict (patterns vs active_notes/button_values)
     let event_count = s.patterns[ch][pat].event_count as usize;
     let mut ev_indexes = [0u16; MAX_EVENTS];
-    let mut ev_sub_modes = [[SubModeArray::default(); NUM_SUB_MODES]; MAX_EVENTS];
+    // Heap-allocate to avoid ~50KB stack usage (128 events × 6 sub-modes × 66 bytes)
+    let mut ev_sub_modes = alloc::vec![[SubModeArray::default(); NUM_SUB_MODES]; MAX_EVENTS];
     let mut ev_hit_snapshots = [0u16; MAX_EVENTS];
     let mut ev_vel_snapshots = [0u16; MAX_EVENTS];
     (0..event_count).for_each(|i| {
-        let ev_idx = s.patterns[ch][pat].events[i].event_index;
+        let h = s.patterns[ch][pat].event_handles[i];
+        let ev = &s.event_pool.slots[h as usize];
+        let ev_idx = ev.event_index;
         ev_indexes[i] = ev_idx;
         for sm in 0..NUM_SUB_MODES {
-            ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &s.patterns[ch][pat].events[i].sub_mode_handles, sm);
+            ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
         }
         ev_hit_snapshots[i] = s.counter_snapshots[SubModeId::Hit as usize][ch][ev_idx as usize];
         ev_vel_snapshots[i] = s.counter_snapshots[SubModeId::Velocity as usize][ch][ev_idx as usize];
@@ -556,15 +560,17 @@ fn render_modify_mode(s: &mut EngineState) {
     let sm = s.modify_sub_mode as usize;
     let config = engine_get_sub_mode_config(sm as u8);
 
-    // Clone event data we need to avoid borrow issues
-    let repeat_amount = s.patterns[ch][pat].events[ev_idx].repeat_amount;
-    let sm_arr = get_sub_mode(&s.sub_mode_pool, &s.patterns[ch][pat].events[ev_idx].sub_mode_handles, sm);
+    // Read event data via pool to avoid borrow issues
+    let h = s.patterns[ch][pat].event_handles[ev_idx];
+    let ev = &s.event_pool.slots[h as usize];
+    let repeat_amount = ev.repeat_amount;
+    let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let array_length = sm_arr.length;
     let loop_mode = sm_arr.loop_mode;
-    let ev_position = s.patterns[ch][pat].events[ev_idx].position;
-    let ev_repeat_space = s.patterns[ch][pat].events[ev_idx].repeat_space;
-    let ev_length = s.patterns[ch][pat].events[ev_idx].length;
-    let ev_event_index = s.patterns[ch][pat].events[ev_idx].event_index;
+    let ev_position = ev.position;
+    let ev_repeat_space = ev.repeat_space;
+    let ev_length = ev.length;
+    let ev_event_index = ev.event_index;
 
     let mut all_levels = [0i16; 128];
     let all_levels_count = engine_generate_levels(config, &mut all_levels) as usize;

@@ -59,7 +59,8 @@ fn disable_note_marks_dirty() {
     assert_eq!(s.rendered_count[ch(&s)], 1);
 
     let (c, p) = (ch(&s), pat_idx(&s));
-    s.patterns[c][p].events[idx as usize].enabled = 0;
+    let h = s.patterns[c][p].event_handles[idx as usize];
+    s.event_pool.slots[h as usize].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
@@ -74,12 +75,13 @@ fn reenable_note_marks_dirty() {
     assert!(idx >= 0);
 
     let (c, p) = (ch(&s), pat_idx(&s));
-    s.patterns[c][p].events[idx as usize].enabled = 0;
+    let h = s.patterns[c][p].event_handles[idx as usize];
+    s.event_pool.slots[h as usize].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
     assert_eq!(s.rendered_count[c], 0);
 
-    s.patterns[c][p].events[idx as usize].enabled = 1;
+    s.event_pool.slots[h as usize].enabled = 1;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
@@ -100,7 +102,8 @@ fn cmd_click_disable_marks_dirty() {
     assert_eq!(found, idx);
 
     let (c, p) = (ch(&s), pat_idx(&s));
-    s.patterns[c][p].events[found as usize].enabled = 0;
+    let h = s.patterns[c][p].event_handles[found as usize];
+    s.event_pool.slots[h as usize].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
@@ -202,7 +205,8 @@ fn direct_length_change_needs_dirty() {
     assert_eq!(s.rendered_notes[ch(&s)][0].length, 120);
 
     let (c, p) = (ch(&s), pat_idx(&s));
-    s.patterns[c][p].events[idx as usize].length = 480;
+    let h = s.patterns[c][p].event_handles[idx as usize];
+    s.event_pool.slots[h as usize].length = 480;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
@@ -337,7 +341,8 @@ fn rendered_excludes_disabled_events() {
     assert_eq!(s.rendered_count[c], 2);
 
     let p = pat_idx(&s);
-    s.patterns[c][p].events[idx0 as usize].enabled = 0;
+    let h = s.patterns[c][p].event_handles[idx0 as usize];
+    s.event_pool.slots[h as usize].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
 
