@@ -88,10 +88,13 @@ class RustWasmAdapter implements WasmModule {
         }
         return arg as number;
       });
-      const result = fn(...wasmArgs);
-      this.refreshViews();
-      allocated.forEach(({ ptr, size }) => free(ptr, size));
-      return result;
+      try {
+        const result = fn(...wasmArgs);
+        return result;
+      } finally {
+        this.refreshViews();
+        allocated.forEach(({ ptr, size }) => free(ptr, size));
+      }
     };
   }
 }
