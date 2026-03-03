@@ -251,7 +251,7 @@ pub struct RenderedNote {
 // ============ Engine State ============
 
 pub struct EngineState {
-    pub patterns: [[PatternData; NUM_PATTERNS]; NUM_CHANNELS],
+    pub patterns: Box<[[PatternData; NUM_PATTERNS]; NUM_CHANNELS]>,
     pub loops: [[PatternLoop; NUM_PATTERNS]; NUM_CHANNELS],
 
     pub current_patterns: [u8; NUM_CHANNELS],
@@ -306,8 +306,17 @@ pub struct EngineState {
 
 impl Default for EngineState {
     fn default() -> Self {
+        // Build patterns on the heap via Vec to avoid ~3MB stack temporary.
+        // Each push places one channel's patterns (~368KB) on the stack — well within 1MB.
+        let patterns = {
+            let mut v: Vec<[PatternData; NUM_PATTERNS]> = Vec::with_capacity(NUM_CHANNELS);
+            for _ in 0..NUM_CHANNELS {
+                v.push(core::array::from_fn(|_| PatternData::default()));
+            }
+            v.into_boxed_slice().try_into().ok().unwrap()
+        };
         Self {
-            patterns: core::array::from_fn(|_| core::array::from_fn(|_| PatternData::default())),
+            patterns,
             loops: [[PatternLoop::default(); NUM_PATTERNS]; NUM_CHANNELS],
             current_patterns: [0; NUM_CHANNELS],
             queued_patterns: [-1; NUM_CHANNELS],
