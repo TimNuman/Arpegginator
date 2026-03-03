@@ -34,7 +34,7 @@ fn init_event(ev: &mut NoteEvent, row: i16, position: i32, length: i32, id: u16)
     ev.arp_voices = 1;
     ev.event_index = id;
 
-    let sub_defaults: [(usize, i16); NUM_SUB_MODES] = [
+    let sub_defaults: [(usize, i16); 5] = [
         (0, DEFAULT_VELOCITY),
         (1, DEFAULT_HIT_CHANCE),
         (2, DEFAULT_TIMING),

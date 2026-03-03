@@ -172,7 +172,7 @@ fn play_event_preview(s: &EngineState, ev: &NoteEvent, length_ticks: i32) {
         return;
     }
     let mut offsets = [0i8; MAX_CHORD_SIZE];
-    let count = get_chord_offsets(s, ev, &mut offsets);
+    let count = get_chord_offsets(s, ev, &mut offsets, 0);
     (0..count).for_each(|c| {
         crate::platform_play_preview_note(ch, ev.row + offsets[c] as i16, length_ticks);
     });
@@ -505,8 +505,8 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
 
 // ============ Arrow Press ============
 
-static MODIFY_SUB_MODE_ORDER: [u8; 5] = [
-    SubModeId::Velocity as u8, SubModeId::Modulate as u8,
+static MODIFY_SUB_MODE_ORDER: [u8; 6] = [
+    SubModeId::Velocity as u8, SubModeId::Modulate as u8, SubModeId::Inversion as u8,
     SubModeId::Hit as u8, SubModeId::Flam as u8, SubModeId::Timing as u8,
 ];
 
@@ -533,7 +533,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
         let ev = &s.patterns[ch][pat_idx].events[s.selected_event_idx as usize];
         if ev.chord_amount > 1 {
             let mut offsets = [0i8; MAX_CHORD_SIZE];
-            let cnt = get_chord_offsets(s, ev, &mut offsets);
+            let cnt = get_chord_offsets(s, ev, &mut offsets, 0);
             let follow_row = ev.row + offsets[if dir == DIR_UP { cnt - 1 } else { 0 }] as i16;
             let pos = ev.position;
             follow_note(s, follow_row, pos);
@@ -584,7 +584,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
             let ev = &s.patterns[ch][pat_idx].events[s.selected_event_idx as usize];
             if ev.chord_amount > 1 {
                 let mut offsets = [0i8; MAX_CHORD_SIZE];
-                let cnt = get_chord_offsets(s, ev, &mut offsets);
+                let cnt = get_chord_offsets(s, ev, &mut offsets, 0);
                 let min_off = offsets[..cnt].iter().min().copied().unwrap_or(0);
                 let max_off = offsets[..cnt].iter().max().copied().unwrap_or(0);
                 let follow_row = ev.row + if dir == DIR_UP { max_off } else { min_off } as i16;
@@ -677,7 +677,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
             let mut follow_row = new_row;
             if chord_amount > 1 && (dir == DIR_UP || dir == DIR_DOWN) {
                 let mut offsets = [0i8; MAX_CHORD_SIZE];
-                let cnt = get_chord_offsets(s, ev, &mut offsets);
+                let cnt = get_chord_offsets(s, ev, &mut offsets, 0);
                 let min_off = offsets[..cnt].iter().min().copied().unwrap_or(0);
                 let max_off = offsets[..cnt].iter().max().copied().unwrap_or(0);
                 follow_row = new_row + if dir == DIR_UP { max_off } else { min_off } as i16;

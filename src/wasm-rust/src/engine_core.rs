@@ -6,7 +6,7 @@ pub const NUM_CHANNELS: usize = 8;
 pub const NUM_PATTERNS: usize = 8;
 pub const MAX_EVENTS: usize = 128;
 pub const MAX_SUB_MODE_LEN: usize = 32;
-pub const NUM_SUB_MODES: usize = 5;
+pub const NUM_SUB_MODES: usize = 6;
 pub const MAX_CHORD_SIZE: usize = 8;
 pub const MAX_SCALE_NOTES: usize = 128;
 pub const NUM_SCALES: usize = 32;
@@ -81,6 +81,7 @@ pub enum SubModeId {
     Timing = 2,
     Flam = 3,
     Modulate = 4,
+    Inversion = 5,
 }
 
 impl SubModeId {
@@ -91,6 +92,7 @@ impl SubModeId {
             2 => Self::Timing,
             3 => Self::Flam,
             4 => Self::Modulate,
+            5 => Self::Inversion,
             _ => Self::Velocity,
         }
     }
@@ -997,8 +999,13 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
                     let effective_row = ev.row + mod_val;
 
+                    let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                        resolve_sub_mode(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
+                    } else {
+                        0
+                    };
                     let mut offsets = [0i8; MAX_CHORD_SIZE];
-                    let offset_count = crate::engine_ui::get_chord_offsets(s, &ev, &mut offsets);
+                    let offset_count = crate::engine_ui::get_chord_offsets(s, &ev, &mut offsets, inv_extra);
 
                     (0..offset_count).for_each(|ci| {
                         if !is_arp_chord_active(ev.arp_style, offset_count as u8, r, ev.arp_offset, ev.arp_voices, ci as u8) { return; }
@@ -1103,8 +1110,13 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, ch);
                 let effective_row = ev.row + mod_val;
 
+                let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                    resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
+                } else {
+                    0
+                };
                 let mut offsets = [0i8; MAX_CHORD_SIZE];
-                let offset_count = crate::engine_ui::get_chord_offsets(s, &ev, &mut offsets);
+                let offset_count = crate::engine_ui::get_chord_offsets(s, &ev, &mut offsets, inv_extra);
 
                 (0..offset_count).for_each(|ci| {
                     let chord_row = effective_row + offsets[ci] as i16;
@@ -1148,8 +1160,13 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, view_ch as u8);
                 let effective_row = ev.row + mod_val;
 
+                let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                    resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, view_ch as u8) as i8
+                } else {
+                    0
+                };
                 let mut offsets = [0i8; MAX_CHORD_SIZE];
-                let offset_count = crate::engine_ui::get_chord_offsets(s, &ev, &mut offsets);
+                let offset_count = crate::engine_ui::get_chord_offsets(s, &ev, &mut offsets, inv_extra);
 
                 (0..offset_count).for_each(|ci| {
                     let chord_row = effective_row + offsets[ci] as i16;

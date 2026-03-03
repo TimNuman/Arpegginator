@@ -764,7 +764,7 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
     };
 
     let mut offsets = [0i8; MAX_CHORD_SIZE];
-    let chord_count = engine_ui::get_chord_offsets(s, ev, &mut offsets);
+    let chord_count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
 
     let mut pitch_classes = [0u8; MAX_CHORD_SIZE];
     let mut pc_count = 0usize;

@@ -162,7 +162,7 @@ fn get_drum_name(midi: i8) -> alloc::string::String {
 
 // ============ Sub-mode / loop mode labels ============
 
-static SUB_MODE_LABELS: [&str; 5] = ["VEL", "HIT", "TIME", "FLAM", "MOD"];
+static SUB_MODE_LABELS: [&str; 6] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV"];
 static LOOP_MODE_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
 static ARP_STYLE_NAMES: [&str; 9] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U"];
 static INTERVAL_NAMES: [&str; 12] = [
@@ -641,7 +641,7 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String 
     }
 
     let mut offsets = [0i8; MAX_CHORD_SIZE];
-    let chord_count = engine_ui::get_chord_offsets(s, ev, &mut offsets);
+    let chord_count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
 
     let mut pitch_classes = [0u8; MAX_CHORD_SIZE];
     let mut pc_count = 0usize;

@@ -119,7 +119,7 @@ async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmMo
   return new RustWasmAdapter(instance);
 }
 
-// Sub-mode order must match C enum: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4
+// Sub-mode order must match C enum: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
 const SUB_MODE_FIELDS: Array<{
   arrayField: keyof NoteEvent;
   loopModeField: keyof NoteEvent;
@@ -129,11 +129,12 @@ const SUB_MODE_FIELDS: Array<{
   { arrayField: 'timingOffset', loopModeField: 'timingLoopMode' },
   { arrayField: 'flamChance', loopModeField: 'flamLoopMode' },
   { arrayField: 'modulate', loopModeField: 'modulateLoopMode' },
+  { arrayField: 'inversion', loopModeField: 'inversionLoopMode' },
 ];
 
-// C enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4
+// C enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
 const SUB_MODE_NAME_TO_ID: Record<string, number> = {
-  velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4,
+  velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4, inversion: 5,
 };
 
 /** Load the Emscripten glue script and return the factory function. */
@@ -518,7 +519,7 @@ export class WasmEngine {
       // Read sub-mode arrays
       const subModesBase = ptr + this.fieldOffsets[6];
       const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
-      for (let sm = 0; sm < 5; sm++) {
+      for (let sm = 0; sm < 6; sm++) {
         const arrBase = subModesBase + sm * this.subModeArraySize;
         const lenOffset = this.subModeArraySize - 2;  // length field: after all int16 values
         const len = mod.HEAPU8[arrBase + lenOffset];
@@ -555,6 +556,8 @@ export class WasmEngine {
         flamLoopMode: subModeArrays[3].loopMode,
         modulate: subModeArrays[4].values,
         modulateLoopMode: subModeArrays[4].loopMode,
+        inversion: subModeArrays[5].values,
+        inversionLoopMode: subModeArrays[5].loopMode,
         chordAmount: mod.HEAPU8[ptr + this.fieldOffsets[7]],
         chordSpace: mod.HEAPU8[ptr + this.fieldOffsets[8]],
         chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),

@@ -17,6 +17,7 @@ static SUB_MODE_CONFIGS: [SubModeRenderConfig; NUM_SUB_MODES] = [
     SubModeRenderConfig { render_style: 1, min_val: -50, max_val: 50, step: 5 },    // Timing
     SubModeRenderConfig { render_style: 0, min_val: 12, max_val: 100, step: 12 },   // Flam
     SubModeRenderConfig { render_style: 1, min_val: -12, max_val: 12, step: 1 },    // Modulate
+    SubModeRenderConfig { render_style: 1, min_val: -8, max_val: 8, step: 1 },     // Inversion
 ];
 
 pub fn engine_get_sub_mode_config(sub_mode: u8) -> &'static SubModeRenderConfig {
@@ -102,7 +103,7 @@ fn resolve_render_sub_mode_inline(arr: &SubModeArray, repeat_idx: u16, snapshot:
 
 // ============ Chord offsets ============
 
-pub fn get_chord_offsets(s: &EngineState, ev: &NoteEvent, offsets: &mut [i8]) -> usize {
+pub fn get_chord_offsets(s: &EngineState, ev: &NoteEvent, offsets: &mut [i8], inversion_extra: i8) -> usize {
     let amount = ev.chord_amount as usize;
     if amount <= 1 {
         offsets[0] = 0;
@@ -127,7 +128,7 @@ pub fn get_chord_offsets(s: &EngineState, ev: &NoteEvent, offsets: &mut [i8]) ->
 
     // Apply inversions
     let octave = s.scale_octave_size as i16;
-    let inv = ev.chord_inversion;
+    let inv = ev.chord_inversion + inversion_extra;
     if inv > 0 {
         (0..inv as usize).for_each(|n| {
             let idx = n % amount;
@@ -179,9 +180,6 @@ pub fn engine_render_events(
         let ev = &pat.events[e];
         if ev.enabled == 0 || count >= max_out { return; }
 
-        let mut chord_offsets = [0i8; MAX_CHORD_SIZE];
-        let chord_count = get_chord_offsets(s, ev, &mut chord_offsets);
-
         (0..ev.repeat_amount).for_each(|r| {
             if count >= max_out { return; }
             let mut pos = ev.position + r as i32 * ev.repeat_space;
@@ -194,6 +192,15 @@ pub fn engine_render_events(
             } else {
                 0
             };
+
+            let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                resolve_render_sub_mode(s, ev, SubModeId::Inversion as usize, r, channel) as i8
+            } else {
+                0
+            };
+
+            let mut chord_offsets = [0i8; MAX_CHORD_SIZE];
+            let chord_count = get_chord_offsets(s, ev, &mut chord_offsets, inv_extra);
 
             (0..chord_count).for_each(|c| {
                 if count >= max_out { return; }
