@@ -40,8 +40,9 @@ fn state_ref() -> &'static EngineState {
 // Pointer for oled_screen to access
 pub static mut G_STATE_PTR: *const EngineState = core::ptr::null();
 
-// ============ JS Callback Imports ============
+// ============ JS Callback Imports (WASM only) ============
 
+#[cfg(not(test))]
 extern "C" {
     fn js_step_trigger(ch: i32, note: i32, tick: i32, len: i32, vel: i32, timing: i32, flam: i32, ev_idx: i32);
     fn js_note_off(ch: i32, note: i32);
@@ -54,6 +55,7 @@ extern "C" {
 
 // ============ Platform Callback Implementations ============
 
+#[cfg(not(test))]
 pub fn platform_step_trigger(
     channel: u8, midi_note: u8, tick: i32,
     note_length_ticks: i32, velocity: u8,
@@ -70,22 +72,27 @@ pub fn platform_step_trigger(
     }
 }
 
+#[cfg(not(test))]
 pub fn platform_note_off(channel: u8, midi_note: u8) {
     unsafe { js_note_off(channel as i32, midi_note as i32); }
 }
 
+#[cfg(not(test))]
 pub fn platform_set_current_tick(tick: i32) {
     unsafe { js_set_current_tick(tick); }
 }
 
+#[cfg(not(test))]
 pub fn platform_set_current_patterns(patterns: &[u8; NUM_CHANNELS]) {
     unsafe { js_set_current_patterns(patterns.as_ptr() as i32); }
 }
 
+#[cfg(not(test))]
 pub fn platform_clear_queued_pattern(channel: u8) {
     unsafe { js_clear_queued_pattern(channel as i32); }
 }
 
+#[cfg(not(test))]
 pub fn platform_preview_value(
     sub_mode: u8, channel: u8,
     event_index: u16, tick: i32, value: i16,
@@ -98,9 +105,41 @@ pub fn platform_preview_value(
     }
 }
 
+#[cfg(not(test))]
 pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
     unsafe { js_play_preview_note(channel as i32, row as i32, length_ticks); }
 }
+
+// ============ Platform Callback Stubs (test only) ============
+
+#[cfg(test)]
+pub fn platform_step_trigger(
+    _channel: u8, _midi_note: u8, _tick: i32,
+    _note_length_ticks: i32, _velocity: u8,
+    _timing_offset_pct: i8, _flam_count: u8,
+    _event_index: u16,
+) {}
+
+#[cfg(test)]
+pub fn platform_note_off(_channel: u8, _midi_note: u8) {}
+
+#[cfg(test)]
+pub fn platform_set_current_tick(_tick: i32) {}
+
+#[cfg(test)]
+pub fn platform_set_current_patterns(_patterns: &[u8; NUM_CHANNELS]) {}
+
+#[cfg(test)]
+pub fn platform_clear_queued_pattern(_channel: u8) {}
+
+#[cfg(test)]
+pub fn platform_preview_value(
+    _sub_mode: u8, _channel: u8,
+    _event_index: u16, _tick: i32, _value: i16,
+) {}
+
+#[cfg(test)]
+pub fn platform_play_preview_note(_channel: u8, _row: i16, _length_ticks: i32) {}
 
 // ============ Exported Functions ============
 
@@ -935,3 +974,12 @@ pub extern "C" fn oled_get_framebuffer_size() -> u32 {
 pub extern "C" fn oled_render(modifiers: u8) {
     oled_screen::oled_render(modifiers);
 }
+
+// ============ Tests ============
+
+#[cfg(test)]
+mod test_core;
+#[cfg(test)]
+mod test_edit;
+#[cfg(test)]
+mod test_rendered;

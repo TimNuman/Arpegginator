@@ -787,3 +787,162 @@ pub fn oled_render(modifiers: u8) {
         _ => render_pattern_default(s, modifiers),
     }
 }
+
+// ============ Tests ============
+// Mirrors src/wasm/tests/test_oled.c
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============ midi_note_to_name ============
+
+    #[test]
+    fn midi_note_c4() {
+        assert_eq!(midi_note_to_name(60), "C4");
+    }
+
+    #[test]
+    fn midi_note_a4() {
+        assert_eq!(midi_note_to_name(69), "A4");
+    }
+
+    #[test]
+    fn midi_note_c_neg1() {
+        assert_eq!(midi_note_to_name(0), "C-1");
+    }
+
+    #[test]
+    fn midi_note_g_sharp_5() {
+        assert_eq!(midi_note_to_name(80), "G#5");
+    }
+
+    #[test]
+    fn midi_note_highest() {
+        assert_eq!(midi_note_to_name(127), "G9");
+    }
+
+    #[test]
+    fn midi_note_invalid() {
+        assert_eq!(midi_note_to_name(-1), "??");
+    }
+
+    // ============ tick_to_beat_display ============
+
+    #[test]
+    fn beat_display_beat_1() {
+        assert_eq!(tick_to_beat_display(0), "1");
+    }
+
+    #[test]
+    fn beat_display_beat_2() {
+        assert_eq!(tick_to_beat_display(480), "2");
+    }
+
+    #[test]
+    fn beat_display_subdivision() {
+        assert_eq!(tick_to_beat_display(120), "1.2");
+    }
+
+    #[test]
+    fn beat_display_third_sixteenth() {
+        assert_eq!(tick_to_beat_display(240), "1.3");
+    }
+
+    // ============ ticks_to_musical_name ============
+
+    #[test]
+    fn musical_name_sixteenth() {
+        assert_eq!(ticks_to_musical_name(120, 120), "1/16");
+    }
+
+    #[test]
+    fn musical_name_eighth() {
+        assert_eq!(ticks_to_musical_name(240, 120), "2/16");
+    }
+
+    #[test]
+    fn musical_name_triplet() {
+        assert_eq!(ticks_to_musical_name(160, 120), "1/8T");
+    }
+
+    #[test]
+    fn musical_name_quarter() {
+        assert_eq!(ticks_to_musical_name(480, 120), "4/16");
+    }
+
+    #[test]
+    fn musical_name_fallback() {
+        assert_eq!(ticks_to_musical_name(17, 120), "17t");
+    }
+
+    // ============ ticks_to_canonical_name ============
+
+    #[test]
+    fn canonical_sixteenth() {
+        assert_eq!(ticks_to_canonical_name(120), "1/16");
+    }
+
+    #[test]
+    fn canonical_quarter() {
+        assert_eq!(ticks_to_canonical_name(480), "1/4");
+    }
+
+    #[test]
+    fn canonical_half() {
+        assert_eq!(ticks_to_canonical_name(960), "1/2");
+    }
+
+    #[test]
+    fn canonical_whole() {
+        assert_eq!(ticks_to_canonical_name(1920), "1");
+    }
+
+    #[test]
+    fn canonical_triplet() {
+        assert_eq!(ticks_to_canonical_name(160), "1/8T");
+    }
+
+    #[test]
+    fn canonical_two_quarters() {
+        // 960 ticks = 1/2 note
+        assert_eq!(ticks_to_canonical_name(960), "1/2");
+    }
+
+    #[test]
+    fn canonical_fallback() {
+        assert_eq!(ticks_to_canonical_name(17), "17t");
+    }
+
+    // ============ get_drum_name ============
+
+    #[test]
+    fn drum_name_kick() {
+        assert_eq!(get_drum_name(36), "Kick");
+    }
+
+    #[test]
+    fn drum_name_snare() {
+        assert_eq!(get_drum_name(38), "Snare");
+    }
+
+    #[test]
+    fn drum_name_cl_hh() {
+        assert_eq!(get_drum_name(42), "Cl HH");
+    }
+
+    #[test]
+    fn drum_name_out_of_range() {
+        assert_eq!(get_drum_name(10), "D10");
+    }
+
+    #[test]
+    fn drum_name_boundary_low() {
+        assert_eq!(get_drum_name(35), "Kick 2");
+    }
+
+    #[test]
+    fn drum_name_boundary_high() {
+        assert_eq!(get_drum_name(81), "Op Tri");
+    }
+}
