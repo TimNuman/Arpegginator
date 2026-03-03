@@ -19,7 +19,7 @@ pub const VISIBLE_COLS: usize = 16;
 pub const TICKS_PER_QUARTER: i32 = 480;
 pub const MAX_RENDERED_NOTES: usize = 1024;
 
-pub const POOL_CAPACITY: usize = 1024;
+pub const POOL_CAPACITY: usize = 512;
 pub const EVENT_POOL_CAPACITY: usize = 512;
 pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
 
