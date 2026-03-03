@@ -1,5 +1,8 @@
 // lib.rs — WASM exports and JS callback bridges for the Rust engine
 // Equivalent to engine_wasm.c in the C version
+//
+// Single-threaded WASM — mutable statics are safe in this context.
+#![allow(static_mut_refs)]
 
 pub mod engine_core;
 pub mod engine_edit;

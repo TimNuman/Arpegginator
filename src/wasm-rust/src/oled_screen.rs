@@ -33,7 +33,7 @@ static NOTE_NAMES: [&str; 12] = [
 ];
 
 fn midi_note_to_name(note: i8) -> alloc::string::String {
-    if note < 0 || note > 127 {
+    if note < 0 {
         return alloc::string::String::from("??");
     }
     let octave = (note as i32 / 12) - 1;
@@ -195,6 +195,7 @@ fn draw_labeled_row(y: i16, label: &str, value: &str, val_color: u8) {
     }
 }
 
+#[allow(dead_code)]
 fn draw_legend(y: i16, prefix: &str, value: &str, legend_color: u8) {
     gfx_text(VALUE_X, y, prefix, color_lookup(legend_color), &FONT_MAIN);
     let w = gfx_text_width(prefix, &FONT_MAIN);
@@ -337,10 +338,10 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     };
 
     // Determine edit targets based on modifiers
-    const T_NONE: u8 = 0; const T_MOVE: u8 = 1; const T_LENGTH: u8 = 2;
+    const T_NONE: u8 = 0; const _T_MOVE: u8 = 1; const T_LENGTH: u8 = 2;
     const T_RPT_AMT: u8 = 3; const T_RPT_SPACE: u8 = 4;
     const T_ARP_OFFSET: u8 = 5; const T_ARP_VOICES: u8 = 6;
-    const V_NONE: u8 = 0; const V_MOVE: u8 = 1; const V_INVERSION: u8 = 2;
+    const V_NONE: u8 = 0; const _V_MOVE: u8 = 1; const V_INVERSION: u8 = 2;
     const V_CHD_AMT: u8 = 3; const V_CHD_SPACE: u8 = 4;
     const V_ARP_STYLE: u8 = 5; const V_VOICING: u8 = 6;
 

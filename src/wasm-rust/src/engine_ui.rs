@@ -295,6 +295,7 @@ fn get_looped_tick(s: &EngineState) -> i32 {
     lp.start + mod_positive(s.current_tick - lp.start, lp.length)
 }
 
+#[allow(dead_code)]
 fn is_note_active(s: &EngineState, channel: u8, event_idx: u16, tick: i32) -> bool {
     s.active_notes.iter().any(|an|
         an.active && an.channel == channel && an.event_index == event_idx &&
