@@ -61,7 +61,13 @@ class RustWasmAdapter implements WasmModule {
 
     const hasStringArgs = argTypes.some(t => t === 'string');
     if (!hasStringArgs) {
-      return fn as (...args: number[]) => number;
+      // Wrap to refresh typed array views after call — any WASM function
+      // may trigger memory.grow(), detaching the underlying ArrayBuffer.
+      return (...args: number[]) => {
+        const result = (fn as (...a: number[]) => number)(...args);
+        this.refreshViews();
+        return result;
+      };
     }
 
     const alloc = this.instance.exports.wasm_alloc as (size: number) => number;
@@ -83,6 +89,7 @@ class RustWasmAdapter implements WasmModule {
         return arg as number;
       });
       const result = fn(...wasmArgs);
+      this.refreshViews();
       allocated.forEach(({ ptr, size }) => free(ptr, size));
       return result;
     };
