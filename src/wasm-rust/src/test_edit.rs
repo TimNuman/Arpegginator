@@ -58,9 +58,9 @@ fn toggle_event_default_values() {
     assert_eq!(ev.chord_amount, 1);
     assert_eq!(ev.chord_space, 2);
     assert_eq!(ev.arp_style, ARP_CHORD);
-    assert_eq!(ev.sub_modes[SubModeId::Velocity as usize].values[0], 100);
-    assert_eq!(ev.sub_modes[SubModeId::Velocity as usize].length, 1);
-    assert_eq!(ev.sub_modes[SubModeId::Hit as usize].values[0], 100);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, SubModeId::Velocity as usize).values[0], 100);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, SubModeId::Velocity as usize).length, 1);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, SubModeId::Hit as usize).values[0], 100);
 }
 
 // ============ engine_remove_event ============
@@ -130,7 +130,7 @@ fn sub_mode_value_basic() {
     let idx = engine_toggle_event(&mut s, 10, 0, 120);
     engine_set_sub_mode_value(&mut s, idx as u16, SubModeId::Velocity as u8, 0, 80);
     let (c, p) = (ch(&s), pat(&s));
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].values[0], 80);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).values[0], 80);
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn sub_mode_value_materializes_array() {
     let idx = engine_toggle_event(&mut s, 10, 0, 120);
     engine_set_sub_mode_value(&mut s, idx as u16, SubModeId::Velocity as u8, 2, 50);
     let (c, p) = (ch(&s), pat(&s));
-    let arr = &s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize];
+    let arr = get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize);
     assert_eq!(arr.length, 3);
     assert_eq!(arr.values[2], 50);
     assert_eq!(arr.values[1], 100); // looped from index 0
@@ -151,7 +151,7 @@ fn sub_mode_length_expand() {
     let idx = engine_toggle_event(&mut s, 10, 0, 120);
     engine_set_sub_mode_length(&mut s, idx as u16, SubModeId::Velocity as u8, 4);
     let (c, p) = (ch(&s), pat(&s));
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].length, 4);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).length, 4);
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn sub_mode_length_shrink() {
     engine_set_sub_mode_length(&mut s, idx as u16, SubModeId::Velocity as u8, 4);
     engine_set_sub_mode_length(&mut s, idx as u16, SubModeId::Velocity as u8, 2);
     let (c, p) = (ch(&s), pat(&s));
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].length, 2);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).length, 2);
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn sub_mode_length_clamp_min() {
     let idx = engine_toggle_event(&mut s, 10, 0, 120);
     engine_set_sub_mode_length(&mut s, idx as u16, SubModeId::Velocity as u8, 0);
     let (c, p) = (ch(&s), pat(&s));
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].length, 1);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).length, 1);
 }
 
 #[test]
@@ -179,13 +179,13 @@ fn toggle_loop_mode_cycles() {
     let idx = engine_toggle_event(&mut s, 10, 0, 120);
     let (c, p) = (ch(&s), pat(&s));
 
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].loop_mode, LoopMode::Reset as u8);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Reset as u8);
     engine_toggle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8);
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].loop_mode, LoopMode::Continue as u8);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Continue as u8);
     engine_toggle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8);
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].loop_mode, LoopMode::Fill as u8);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Fill as u8);
     engine_toggle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8);
-    assert_eq!(s.patterns[c][p].events[idx as usize].sub_modes[SubModeId::Velocity as usize].loop_mode, LoopMode::Reset as u8);
+    assert_eq!(get_sub_mode(&s.sub_mode_pool, &s.patterns[c][p].events[idx as usize].sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Reset as u8);
 }
 
 // ============ Chord operations ============

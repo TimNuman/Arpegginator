@@ -1,5 +1,7 @@
 // engine_core.rs — Core types, constants, state, scales, arpeggios, voicings, playback
 
+extern crate alloc;
+
 // ============ Constants ============
 
 pub const NUM_CHANNELS: usize = 8;
@@ -16,6 +18,9 @@ pub const VISIBLE_ROWS: usize = 8;
 pub const VISIBLE_COLS: usize = 16;
 pub const TICKS_PER_QUARTER: i32 = 480;
 pub const MAX_RENDERED_NOTES: usize = 1024;
+
+pub const POOL_CAPACITY: usize = 1024;
+pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
 
 pub const DEFAULT_PATTERN_TICKS: i32 = TICKS_PER_QUARTER * 4 * 4; // 4 bars of 4/4 = 7680
 pub const DEFAULT_LOOP_TICKS: i32 = TICKS_PER_QUARTER * 4;        // 1 bar = 1920
@@ -162,6 +167,74 @@ impl SubModeArray {
     }
 }
 
+// ============ Sub-Mode Pool ============
+
+pub struct SubModePool {
+    pub slots: [SubModeArray; POOL_CAPACITY],
+    pub free_list: [u16; POOL_CAPACITY],
+    pub free_count: u16,
+}
+
+impl Default for SubModePool {
+    fn default() -> Self {
+        let mut free_list = [0u16; POOL_CAPACITY];
+        (0..POOL_CAPACITY).for_each(|i| { free_list[i] = i as u16; });
+        Self {
+            slots: [SubModeArray::default(); POOL_CAPACITY],
+            free_list,
+            free_count: POOL_CAPACITY as u16,
+        }
+    }
+}
+
+pub fn pool_alloc(pool: &mut SubModePool) -> u16 {
+    assert!(pool.free_count > 0, "sub-mode pool exhausted");
+    pool.free_count -= 1;
+    pool.free_list[pool.free_count as usize]
+}
+
+pub fn pool_free(pool: &mut SubModePool, handle: u16) {
+    if handle == POOL_HANDLE_NONE { return; }
+    pool.free_list[pool.free_count as usize] = handle;
+    pool.free_count += 1;
+}
+
+pub fn pool_free_event_handles(pool: &mut SubModePool, handles: &mut [u16; NUM_SUB_MODES]) {
+    handles.iter_mut().for_each(|h| {
+        pool_free(pool, *h);
+        *h = POOL_HANDLE_NONE;
+    });
+}
+
+const fn make_sm_default(val: i16) -> SubModeArray {
+    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 0 };
+    a.values[0] = val;
+    a
+}
+
+pub static SM_DEFAULTS: [SubModeArray; NUM_SUB_MODES] = [
+    make_sm_default(100), // Velocity
+    make_sm_default(100), // Hit
+    make_sm_default(0),   // Timing
+    make_sm_default(0),   // Flam
+    make_sm_default(0),   // Modulate
+    make_sm_default(0),   // Inversion
+];
+
+pub fn get_sub_mode<'a>(pool: &'a SubModePool, handles: &[u16; NUM_SUB_MODES], sm: usize) -> &'a SubModeArray {
+    let h = handles[sm];
+    if h == POOL_HANDLE_NONE { &SM_DEFAULTS[sm] } else { &pool.slots[h as usize] }
+}
+
+pub fn get_sub_mode_mut<'a>(pool: &'a mut SubModePool, handles: &mut [u16; NUM_SUB_MODES], sm: usize) -> &'a mut SubModeArray {
+    if handles[sm] == POOL_HANDLE_NONE {
+        let h = pool_alloc(pool);
+        pool.slots[h as usize] = SM_DEFAULTS[sm];
+        handles[sm] = h;
+    }
+    &mut pool.slots[handles[sm] as usize]
+}
+
 #[derive(Clone)]
 #[repr(C)]
 pub struct NoteEvent {
@@ -171,7 +244,7 @@ pub struct NoteEvent {
     pub enabled: u8,
     pub repeat_amount: u16,
     pub repeat_space: i32,
-    pub sub_modes: [SubModeArray; NUM_SUB_MODES],
+    pub sub_mode_handles: [u16; NUM_SUB_MODES],
     pub chord_amount: u8,
     pub chord_space: u8,
     pub chord_inversion: i8,
@@ -191,7 +264,7 @@ impl Default for NoteEvent {
             enabled: 0,
             repeat_amount: 1,
             repeat_space: 0,
-            sub_modes: Default::default(),
+            sub_mode_handles: [POOL_HANDLE_NONE; NUM_SUB_MODES],
             chord_amount: 1,
             chord_space: 2,
             chord_inversion: 0,
@@ -254,6 +327,7 @@ pub struct RenderedNote {
 
 pub struct EngineState {
     pub patterns: Box<[[PatternData; NUM_PATTERNS]; NUM_CHANNELS]>,
+    pub sub_mode_pool: Box<SubModePool>,
     pub loops: [[PatternLoop; NUM_PATTERNS]; NUM_CHANNELS],
 
     pub current_patterns: [u8; NUM_CHANNELS],
@@ -319,6 +393,17 @@ impl Default for EngineState {
         };
         Self {
             patterns,
+            sub_mode_pool: {
+                // Build pool on the heap to avoid ~68KB stack temporary in WASM.
+                let mut pool = unsafe {
+                    let layout = alloc::alloc::Layout::new::<SubModePool>();
+                    let ptr = alloc::alloc::alloc_zeroed(layout) as *mut SubModePool;
+                    Box::from_raw(ptr)
+                };
+                (0..POOL_CAPACITY).for_each(|i| { pool.free_list[i] = i as u16; });
+                pool.free_count = POOL_CAPACITY as u16;
+                pool
+            },
             loops: [[PatternLoop::default(); NUM_PATTERNS]; NUM_CHANNELS],
             current_patterns: [0; NUM_CHANNELS],
             queued_patterns: [-1; NUM_CHANNELS],
@@ -507,14 +592,15 @@ fn resolve_sub_mode(
     repeat_index: u16,
     channel: u8,
 ) -> i16 {
-    let arr = &ev.sub_modes[sm];
+    let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let len = arr.length as u16;
     match arr.mode() {
         LoopMode::Continue => {
             let idx = ev.event_index as usize;
             let count = s.continue_counters[sm][channel as usize][idx];
+            let val = arr.values[(count % len) as usize];
             s.continue_counters[sm][channel as usize][idx] = count + 1;
-            arr.values[(count % len) as usize]
+            val
         }
         LoopMode::Fill => {
             let idx = repeat_index.min(len - 1);
@@ -533,7 +619,7 @@ pub fn resolve_sub_mode_preview(
     repeat_index: u16,
     channel: u8,
 ) -> i16 {
-    let arr = &ev.sub_modes[sm];
+    let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let len = arr.length as u16;
     match arr.mode() {
         LoopMode::Continue => {
@@ -999,7 +1085,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
                     let effective_row = ev.row + mod_val;
 
-                    let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                    let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
                         resolve_sub_mode(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
                     } else {
                         0
@@ -1110,7 +1196,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, ch);
                 let effective_row = ev.row + mod_val;
 
-                let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
                     resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
                 } else {
                     0
@@ -1160,7 +1246,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, view_ch as u8);
                 let effective_row = ev.row + mod_val;
 
-                let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+                let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
                     resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, view_ch as u8) as i8
                 } else {
                     0

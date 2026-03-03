@@ -56,32 +56,9 @@ pub fn engine_get_default_modify_scroll(levels: &[i16], count: u8, render_style:
 
 // ============ Helpers ============
 
-fn get_sub_mode_value_at(ev: &NoteEvent, sm: usize, repeat_idx: u16) -> i16 {
-    let arr = &ev.sub_modes[sm];
-    if arr.length == 0 { return arr.values[0]; }
-    arr.values[(repeat_idx % arr.length as u16) as usize]
-}
-
-fn get_sub_mode_value_fill(ev: &NoteEvent, sm: usize, repeat_idx: u16) -> i16 {
-    let arr = &ev.sub_modes[sm];
-    if arr.length == 0 { return arr.values[0]; }
-    let idx = repeat_idx.min(arr.length as u16 - 1);
-    arr.values[idx as usize]
-}
-
-fn get_sub_mode_value_continue(s: &EngineState, ev: &NoteEvent, sm: usize, repeat_idx: u16, channel: u8) -> i16 {
-    let arr = &ev.sub_modes[sm];
-    if arr.length == 0 { return arr.values[0]; }
-    let snapshot = s.counter_snapshots[sm][channel as usize][ev.event_index as usize];
-    arr.values[((snapshot + repeat_idx) % arr.length as u16) as usize]
-}
-
 fn resolve_render_sub_mode(s: &EngineState, ev: &NoteEvent, sm: usize, repeat_idx: u16, channel: u8) -> i16 {
-    match ev.sub_modes[sm].mode() {
-        LoopMode::Continue => get_sub_mode_value_continue(s, ev, sm, repeat_idx, channel),
-        LoopMode::Fill => get_sub_mode_value_fill(ev, sm, repeat_idx),
-        LoopMode::Reset => get_sub_mode_value_at(ev, sm, repeat_idx),
-    }
+    let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
+    resolve_render_sub_mode_inline(arr, repeat_idx, s.counter_snapshots[sm][channel as usize][ev.event_index as usize])
 }
 
 /// Variant that works with a pre-extracted SubModeArray and counter snapshot, avoiding borrow conflicts
@@ -187,13 +164,13 @@ pub fn engine_render_events(
                 pos = mod_positive(pos, pat.length_ticks);
             }
 
-            let mod_offset = if ev.sub_modes[SubModeId::Modulate as usize].length > 0 {
+            let mod_offset = if ev.sub_mode_handles[SubModeId::Modulate as usize] != POOL_HANDLE_NONE {
                 resolve_render_sub_mode(s, ev, SubModeId::Modulate as usize, r, channel)
             } else {
                 0
             };
 
-            let inv_extra = if ev.sub_modes[SubModeId::Inversion as usize].length > 0 {
+            let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
                 resolve_render_sub_mode(s, ev, SubModeId::Inversion as usize, r, channel) as i8
             } else {
                 0
@@ -348,7 +325,9 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     (0..event_count).for_each(|i| {
         let ev_idx = s.patterns[ch][pat].events[i].event_index;
         ev_indexes[i] = ev_idx;
-        ev_sub_modes[i] = s.patterns[ch][pat].events[i].sub_modes;
+        for sm in 0..NUM_SUB_MODES {
+            ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &s.patterns[ch][pat].events[i].sub_mode_handles, sm);
+        }
         ev_hit_snapshots[i] = s.counter_snapshots[SubModeId::Hit as usize][ch][ev_idx as usize];
         ev_vel_snapshots[i] = s.counter_snapshots[SubModeId::Velocity as usize][ch][ev_idx as usize];
     });
@@ -579,8 +558,9 @@ fn render_modify_mode(s: &mut EngineState) {
 
     // Clone event data we need to avoid borrow issues
     let repeat_amount = s.patterns[ch][pat].events[ev_idx].repeat_amount;
-    let array_length = s.patterns[ch][pat].events[ev_idx].sub_modes[sm].length;
-    let loop_mode = s.patterns[ch][pat].events[ev_idx].sub_modes[sm].loop_mode;
+    let sm_arr = get_sub_mode(&s.sub_mode_pool, &s.patterns[ch][pat].events[ev_idx].sub_mode_handles, sm);
+    let array_length = sm_arr.length;
+    let loop_mode = sm_arr.loop_mode;
     let ev_position = s.patterns[ch][pat].events[ev_idx].position;
     let ev_repeat_space = s.patterns[ch][pat].events[ev_idx].repeat_space;
     let ev_length = s.patterns[ch][pat].events[ev_idx].length;
@@ -630,10 +610,11 @@ fn render_modify_mode(s: &mut EngineState) {
     } else { -1 };
 
     let get_value = |idx: u16| -> i16 {
+        if sm_arr.length == 0 { return sm_arr.values[0]; }
         if loop_mode == LoopMode::Fill as u8 {
-            get_sub_mode_value_fill(&s.patterns[ch][pat].events[ev_idx], sm, idx)
+            sm_arr.values[idx.min(sm_arr.length as u16 - 1) as usize]
         } else {
-            get_sub_mode_value_at(&s.patterns[ch][pat].events[ev_idx], sm, idx)
+            sm_arr.values[(idx % sm_arr.length as u16) as usize]
         }
     };
 

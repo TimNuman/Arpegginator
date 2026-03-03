@@ -503,9 +503,10 @@ fn render_modify(s: &EngineState, mods: u8) {
 
         let note_name = get_note_display(ev.row, is_drum, s);
 
-        let loop_mode_val = ev.sub_modes[sub_mode].loop_mode;
+        let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sub_mode);
+        let loop_mode_val = sm_arr.loop_mode;
         let loop_label = LOOP_MODE_LABELS.get(loop_mode_val as usize).unwrap_or(&"RST");
-        let arr_len = ev.sub_modes[sub_mode].length;
+        let arr_len = sm_arr.length;
 
         // Row 0: note + sub-mode
         let sub_buf = format!(" {}", sub_label);

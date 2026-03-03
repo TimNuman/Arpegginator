@@ -107,19 +107,6 @@ async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmMo
   return new RustWasmAdapter(instance);
 }
 
-// Sub-mode order must match Rust enum: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
-const SUB_MODE_FIELDS: Array<{
-  arrayField: keyof NoteEvent;
-  loopModeField: keyof NoteEvent;
-}> = [
-  { arrayField: 'velocity', loopModeField: 'velocityLoopMode' },
-  { arrayField: 'chance', loopModeField: 'chanceLoopMode' },
-  { arrayField: 'timingOffset', loopModeField: 'timingLoopMode' },
-  { arrayField: 'flamChance', loopModeField: 'flamLoopMode' },
-  { arrayField: 'modulate', loopModeField: 'modulateLoopMode' },
-  { arrayField: 'inversion', loopModeField: 'inversionLoopMode' },
-];
-
 // Rust enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
 const SUB_MODE_NAME_TO_ID: Record<string, number> = {
   velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4, inversion: 5,
@@ -128,10 +115,12 @@ const SUB_MODE_NAME_TO_ID: Record<string, number> = {
 export class WasmEngine {
   private module: WasmModule | null = null;
 
-  // Struct layout info (queried from C at load time)
+  // Struct layout info (queried from WASM at load time)
   private noteEventSize = 0;
   private fieldOffsets: number[] = [];
   private subModeArraySize = 0;
+  private poolBasePtr = 0;
+  private poolHandleNone = 0xFFFF;
 
   // Core functions
   private _engineInit!: () => void;
@@ -157,6 +146,7 @@ export class WasmEngine {
   private _getNoteEventSize!: () => number;
   private _getFieldOffset!: (fieldId: number) => number;
   private _getSubModeArraySize!: () => number;
+  private _getPoolBasePtr!: () => number;
   private _getContinueCounter!: (subMode: number, channel: number, eventIndex: number) => number;
   private _getEventCount!: (ch: number, pat: number) => number;
   private _getPatternLength!: (ch: number, pat: number) => number;
@@ -300,6 +290,8 @@ export class WasmEngine {
     this._getNoteEventSize = cw('engine_get_note_event_size', 'number', []);
     this._getFieldOffset = cw('engine_get_field_offset', 'number', ['number']);
     this._getSubModeArraySize = cw('engine_get_sub_mode_array_size', 'number', []);
+    this._getPoolBasePtr = cw('engine_get_pool_base_ptr', 'number', []) as unknown as () => number;
+    const _getPoolHandleNone = cw('engine_get_pool_handle_none', 'number', []);
     this._getContinueCounter = cw('engine_get_continue_counter', 'number', ['number', 'number', 'number']);
     this._getEventCount = cw('engine_get_event_count', 'number', ['number', 'number']);
     this._getPatternLength = cw('engine_get_pattern_length', 'number', ['number', 'number']);
@@ -384,6 +376,7 @@ export class WasmEngine {
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
+    this.poolHandleNone = _getPoolHandleNone();
     for (let i = 0; i <= 14; i++) {
       this.fieldOffsets[i] = this._getFieldOffset(i);
     }
@@ -422,6 +415,7 @@ export class WasmEngine {
   /** Full init — resets everything including UI state. Call once on load. */
   fullInit(): void {
     this._engineInit();
+    this.poolBasePtr = this._getPoolBasePtr();
   }
 
   /** Playback init — resets only playback state (active notes, counters, tick). */
@@ -475,22 +469,28 @@ export class WasmEngine {
     for (let i = 0; i < eventCount; i++) {
       const ptr = bufferPtr + i * this.noteEventSize;
 
-      // Read sub-mode arrays
-      const subModesBase = ptr + this.fieldOffsets[6];
+      // Read sub-mode handles and dereference via pool
+      const handlesBase = ptr + this.fieldOffsets[6];
+      const SM_DEFAULT_VALUES = [100, 100, 0, 0, 0, 0];
       const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
       for (let sm = 0; sm < 6; sm++) {
-        const arrBase = subModesBase + sm * this.subModeArraySize;
-        const lenOffset = this.subModeArraySize - 2;  // length field: after all int16 values
-        const len = mod.HEAPU8[arrBase + lenOffset];
-        const values: number[] = [];
-        for (let j = 0; j < len; j++) {
-          values.push(view.getInt16(arrBase + j * 2, true));
+        const handle = view.getUint16(handlesBase + sm * 2, true);
+        if (handle === this.poolHandleNone) {
+          subModeArrays.push({ values: [SM_DEFAULT_VALUES[sm]], loopMode: 'reset' });
+        } else {
+          const arrBase = this.poolBasePtr + handle * this.subModeArraySize;
+          const lenOffset = this.subModeArraySize - 2;
+          const len = mod.HEAPU8[arrBase + lenOffset];
+          const values: number[] = [];
+          for (let j = 0; j < len; j++) {
+            values.push(view.getInt16(arrBase + j * 2, true));
+          }
+          const loopModeVal = mod.HEAPU8[arrBase + lenOffset + 1];
+          subModeArrays.push({
+            values,
+            loopMode: LOOP_MODE_REVERSE[loopModeVal] ?? 'reset',
+          });
         }
-        const loopModeVal = mod.HEAPU8[arrBase + lenOffset + 1];
-        subModeArrays.push({
-          values,
-          loopMode: LOOP_MODE_REVERSE[loopModeVal] ?? 'reset',
-        });
       }
 
       const eventIndex = view.getUint16(ptr + this.fieldOffsets[10], true);

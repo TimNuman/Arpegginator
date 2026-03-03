@@ -747,7 +747,7 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
     if mods == 0 && (dir == DIR_LEFT || dir == DIR_RIGHT) {
         let ch = s.current_channel as usize;
         let pat = s.current_patterns[ch] as usize;
-        let cur_len = s.patterns[ch][pat].events[s.selected_event_idx as usize].sub_modes[s.modify_sub_mode as usize].length;
+        let cur_len = get_sub_mode(&s.sub_mode_pool, &s.patterns[ch][pat].events[s.selected_event_idx as usize].sub_mode_handles, s.modify_sub_mode as usize).length;
         let new_len = if dir == DIR_RIGHT { cur_len + 1 } else { cur_len.max(2) - 1 };
         if new_len != cur_len {
             engine_set_sub_mode_length(s, s.selected_event_idx as u16, s.modify_sub_mode, new_len);

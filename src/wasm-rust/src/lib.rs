@@ -258,7 +258,7 @@ pub extern "C" fn engine_get_field_offset(field_id: i32) -> i32 {
             3 => core::ptr::addr_of!((*base).enabled) as i32,
             4 => core::ptr::addr_of!((*base).repeat_amount) as i32,
             5 => core::ptr::addr_of!((*base).repeat_space) as i32,
-            6 => core::ptr::addr_of!((*base).sub_modes) as i32,
+            6 => core::ptr::addr_of!((*base).sub_mode_handles) as i32,
             7 => core::ptr::addr_of!((*base).chord_amount) as i32,
             8 => core::ptr::addr_of!((*base).chord_space) as i32,
             9 => core::ptr::addr_of!((*base).chord_inversion) as i32,
@@ -275,6 +275,17 @@ pub extern "C" fn engine_get_field_offset(field_id: i32) -> i32 {
 #[no_mangle]
 pub extern "C" fn engine_get_sub_mode_array_size() -> i32 {
     core::mem::size_of::<SubModeArray>() as i32
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_pool_base_ptr() -> *const SubModeArray {
+    let s = state_ref();
+    s.sub_mode_pool.slots.as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_pool_handle_none() -> u16 {
+    POOL_HANDLE_NONE
 }
 
 #[no_mangle]
@@ -609,16 +620,18 @@ pub extern "C" fn engine_get_sel_arp_voices() -> u8 {
 
 #[no_mangle]
 pub extern "C" fn engine_get_sel_sub_mode_loop_mode(sm: u8) -> u8 {
+    let s = state_ref();
     get_selected_event()
         .filter(|_| (sm as usize) < NUM_SUB_MODES)
-        .map_or(0, |ev| ev.sub_modes[sm as usize].loop_mode)
+        .map_or(0, |ev| get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm as usize).loop_mode)
 }
 
 #[no_mangle]
 pub extern "C" fn engine_get_sel_sub_mode_array_length(sm: u8) -> u8 {
+    let s = state_ref();
     get_selected_event()
         .filter(|_| (sm as usize) < NUM_SUB_MODES)
-        .map_or(0, |ev| ev.sub_modes[sm as usize].length)
+        .map_or(0, |ev| get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm as usize).length)
 }
 
 // ============ Current Pattern/Loop Convenience Getters ============

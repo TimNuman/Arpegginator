@@ -3,13 +3,6 @@
 use crate::engine_core::*;
 use crate::engine_ui::engine_mark_dirty;
 
-// Defaults for new events
-const DEFAULT_VELOCITY: i16 = 100;
-const DEFAULT_HIT_CHANCE: i16 = 100;
-const DEFAULT_TIMING: i16 = 0;
-const DEFAULT_FLAM: i16 = 0;
-const DEFAULT_MODULATE: i16 = 0;
-
 // ============ Helpers ============
 
 fn get_current_pattern_indices(s: &EngineState) -> (usize, usize) {
@@ -33,20 +26,8 @@ fn init_event(ev: &mut NoteEvent, row: i16, position: i32, length: i32, id: u16)
     ev.arp_offset = 0;
     ev.arp_voices = 1;
     ev.event_index = id;
-
-    let sub_defaults: [(usize, i16); 5] = [
-        (0, DEFAULT_VELOCITY),
-        (1, DEFAULT_HIT_CHANCE),
-        (2, DEFAULT_TIMING),
-        (3, DEFAULT_FLAM),
-        (4, DEFAULT_MODULATE),
-    ];
-
-    sub_defaults.iter().for_each(|&(sm, val)| {
-        ev.sub_modes[sm].values[0] = val;
-        ev.sub_modes[sm].length = 1;
-        ev.sub_modes[sm].loop_mode = LoopMode::Reset as u8;
-    });
+    // sub_mode_handles are already POOL_HANDLE_NONE from NoteEvent::default()
+    // SM_DEFAULTS provides the correct default values (velocity=100, hit=100, etc.)
 }
 
 fn truncate_overlapping(pat: &mut PatternData, row: i16, position: i32, exclude_idx: u16) {
@@ -60,9 +41,11 @@ fn truncate_overlapping(pat: &mut PatternData, row: i16, position: i32, exclude_
         });
 }
 
-fn remove_event_at(pat: &mut PatternData, idx: u16) {
+fn remove_event_at(pat: &mut PatternData, idx: u16, pool: &mut SubModePool) {
     let count = pat.event_count as usize;
     if idx as usize >= count { return; }
+
+    pool_free_event_handles(pool, &mut pat.events[idx as usize].sub_mode_handles);
 
     (idx as usize..count - 1).for_each(|i| {
         pat.events[i] = pat.events[i + 1].clone();
@@ -80,7 +63,7 @@ pub fn engine_toggle_event(s: &mut EngineState, row: i16, tick: i32, length_tick
         .find(|&i| s.patterns[ch][pat_idx].events[i].row == row && s.patterns[ch][pat_idx].events[i].position == tick);
 
     if let Some(idx) = found {
-        remove_event_at(&mut s.patterns[ch][pat_idx], idx as u16);
+        remove_event_at(&mut s.patterns[ch][pat_idx], idx as u16, &mut s.sub_mode_pool);
         engine_update_has_notes(s, ch as u8, pat_idx as u8);
         engine_mark_dirty(s, ch as u8);
         return -1;
@@ -103,7 +86,7 @@ pub fn engine_toggle_event(s: &mut EngineState, row: i16, tick: i32, length_tick
 
 pub fn engine_remove_event(s: &mut EngineState, event_idx: u16) {
     let (ch, pat_idx) = get_current_pattern_indices(s);
-    remove_event_at(&mut s.patterns[ch][pat_idx], event_idx);
+    remove_event_at(&mut s.patterns[ch][pat_idx], event_idx, &mut s.sub_mode_pool);
 
     if s.selected_event_idx >= 0 {
         if s.selected_event_idx as u16 == event_idx {
@@ -183,12 +166,13 @@ pub fn engine_set_sub_mode_value(s: &mut EngineState, event_idx: u16, sub_mode: 
     if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
 
     let target_len = (repeat_idx + 1) as u8;
-    let ev = &mut s.patterns[ch][pat_idx].events[event_idx as usize];
-    if target_len > ev.sub_modes[sub_mode as usize].length {
-        materialize_sub_mode(&mut ev.sub_modes[sub_mode as usize], target_len);
+    let handles = &mut s.patterns[ch][pat_idx].events[event_idx as usize].sub_mode_handles;
+    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    if target_len > arr.length {
+        materialize_sub_mode(arr, target_len);
     }
-    if repeat_idx < ev.sub_modes[sub_mode as usize].length as u16 {
-        ev.sub_modes[sub_mode as usize].values[repeat_idx as usize] = value;
+    if repeat_idx < arr.length as u16 {
+        arr.values[repeat_idx as usize] = value;
     }
     engine_mark_dirty(s, ch as u8);
 }
@@ -198,7 +182,9 @@ pub fn engine_set_sub_mode_length(s: &mut EngineState, event_idx: u16, sub_mode:
     if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
 
     let clamped = new_length.max(1).min(MAX_SUB_MODE_LEN as u8);
-    materialize_sub_mode(&mut s.patterns[ch][pat_idx].events[event_idx as usize].sub_modes[sub_mode as usize], clamped);
+    let handles = &mut s.patterns[ch][pat_idx].events[event_idx as usize].sub_mode_handles;
+    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    materialize_sub_mode(arr, clamped);
     engine_mark_dirty(s, ch as u8);
 }
 
@@ -206,7 +192,8 @@ pub fn engine_toggle_sub_mode_loop_mode(s: &mut EngineState, event_idx: u16, sub
     let (ch, pat_idx) = get_current_pattern_indices(s);
     if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
 
-    let arr = &mut s.patterns[ch][pat_idx].events[event_idx as usize].sub_modes[sub_mode as usize];
+    let handles = &mut s.patterns[ch][pat_idx].events[event_idx as usize].sub_mode_handles;
+    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
     arr.loop_mode = (arr.loop_mode + 1) % 3;
     engine_mark_dirty(s, ch as u8);
 }
@@ -339,12 +326,26 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
     let tgt = target_pattern as usize;
     if src == tgt { return; }
 
+    // Free existing target pool handles before overwriting
+    let tgt_ec = s.patterns[ch][tgt].event_count;
+    (0..tgt_ec as usize).for_each(|i| {
+        pool_free_event_handles(&mut s.sub_mode_pool, &mut s.patterns[ch][tgt].events[i].sub_mode_handles);
+    });
+
     s.patterns[ch][tgt] = s.patterns[ch][src].clone();
 
-    // Assign new event IDs
+    // Deep-copy pool slots and assign new event IDs
     let ec = s.patterns[ch][tgt].event_count;
     (0..ec as usize).for_each(|i| {
         s.patterns[ch][tgt].events[i].event_index = engine_alloc_event_id(s);
+        for sm in 0..NUM_SUB_MODES {
+            let src_handle = s.patterns[ch][tgt].events[i].sub_mode_handles[sm];
+            if src_handle != POOL_HANDLE_NONE {
+                let new_handle = pool_alloc(&mut s.sub_mode_pool);
+                s.sub_mode_pool.slots[new_handle as usize] = s.sub_mode_pool.slots[src_handle as usize];
+                s.patterns[ch][tgt].events[i].sub_mode_handles[sm] = new_handle;
+            }
+        }
     });
 
     s.loops[ch][tgt] = s.loops[ch][src];
@@ -355,6 +356,12 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
 
 pub fn engine_clear_pattern(s: &mut EngineState) {
     let (ch, pat_idx) = get_current_pattern_indices(s);
+
+    // Free pool handles for all events
+    let ec = s.patterns[ch][pat_idx].event_count;
+    (0..ec as usize).for_each(|i| {
+        pool_free_event_handles(&mut s.sub_mode_pool, &mut s.patterns[ch][pat_idx].events[i].sub_mode_handles);
+    });
 
     s.patterns[ch][pat_idx].event_count = 0;
     s.patterns[ch][pat_idx].length_ticks = DEFAULT_PATTERN_TICKS;
