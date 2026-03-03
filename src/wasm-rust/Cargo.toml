@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# cdylib for WASM builds, rlib for cargo test
+# Use --crate-type flag or target-specific config
+crate-type = ["rlib"]
 
 [dependencies]
 
