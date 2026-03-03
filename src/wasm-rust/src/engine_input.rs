@@ -125,49 +125,63 @@ pub fn engine_visible_to_tick(s: &EngineState, visible_col: u8) -> i32 {
     (start_col + visible_col as i32) * tpc
 }
 
-pub fn engine_find_event_at(s: &EngineState, row: i16, tick: i32) -> i16 {
+/// Collect all unique source event indices with rendered notes in this cell.
+/// Returns count of unique indices written to `out`. Each entry is (source_idx, starts_in_cell).
+fn find_rendered_events_in_cell(s: &EngineState, row: i16, tick: i32, tpc: i32, out: &mut [(i16, bool)]) -> usize {
     let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
-    let pd = &s.patterns[ch][pat];
-    (0..pd.event_count as usize)
-        .find(|&i| {
-            let ev = &s.event_pool.slots[pd.event_handles[i] as usize];
-            ev.row == row && ev.position == tick
-        })
-        .map(|i| i as i16)
-        .unwrap_or(-1)
+    let notes = &s.rendered_notes[ch];
+    let count = s.rendered_count[ch] as usize;
+    let col_end = tick + tpc;
+    let mut n = 0usize;
+
+    (0..count).for_each(|i| {
+        if n >= out.len() { return; }
+        let rn = &notes[i];
+        if rn.row != row { return; }
+        let overlaps = rn.position < col_end && rn.position + rn.length > tick;
+        if !overlaps { return; }
+        let src = rn.source_idx as i16;
+        // Deduplicate: skip if already collected
+        if (0..n).any(|j| out[j].0 == src) { return; }
+        let starts = rn.position >= tick && rn.position < col_end;
+        out[n] = (src, starts);
+        n += 1;
+    });
+    n
 }
 
-fn find_event_overlapping(s: &EngineState, row: i16, tick: i32) -> i16 {
+/// Find an event via rendered notes (respects arp filtering, chords, repeats).
+/// Searches the full column range [tick, tick + tpc) to handle notes at sub-column subdivisions.
+/// Returns (source_event_index, is_exact_start) or (-1, false) if not found.
+fn find_rendered_event(s: &EngineState, row: i16, tick: i32, tpc: i32) -> (i16, bool) {
+    let mut buf = [(-1i16, false); 8];
+    let n = find_rendered_events_in_cell(s, row, tick, tpc, &mut buf);
+    if n > 0 { buf[0] } else { (-1, false) }
+}
+
+/// Find a disabled event overlapping (row, column range) — these aren't in rendered notes.
+fn find_disabled_event_at(s: &EngineState, row: i16, tick: i32, tpc: i32) -> i16 {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let pd = &s.patterns[ch][pat];
-
+    let col_end = tick + tpc;
     (0..pd.event_count as usize)
-        .filter(|&i| {
-            let ev = &s.event_pool.slots[pd.event_handles[i] as usize];
-            ev.enabled != 0 && ev.row == row
-        })
         .find(|&i| {
             let ev = &s.event_pool.slots[pd.event_handles[i] as usize];
+            if ev.enabled != 0 || ev.row != row { return false; }
+            // Check if any repeat overlaps this column
             (0..ev.repeat_amount).any(|r| {
                 let pos = ev.position + r as i32 * ev.repeat_space;
-                tick >= pos && tick < pos + ev.length
+                pos < col_end && pos + ev.length > tick
             })
         })
         .map(|i| i as i16)
         .unwrap_or(-1)
 }
 
-fn find_event_by_chord(s: &EngineState, row: i16, tick: i32) -> i16 {
-    let ch = s.current_channel as usize;
-    let notes = &s.rendered_notes[ch];
-    let count = s.rendered_count[ch] as usize;
-
-    (0..count)
-        .find(|&i| notes[i].row == row && tick >= notes[i].position && tick < notes[i].position + notes[i].length)
-        .map(|i| notes[i].source_idx as i16)
-        .unwrap_or(-1)
+// Keep public for lib.rs export
+pub fn engine_find_event_at(s: &EngineState, row: i16, tick: i32) -> i16 {
+    find_rendered_event(s, row, tick, s.zoom).0
 }
 
 fn play_event_preview(s: &EngineState, ev: &NoteEvent, length_ticks: i32) {
@@ -290,12 +304,7 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
 
     // Meta+click (no Shift): disable note
     if (mods & MOD_META) != 0 && (mods & MOD_SHIFT) == 0 {
-        let idx = [
-            engine_find_event_at(s, row, tick),
-            find_event_overlapping(s, row, tick),
-            find_event_by_chord(s, row, tick),
-        ].iter().copied().find(|&i| i >= 0).unwrap_or(-1);
-
+        let (idx, _) = find_rendered_event(s, row, tick, tpc);
         if idx >= 0 {
             let ch = s.current_channel as usize;
             let pat_idx = s.current_patterns[ch] as usize;
@@ -344,56 +353,57 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         }
     }
 
-    // Click on existing event at exact position
-    let idx = engine_find_event_at(s, row, tick);
-    if idx >= 0 {
+    // Click on disabled event at exact position — re-enable it
+    let disabled_idx = find_disabled_event_at(s, row, tick, tpc);
+    if disabled_idx >= 0 {
         let ch = s.current_channel as usize;
         let pat_idx = s.current_patterns[ch] as usize;
-        let h = s.patterns[ch][pat_idx].event_handles[idx as usize];
-        if s.event_pool.slots[h as usize].enabled == 0 {
-            s.event_pool.slots[h as usize].enabled = 1;
-            engine_mark_dirty(s, ch as u8);
-            if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
-            s.selected_event_idx = idx;
-            let ev = s.event_pool.slots[h as usize].clone();
-            play_event_preview(s, &ev, tpc);
-            return;
-        }
-        if s.selected_event_idx == idx {
-            engine_place_event(s, idx as u16);
+        let h = s.patterns[ch][pat_idx].event_handles[disabled_idx as usize];
+        s.event_pool.slots[h as usize].enabled = 1;
+        engine_mark_dirty(s, ch as u8);
+        if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
+        s.selected_event_idx = disabled_idx;
+        let ev = s.event_pool.slots[h as usize].clone();
+        play_event_preview(s, &ev, tpc);
+        return;
+    }
+
+    // Click on any visible (rendered) note — exact start or overlap/chord
+    // If multiple NoteEvents share this cell, cycle through them on repeated clicks.
+    let mut cell_events = [(-1i16, false); 8];
+    let cell_count = find_rendered_events_in_cell(s, row, tick, tpc, &mut cell_events);
+    if cell_count > 0 {
+        // Find which event to select
+        let new_idx = if s.selected_event_idx >= 0 {
+            // Currently selected event is in this cell — cycle to next or deselect
+            if let Some(pos) = (0..cell_count).find(|&j| cell_events[j].0 == s.selected_event_idx) {
+                if cell_count > 1 {
+                    // Cycle to the next event in the cell
+                    cell_events[(pos + 1) % cell_count].0
+                } else {
+                    // Only one event — deselect
+                    -1
+                }
+            } else {
+                // Selected event is not in this cell — select first
+                cell_events[0].0
+            }
+        } else {
+            cell_events[0].0
+        };
+
+        if new_idx < 0 {
+            engine_place_event(s, s.selected_event_idx as u16);
             s.selected_event_idx = -1;
         } else {
             if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
-            s.selected_event_idx = idx;
+            s.selected_event_idx = new_idx;
+            let ch = s.current_channel as usize;
+            let pat_idx = s.current_patterns[ch] as usize;
+            let h = s.patterns[ch][pat_idx].event_handles[new_idx as usize];
+            let ev = s.event_pool.slots[h as usize].clone();
+            play_event_preview(s, &ev, tpc);
         }
-        let ev = s.event_pool.slots[h as usize].clone();
-        play_event_preview(s, &ev, tpc);
-        return;
-    }
-
-    // Click on overlapping event
-    let overlap_idx = find_event_overlapping(s, row, tick);
-    if overlap_idx >= 0 {
-        if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
-        s.selected_event_idx = overlap_idx;
-        let ch = s.current_channel as usize;
-        let pat_idx = s.current_patterns[ch] as usize;
-        let h = s.patterns[ch][pat_idx].event_handles[overlap_idx as usize];
-        let ev = s.event_pool.slots[h as usize].clone();
-        play_event_preview(s, &ev, tpc);
-        return;
-    }
-
-    // Click on chord tone
-    let chord_idx = find_event_by_chord(s, row, tick);
-    if chord_idx >= 0 {
-        if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
-        s.selected_event_idx = chord_idx;
-        let ch = s.current_channel as usize;
-        let pat_idx = s.current_patterns[ch] as usize;
-        let h = s.patterns[ch][pat_idx].event_handles[chord_idx as usize];
-        let ev = s.event_pool.slots[h as usize].clone();
-        play_event_preview(s, &ev, tpc);
         return;
     }
 
@@ -476,7 +486,7 @@ fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
     if s.selected_event_idx < 0 {
         let row = engine_visible_to_actual_row(s, vis_row);
         let tick = engine_visible_to_tick(s, vis_col);
-        let idx = find_event_overlapping(s, row, tick);
+        let (idx, _) = find_rendered_event(s, row, tick, s.zoom);
         if idx >= 0 { s.selected_event_idx = idx; }
         return;
     }

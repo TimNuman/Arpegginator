@@ -355,9 +355,10 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
             let mut value: u16 = BTN_OFF;
             let mut color: u32 = 0;
 
-            // Find notes in this cell
+            // Find notes in this cell — selected event always wins
             let mut best: Option<usize> = None;
             let mut starting_here: Option<usize> = None;
+            let mut selected_here: Option<usize> = None;
             let mut any_playing = false;
 
             (0..note_count).for_each(|n| {
@@ -366,6 +367,9 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 let note_end = rn.position + rn.length;
                 if rn.position >= col_end_tick || note_end <= actual_tick { return; }
 
+                if selected_idx >= 0 && rn.source_idx == selected_idx as u16 && selected_here.is_none() {
+                    selected_here = Some(n);
+                }
                 if rn.position >= actual_tick && rn.position < col_end_tick && starting_here.is_none() {
                     starting_here = Some(n);
                 }
@@ -383,7 +387,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 }
             });
 
-            let note_at_tick = starting_here.or(best);
+            let note_at_tick = selected_here.or(starting_here).or(best);
 
             if let Some(ni) = note_at_tick {
                 let rn = &notes[ni];
