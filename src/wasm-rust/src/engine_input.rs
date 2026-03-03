@@ -128,9 +128,8 @@ pub fn engine_visible_to_tick(s: &EngineState, visible_col: u8) -> i32 {
 /// Collect all unique source event indices with rendered notes in this cell.
 /// Returns count of unique indices written to `out`. Each entry is (source_idx, starts_in_cell).
 fn find_rendered_events_in_cell(s: &EngineState, row: i16, tick: i32, tpc: i32, out: &mut [(i16, bool)]) -> usize {
-    let ch = s.current_channel as usize;
-    let notes = &s.rendered_notes[ch];
-    let count = s.rendered_count[ch] as usize;
+    let notes = &s.rendered_notes;
+    let count = s.rendered_count as usize;
     let col_end = tick + tpc;
     let mut n = 0usize;
 

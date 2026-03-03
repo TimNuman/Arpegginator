@@ -413,8 +413,9 @@ pub struct EngineState {
 
     pub next_event_id: u16,
 
-    pub rendered_notes: [[RenderedNote; MAX_RENDERED_NOTES]; NUM_CHANNELS],
-    pub rendered_count: [u16; NUM_CHANNELS],
+    pub rendered_notes: [RenderedNote; MAX_RENDERED_NOTES],
+    pub rendered_count: u16,
+    pub rendered_for_channel: u8,
     pub rendered_dirty: [u8; NUM_CHANNELS],
 }
 
@@ -487,8 +488,9 @@ impl Default for EngineState {
             patterns_have_notes: [[0; NUM_PATTERNS]; NUM_CHANNELS],
             channels_playing_now: [0; NUM_CHANNELS],
             next_event_id: 0,
-            rendered_notes: [[RenderedNote::default(); MAX_RENDERED_NOTES]; NUM_CHANNELS],
-            rendered_count: [0; NUM_CHANNELS],
+            rendered_notes: [RenderedNote::default(); MAX_RENDERED_NOTES],
+            rendered_count: 0,
+            rendered_for_channel: 0xFF,
             rendered_dirty: [1; NUM_CHANNELS],
         }
     }

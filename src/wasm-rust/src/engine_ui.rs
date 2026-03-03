@@ -224,13 +224,15 @@ pub fn engine_mark_dirty(s: &mut EngineState, channel: u8) {
 
 pub fn engine_ensure_rendered(s: &mut EngineState, channel: u8) {
     if channel as usize >= NUM_CHANNELS { return; }
-    if s.rendered_dirty[channel as usize] == 0 { return; }
+    let channel_changed = s.rendered_for_channel != channel;
+    if !channel_changed && s.rendered_dirty[channel as usize] == 0 { return; }
     let pat = s.current_patterns[channel as usize];
     // Use a heap-allocated temp buffer to avoid simultaneous &EngineState + &mut s.rendered_notes
     let mut temp_buf = alloc::vec![RenderedNote::default(); MAX_RENDERED_NOTES];
     let count = engine_render_events(s, channel, pat, &mut temp_buf, MAX_RENDERED_NOTES);
-    s.rendered_notes[channel as usize][..count as usize].copy_from_slice(&temp_buf[..count as usize]);
-    s.rendered_count[channel as usize] = count;
+    s.rendered_notes[..count as usize].copy_from_slice(&temp_buf[..count as usize]);
+    s.rendered_count = count;
+    s.rendered_for_channel = channel;
     s.rendered_dirty[channel as usize] = 0;
 }
 
@@ -720,7 +722,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     engine_ensure_rendered(s, ch as u8);
 
     // Copy rendered notes to avoid borrow conflict
-    let notes: Vec<RenderedNote> = s.rendered_notes[ch][..s.rendered_count[ch] as usize].to_vec();
+    let notes: Vec<RenderedNote> = s.rendered_notes[..s.rendered_count as usize].to_vec();
     let note_count = notes.len();
 
     match UiMode::from_u8(s.ui_mode) {

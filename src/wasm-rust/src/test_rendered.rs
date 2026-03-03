@@ -33,7 +33,7 @@ fn ensure_rendered_builds_cache() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
     assert_eq!(s.rendered_dirty[ch(&s)], 0);
-    assert_eq!(s.rendered_count[ch(&s)], 2);
+    assert_eq!(s.rendered_count, 2);
 }
 
 #[test]
@@ -41,10 +41,10 @@ fn ensure_rendered_no_rebuild_if_clean() {
     let mut s = init_state();
     engine_toggle_event(&mut s, 10, 0, 120);
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_count[ch(&s)], 1);
+    assert_eq!(s.rendered_count, 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_count[ch(&s)], 1);
+    assert_eq!(s.rendered_count, 1);
     assert_eq!(s.rendered_dirty[ch(&s)], 0);
 }
 
@@ -56,7 +56,7 @@ fn disable_note_marks_dirty() {
     let idx = add_event_and_render(&mut s, 10, 0, 120);
     assert!(idx >= 0);
     assert_eq!(s.rendered_dirty[ch(&s)], 0);
-    assert_eq!(s.rendered_count[ch(&s)], 1);
+    assert_eq!(s.rendered_count, 1);
 
     let (c, p) = (ch(&s), pat_idx(&s));
     let h = s.patterns[c][p].event_handles[idx as usize];
@@ -65,7 +65,7 @@ fn disable_note_marks_dirty() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_count[ch(&s)], 0);
+    assert_eq!(s.rendered_count, 0);
 }
 
 #[test]
@@ -79,14 +79,14 @@ fn reenable_note_marks_dirty() {
     s.event_pool.slots[h as usize].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
-    assert_eq!(s.rendered_count[c], 0);
+    assert_eq!(s.rendered_count, 0);
 
     s.event_pool.slots[h as usize].enabled = 1;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
     engine_ensure_rendered(&mut s, c as u8);
-    assert_eq!(s.rendered_count[c], 1);
+    assert_eq!(s.rendered_count, 1);
 }
 
 // ============ Dirty flag: cmd-click disable via button_press ============
@@ -108,7 +108,7 @@ fn cmd_click_disable_marks_dirty() {
     assert_eq!(s.rendered_dirty[c], 1);
 
     engine_ensure_rendered(&mut s, c as u8);
-    assert_eq!(s.rendered_count[c], 0);
+    assert_eq!(s.rendered_count, 0);
 }
 
 // ============ Dirty flag: edit operations ============
@@ -139,8 +139,8 @@ fn move_event_marks_dirty() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_notes[ch(&s)][0].row, 12);
-    assert_eq!(s.rendered_notes[ch(&s)][0].position, 240);
+    assert_eq!(s.rendered_notes[0].row, 12);
+    assert_eq!(s.rendered_notes[0].position, 240);
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn set_length_marks_dirty() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_notes[ch(&s)][0].length, 480);
+    assert_eq!(s.rendered_notes[0].length, 480);
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn repeat_amount_marks_dirty() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_count[ch(&s)], 4);
+    assert_eq!(s.rendered_count, 4);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn chord_stack_marks_dirty() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_count[ch(&s)], 2);
+    assert_eq!(s.rendered_count, 2);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn direct_length_change_needs_dirty() {
     let mut s = init_state();
     let idx = add_event_and_render(&mut s, 10, 0, 120);
     assert_eq!(s.rendered_dirty[ch(&s)], 0);
-    assert_eq!(s.rendered_notes[ch(&s)][0].length, 120);
+    assert_eq!(s.rendered_notes[0].length, 120);
 
     let (c, p) = (ch(&s), pat_idx(&s));
     let h = s.patterns[c][p].event_handles[idx as usize];
@@ -211,7 +211,7 @@ fn direct_length_change_needs_dirty() {
     assert_eq!(s.rendered_dirty[c], 1);
 
     engine_ensure_rendered(&mut s, c as u8);
-    assert_eq!(s.rendered_notes[c][0].length, 480);
+    assert_eq!(s.rendered_notes[0].length, 480);
 }
 
 // ============ Dirty flag: channel/pattern switch ============
@@ -221,7 +221,7 @@ fn pattern_switch_marks_dirty() {
     let mut s = init_state();
     engine_toggle_event(&mut s, 10, 0, 120);
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_count[ch(&s)], 1);
+    assert_eq!(s.rendered_count, 1);
 
     let c = ch(&s);
     s.current_patterns[c] = 1;
@@ -229,12 +229,12 @@ fn pattern_switch_marks_dirty() {
     assert_eq!(s.rendered_dirty[c], 1);
 
     engine_ensure_rendered(&mut s, c as u8);
-    assert_eq!(s.rendered_count[c], 0);
+    assert_eq!(s.rendered_count, 0);
 
     s.current_patterns[c] = 0;
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
-    assert_eq!(s.rendered_count[c], 1);
+    assert_eq!(s.rendered_count, 1);
 }
 
 // ============ Dirty flag: play/stop resets ============
@@ -293,12 +293,11 @@ fn rendered_chord_has_chord_index() {
     engine_adjust_chord_stack(&mut s, idx as u16, 1); // → 3
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
 
-    let c = ch(&s);
-    assert_eq!(s.rendered_count[c], 3);
+    assert_eq!(s.rendered_count, 3);
 
     let mut seen = [false; 3];
-    for i in 0..s.rendered_count[c] as usize {
-        let ci = s.rendered_notes[c][i].chord_index as usize;
+    for i in 0..s.rendered_count as usize {
+        let ci = s.rendered_notes[i].chord_index as usize;
         assert!(ci < 3);
         seen[ci] = true;
     }
@@ -315,14 +314,13 @@ fn rendered_repeat_expansion() {
     engine_set_event_repeat_space(&mut s, idx as u16, 120);
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
 
-    let c = ch(&s);
-    assert_eq!(s.rendered_count[c], 3);
+    assert_eq!(s.rendered_count, 3);
 
     for ri in 0u16..3 {
-        let found = (0..s.rendered_count[c] as usize)
+        let found = (0..s.rendered_count as usize)
             .any(|j| {
-                s.rendered_notes[c][j].repeat_index == ri &&
-                s.rendered_notes[c][j].position == ri as i32 * 120
+                s.rendered_notes[j].repeat_index == ri &&
+                s.rendered_notes[j].position == ri as i32 * 120
             });
         assert!(found, "missing rendered note for repeat_index {}", ri);
     }
@@ -338,7 +336,7 @@ fn rendered_excludes_disabled_events() {
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
     let c = ch(&s);
-    assert_eq!(s.rendered_count[c], 2);
+    assert_eq!(s.rendered_count, 2);
 
     let p = pat_idx(&s);
     let h = s.patterns[c][p].event_handles[idx0 as usize];
@@ -346,8 +344,8 @@ fn rendered_excludes_disabled_events() {
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
 
-    assert_eq!(s.rendered_count[c], 1);
-    assert_eq!(s.rendered_notes[c][0].row, 12);
+    assert_eq!(s.rendered_count, 1);
+    assert_eq!(s.rendered_notes[0].row, 12);
 }
 
 // ============ Dirty flag: sub-mode modulation ============
@@ -362,5 +360,5 @@ fn modulation_change_marks_dirty() {
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
     { let cc = s.current_channel; engine_ensure_rendered(&mut s, cc); }
-    assert_eq!(s.rendered_notes[ch(&s)][0].row, 13); // 10 + 3
+    assert_eq!(s.rendered_notes[0].row, 13); // 10 + 3
 }
