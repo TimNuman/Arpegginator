@@ -33,6 +33,7 @@ function getEngineType(): 'c' | 'rust' {
 class RustWasmAdapter implements WasmModule {
   private instance: WebAssembly.Instance;
   private memory: WebAssembly.Memory;
+  private decoder = new TextDecoder();
   HEAPU8: Uint8Array;
 
   constructor(instance: WebAssembly.Instance) {
@@ -52,7 +53,7 @@ class RustWasmAdapter implements WasmModule {
     this.refreshViews();
     let end = ptr;
     while (this.HEAPU8[end] !== 0) end++;
-    return new TextDecoder().decode(this.HEAPU8.subarray(ptr, end));
+    return this.decoder.decode(this.HEAPU8.subarray(ptr, end));
   }
 
   cwrap(name: string, _returnType: string | null, argTypes: string[]): (...args: number[]) => number {
