@@ -7,12 +7,17 @@
     "dev": "vite",
     "build": "npm run build:wasm && tsc -b && vite build",
     "build:wasm": "bash src/wasm/build.sh",
+    "build:wasm-rust": "bash src/wasm-rust/build.sh",
+    "build:all": "npm run build:wasm && npm run build:wasm-rust && tsc -b && vite build",
     "watch:wasm": "bash src/wasm/watch.sh",
+    "watch:wasm-rust": "bash src/wasm-rust/watch.sh",
+    "dev:rust": "npm run build:wasm-rust && vite",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:c": "bash src/wasm/tests/run_tests.sh"
+    "test:c": "bash src/wasm/tests/run_tests.sh",
+    "test:rust": "cd src/wasm-rust && RUST_MIN_STACK=8388608 cargo test"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

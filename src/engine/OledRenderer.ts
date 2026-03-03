@@ -15,18 +15,17 @@ export const OLED_FONT_SMALL = 1;
 export const OLED_WIDTH = 160;
 export const OLED_HEIGHT = 128;
 
-interface EmscriptenModule {
+interface WasmModule {
   cwrap: (
     ident: string,
     returnType: string | null,
     argTypes: string[],
   ) => (...args: unknown[]) => unknown;
   HEAPU8: Uint8Array;
-  HEAPU16: Uint16Array;
 }
 
 export class OledRenderer {
-  private module: EmscriptenModule;
+  private module: WasmModule;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private imageData: ImageData | null = null;
@@ -81,7 +80,7 @@ export class OledRenderer {
   private _getFramebufferPtr: () => number;
   private _getFramebufferSize: () => number;
 
-  constructor(module: EmscriptenModule) {
+  constructor(module: WasmModule) {
     this.module = module;
 
     const cw = (
