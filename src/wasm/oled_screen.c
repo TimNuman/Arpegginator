@@ -178,7 +178,7 @@ static void get_drum_name(int8_t midi, char* buf) {
 
 // ============ Sub-mode / loop mode labels ============
 
-static const char* SUB_MODE_LABELS[5] = { "VEL", "HIT", "TIME", "FLAM", "MOD" };
+static const char* SUB_MODE_LABELS[6] = { "VEL", "HIT", "TIME", "FLAM", "MOD", "INV" };
 static const char* LOOP_MODE_LABELS[3] = { "RST", "CNT", "FIL" };
 static const char* ARP_STYLE_NAMES[ARP_STYLE_COUNT] = { "CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U" };
 
@@ -545,7 +545,7 @@ static void render_pattern_selected(uint8_t mods) {
 
 static void render_modify(uint8_t mods) {
     uint8_t sub_mode = g_state.modify_sub_mode;
-    const char* sub_label = (sub_mode < 5) ? SUB_MODE_LABELS[sub_mode] : "?";
+    const char* sub_label = (sub_mode < NUM_SUB_MODES) ? SUB_MODE_LABELS[sub_mode] : "?";
     uint8_t has_sel = (g_state.selected_event_idx >= 0);
     uint8_t m_meta = (mods & MOD_META) != 0;
 

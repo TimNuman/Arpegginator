@@ -780,7 +780,7 @@ const char* engine_get_chord_name(void) {
 
     // 1. Get chord offsets and convert to MIDI pitch classes
     int8_t offsets[MAX_CHORD_SIZE];
-    uint8_t chord_count = get_chord_offsets(&g_state, ev, offsets, MAX_CHORD_SIZE);
+    uint8_t chord_count = get_chord_offsets(&g_state, ev, offsets, MAX_CHORD_SIZE, 0);
 
     uint8_t pitch_classes[MAX_CHORD_SIZE];
     uint8_t pc_count = 0;

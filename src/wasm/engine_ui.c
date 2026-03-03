@@ -15,6 +15,8 @@ static const SubModeRenderConfig SUB_MODE_CONFIGS[NUM_SUB_MODES] = {
     { 0, 12, 100, 12 },
     // SM_MODULATE: offset, -12 to 12, step 1
     { 1, -12, 12, 1 },
+    // SM_INVERSION: offset, -8 to 8, step 1
+    { 1, -8, 8, 1 },
 };
 
 const SubModeRenderConfig* engine_get_sub_mode_config(uint8_t sub_mode) {
@@ -91,7 +93,7 @@ static int16_t resolve_render_sub_mode(const EngineState* s, const NoteEvent_C* 
 // ============ Rendered notes expansion ============
 
 // Get chord offsets for a note event (voicing table + inversions)
-uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out) {
+uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* offsets, uint8_t max_out, int8_t inversion_extra) {
     uint8_t amount = ev->chord_amount;
     if (amount <= 1) {
         offsets[0] = 0;
@@ -116,7 +118,7 @@ uint8_t get_chord_offsets(const EngineState* s, const NoteEvent_C* ev, int8_t* o
     // Apply inversions using scale-dependent octave
     // After each shift, resolve collisions (e.g. octave note landing on root)
     int16_t octave = (int16_t)s->scale_octave_size;
-    int8_t inv = ev->chord_inversion;
+    int8_t inv = ev->chord_inversion + inversion_extra;
     if (inv > 0) {
         for (int8_t n = 0; n < inv; n++) {
             uint8_t idx = n % amount;
@@ -177,10 +179,6 @@ uint16_t engine_render_events(
         const NoteEvent_C* ev = &pat->events[e];
         if (!ev->enabled) continue;
 
-        // Get chord offsets
-        int8_t chord_offsets[MAX_CHORD_SIZE];
-        uint8_t chord_count = get_chord_offsets(s, ev, chord_offsets, MAX_CHORD_SIZE);
-
         // Expand repeats
         for (uint16_t r = 0; r < ev->repeat_amount && count < max_out; r++) {
             int32_t pos = ev->position + (int32_t)r * ev->repeat_space;
@@ -195,6 +193,16 @@ uint16_t engine_render_events(
             if (ev->sub_modes[SM_MODULATE].length > 0) {
                 mod_offset = resolve_render_sub_mode(s, ev, SM_MODULATE, r, channel);
             }
+
+            // Get inversion offset for this repeat
+            int8_t inv_extra = 0;
+            if (ev->sub_modes[SM_INVERSION].length > 0) {
+                inv_extra = (int8_t)resolve_render_sub_mode(s, ev, SM_INVERSION, r, channel);
+            }
+
+            // Get chord offsets (with per-repeat inversion)
+            int8_t chord_offsets[MAX_CHORD_SIZE];
+            uint8_t chord_count = get_chord_offsets(s, ev, chord_offsets, MAX_CHORD_SIZE, inv_extra);
 
             // Expand chord notes (arp filtering: only show what will play)
             for (uint8_t c = 0; c < chord_count && count < max_out; c++) {

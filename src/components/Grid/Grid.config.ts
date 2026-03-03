@@ -75,6 +75,7 @@ export const SUB_MODE_NAMES: ModifySubMode[] = [
   "timing",
   "flam",
   "modulate",
+  "inversion",
 ];
 
 // Subdivision names indexed by ticks-per-col (reverse lookup)
