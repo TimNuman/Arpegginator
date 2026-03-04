@@ -590,7 +590,6 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let is_drum = s.channel_types[ch] == CH_DRUM;
-    let p_alt = (mods & MOD_ALT) != 0;
     let p_shift = (mods & MOD_SHIFT) != 0;
 
     if p_shift {
@@ -608,36 +607,17 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     ];
     draw_segments(VALUE_X, ROW_Y[0], &row0);
 
-    // Row 1: type or key
+    // Row 1: type (drums only)
     if is_drum {
         draw_labeled_row(ROW_Y[1], "TYPE", "DRUMS", OLED_CYAN);
-    } else {
-        let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        let scale_name = engine_get_scale_name_str(s);
-
-        let lx = LABEL_X;
-        gfx_text(lx, ROW_Y[1], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
-        let kx = lx + gfx_text_width("KEY ", &FONT_SMALL);
-        gfx_text(kx, ROW_Y[1], scale_root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
-
-        let root_sp = format!("{} ", scale_root_name);
-        let cx2 = kx + gfx_text_width(&root_sp, &FONT_MAIN);
-        gfx_text(cx2, ROW_Y[1], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
     }
 
-    // Row 2+
-    if p_alt && !is_drum {
-        let scale_name = engine_get_scale_name_str(s);
-        let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        draw_icon_legend(ROW_Y[2], IconType::Vertical, "Scale", scale_name, OLED_RED);
-        draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Root", scale_root_name, OLED_YELLOW);
-    } else {
-        let loop_data = &s.loops[ch][pat];
-        let s_buf = tick_to_beat_display(loop_data.start);
-        let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
-        let loop_str = format!("{}-{}", s_buf, e_buf);
-        draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
-    }
+    // Row 2: loop
+    let loop_data = &s.loops[ch][pat];
+    let s_buf = tick_to_beat_display(loop_data.start);
+    let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
+    let loop_str = format!("{}-{}", s_buf, e_buf);
+    draw_labeled_row(if is_drum { ROW_Y[2] } else { ROW_Y[1] }, "LOOP", &loop_str, OLED_CYAN);
 }
 
 // ============ Chord name (simplified inline version for screen rendering) ============

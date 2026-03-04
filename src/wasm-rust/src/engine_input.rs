@@ -651,14 +651,6 @@ static MODIFY_SUB_MODE_ORDER: [u8; 6] = [
 
 fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
     if s.selected_event_idx < 0 {
-        // No selected note + Alt: cycle scale
-        if (mods & MOD_ALT) != 0 && (mods & (MOD_META | MOD_CTRL | MOD_SHIFT)) == 0 {
-            match dir {
-                DIR_UP | DIR_DOWN => engine_cycle_scale(s, if dir == DIR_UP { 1 } else { -1 }),
-                DIR_LEFT | DIR_RIGHT => engine_cycle_scale_root(s, if dir == DIR_RIGHT { 1 } else { -1 }),
-                _ => {}
-            }
-        }
         return;
     }
 
