@@ -769,6 +769,55 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String 
     result
 }
 
+// ============ Global mode renderer ============
+
+fn render_global(s: &EngineState, mods: u8) {
+    let p_alt = (mods & MOD_ALT) != 0;
+
+    let steps = s.global_step_count;
+    let bars = steps / 16;
+    let extra = steps % 16;
+    let len_str = if extra == 0 {
+        format!("{} bars ({} steps)", bars, steps)
+    } else {
+        format!("{} steps", steps)
+    };
+
+    draw_labeled_row(ROW_Y[0], "MODE", "GLOBAL", OLED_CYAN);
+    draw_labeled_row(ROW_Y[1], "LEN", &len_str, OLED_CYAN);
+
+    if s.global_selected_step >= 0 {
+        let si = s.global_selected_step as usize;
+        if si < s.global_step_count as usize && s.global_steps[si].active != 0 {
+            let gs = &s.global_steps[si];
+            let root_name = NOTE_NAMES[(gs.scale_root % 12) as usize];
+            let scale_name = if (gs.scale_id_idx as usize) < NUM_SCALES {
+                SCALE_NAMES[gs.scale_id_idx as usize]
+            } else { "Major" };
+            let step_str = format!("Step {}", si + 1);
+            draw_labeled_row(ROW_Y[2], "STEP", &step_str, OLED_CYAN);
+
+            let lx = LABEL_X;
+            gfx_text(lx, ROW_Y[3], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
+            let kx = lx + gfx_text_width("KEY ", &FONT_SMALL);
+            gfx_text(kx, ROW_Y[3], root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
+            let root_sp = format!("{} ", root_name);
+            let cx2 = kx + gfx_text_width(&root_sp, &FONT_MAIN);
+            gfx_text(cx2, ROW_Y[3], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
+
+            if p_alt {
+                draw_icon_legend(ROW_Y[4], IconType::Vertical, "Scale", scale_name, OLED_RED);
+                draw_icon_legend(ROW_Y[5], IconType::Horizontal, "Root", root_name, OLED_YELLOW);
+            }
+        } else {
+            let step_str = format!("Step {} (empty)", si + 1);
+            draw_labeled_row(ROW_Y[2], "STEP", &step_str, OLED_DIM);
+        }
+    } else {
+        draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Song length", "", OLED_CYAN);
+    }
+}
+
 // ============ Public entry point ============
 
 pub fn oled_render(modifiers: u8) {
@@ -791,6 +840,7 @@ pub fn oled_render(modifiers: u8) {
         1 => render_channel(s),             // UI_CHANNEL
         2 => render_loop(s, modifiers),     // UI_LOOP
         3 => render_modify(s, modifiers),   // UI_MODIFY
+        4 => render_global(s, modifiers),   // UI_GLOBAL
         _ => render_pattern_default(s, modifiers),
     }
 }

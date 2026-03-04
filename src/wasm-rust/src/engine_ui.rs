@@ -482,8 +482,40 @@ fn render_channel_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
     render_pattern_mode(s, notes, note_count);
 
+    // Layout: row 0 = global button (white), row 1 = empty, rows 2-7 = channels 0-5
     (0..VISIBLE_ROWS).for_each(|vr| {
-        let ch_idx = vr;
+        if vr == 0 {
+            // Global channel button - white
+            (0..VISIBLE_COLS).for_each(|vc| {
+                if vc == 0 {
+                    let val = if s.global_view_active != 0 { BTN_WHITE_100 } else { BTN_WHITE_50 };
+                    s.button_values[vr][vc] = val;
+                    s.color_overrides[vr][vc] = 0xFFFFFF;
+                } else {
+                    s.button_values[vr][vc] = BTN_OFF | FLAG_DIMMED;
+                    s.color_overrides[vr][vc] = 0;
+                }
+            });
+            return;
+        }
+        if vr == 1 {
+            // Empty row
+            (0..VISIBLE_COLS).for_each(|vc| {
+                s.button_values[vr][vc] = BTN_OFF | FLAG_DIMMED;
+                s.color_overrides[vr][vc] = 0;
+            });
+            return;
+        }
+
+        let ch_idx = vr - 2; // rows 2-7 → channels 0-5
+        if ch_idx >= NUM_CHANNELS {
+            (0..VISIBLE_COLS).for_each(|vc| {
+                s.button_values[vr][vc] = BTN_OFF | FLAG_DIMMED;
+                s.color_overrides[vr][vc] = 0;
+            });
+            return;
+        }
+
         let ch_color = s.channel_colors[ch_idx];
         let cur_pat = s.current_patterns[ch_idx];
         let is_muted = s.muted[ch_idx] != 0;
@@ -671,6 +703,74 @@ fn render_modify_mode(s: &mut EngineState) {
     });
 }
 
+// ============ Global Channel Rendering ============
+
+fn render_global_mode(s: &mut EngineState) {
+    let tpc = s.global_zoom;
+    let step_count = s.global_step_count as usize;
+    let total_song_ticks = step_count as i32 * TICKS_PER_SIXTEENTH;
+    let total_cols = if total_song_ticks > 0 && tpc > 0 {
+        (total_song_ticks + tpc - 1) / tpc
+    } else { 0 };
+    let max_col_offset = (total_cols - VISIBLE_COLS as i32).max(0);
+    let start_col = if max_col_offset > 0 {
+        (s.global_col_offset * max_col_offset as f32 + 0.5).min(max_col_offset as f32).max(0.0) as i32
+    } else { 0 };
+    let start_tick = start_col * tpc;
+
+    // The global view is a wrapped view: row 0 = steps 0-15, row 1 = steps 16-31, etc.
+    // With 8 rows x 16 cols = 128 visible cells
+    // Each cell = one 1/16th note step (at default zoom)
+    let cols_per_row = VISIBLE_COLS as i32;
+    let looped_tick = if s.current_tick >= 0 && s.is_playing != 0 {
+        mod_positive(s.current_tick, total_song_ticks)
+    } else { -1 };
+
+    (0..VISIBLE_ROWS).for_each(|vr| {
+        (0..VISIBLE_COLS).for_each(|vc| {
+            let cell_tick = start_tick + (vr as i32 * cols_per_row + vc as i32) * tpc;
+            let step_idx = cell_tick / TICKS_PER_SIXTEENTH;
+
+            if step_idx < 0 || step_idx >= step_count as i32 {
+                // Out of range
+                s.button_values[vr][vc] = BTN_OFF | FLAG_DIMMED;
+                s.color_overrides[vr][vc] = 0;
+                return;
+            }
+
+            let step = &s.global_steps[step_idx as usize];
+            let is_active = step.active != 0;
+            let is_selected = s.global_selected_step == step_idx as i16;
+
+            // Playhead
+            let is_playhead = looped_tick >= 0 &&
+                cell_tick <= looped_tick && cell_tick + tpc > looped_tick;
+
+            let mut value: u16 = if is_active {
+                BTN_WHITE_100
+            } else {
+                BTN_OFF
+            };
+
+            if is_selected {
+                value |= FLAG_SELECTED;
+            }
+            if is_playhead {
+                value |= FLAG_PLAYHEAD;
+            }
+
+            // Beat markers
+            if (cell_tick / TICKS_PER_QUARTER) % 2 == 0 {
+                value |= FLAG_BEAT_MARKER;
+            }
+
+            // Color override: white for global channel
+            s.button_values[vr][vc] = value;
+            s.color_overrides[vr][vc] = if is_active { 0xFFFFFF } else { 0 };
+        });
+    });
+}
+
 // ============ Ctrl Overlay ============
 
 fn apply_ctrl_overlay(s: &mut EngineState) {
@@ -730,6 +830,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
         UiMode::Loop => render_loop_mode(s, &notes, note_count),
         UiMode::Modify => render_modify_mode(s),
         UiMode::Pattern => render_pattern_mode(s, &notes, note_count),
+        UiMode::Global => render_global_mode(s),
     }
 
     apply_ctrl_overlay(s);

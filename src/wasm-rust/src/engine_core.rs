@@ -4,7 +4,7 @@ extern crate alloc;
 
 // ============ Constants ============
 
-pub const NUM_CHANNELS: usize = 8;
+pub const NUM_CHANNELS: usize = 6;
 pub const NUM_PATTERNS: usize = 8;
 pub const MAX_EVENTS: usize = 128;
 pub const MAX_SUB_MODE_LEN: usize = 32;
@@ -25,6 +25,11 @@ pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
 
 pub const DEFAULT_PATTERN_TICKS: i32 = TICKS_PER_QUARTER * 4 * 4; // 4 bars of 4/4 = 7680
 pub const DEFAULT_LOOP_TICKS: i32 = TICKS_PER_QUARTER * 4;        // 1 bar = 1920
+
+// Global channel constants
+pub const MAX_GLOBAL_STEPS: usize = 256;  // Max 16th-note steps in the global song
+pub const DEFAULT_GLOBAL_STEPS: usize = 16; // Default: 16 steps (1 bar of 16th notes)
+pub const TICKS_PER_SIXTEENTH: i32 = TICKS_PER_QUARTER / 4; // 120 ticks
 
 // ============ Button Value Constants ============
 
@@ -123,6 +128,7 @@ pub enum UiMode {
     Channel = 1,
     Loop = 2,
     Modify = 3,
+    Global = 4,
 }
 
 impl UiMode {
@@ -132,7 +138,27 @@ impl UiMode {
             1 => Self::Channel,
             2 => Self::Loop,
             3 => Self::Modify,
+            4 => Self::Global,
             _ => Self::Pattern,
+        }
+    }
+}
+
+// ============ Global Step ============
+
+#[derive(Clone, Copy)]
+pub struct GlobalStep {
+    pub scale_root: u8,     // Root note (0-11, MIDI pitch class)
+    pub scale_id_idx: u8,   // Scale index
+    pub active: u8,         // 0 = inherit previous, 1 = explicit setting
+}
+
+impl Default for GlobalStep {
+    fn default() -> Self {
+        Self {
+            scale_root: 0,      // C
+            scale_id_idx: 0,    // Major
+            active: 0,
         }
     }
 }
@@ -417,6 +443,14 @@ pub struct EngineState {
     pub rendered_count: u16,
     pub rendered_for_channel: u8,
     pub rendered_dirty: [u8; NUM_CHANNELS],
+
+    // Global channel state
+    pub global_steps: [GlobalStep; MAX_GLOBAL_STEPS],
+    pub global_step_count: u16,       // Total number of steps in the song
+    pub global_selected_step: i16,    // Currently selected step (-1 = none)
+    pub global_zoom: i32,             // Ticks per col for global view (same zoom levels)
+    pub global_col_offset: f32,       // Horizontal scroll for global view
+    pub global_view_active: u8,       // 1 = viewing global channel
 }
 
 impl Default for EngineState {
@@ -492,6 +526,12 @@ impl Default for EngineState {
             rendered_count: 0,
             rendered_for_channel: 0xFF,
             rendered_dirty: [1; NUM_CHANNELS],
+            global_steps: [GlobalStep::default(); MAX_GLOBAL_STEPS],
+            global_step_count: DEFAULT_GLOBAL_STEPS as u16,
+            global_selected_step: -1,
+            global_zoom: 120,  // 1/16 note resolution
+            global_col_offset: 0.0,
+            global_view_active: 0,
         }
     }
 }
@@ -1048,6 +1088,18 @@ pub fn engine_core_init(s: &mut EngineState) {
     s.scale_root = 0;
     s.scale_id_idx = 0;
     engine_rebuild_scale(s);
+
+    // Initialize global channel
+    s.global_step_count = DEFAULT_GLOBAL_STEPS as u16;
+    s.global_selected_step = -1;
+    s.global_zoom = 120;
+    s.global_col_offset = 0.0;
+    s.global_view_active = 0;
+    // First step is active with default C Major
+    s.global_steps[0] = GlobalStep { scale_root: 0, scale_id_idx: 0, active: 1 };
+    (1..MAX_GLOBAL_STEPS).for_each(|i| {
+        s.global_steps[i] = GlobalStep::default();
+    });
 }
 
 pub fn engine_core_play_init(s: &mut EngineState) {
@@ -1082,8 +1134,59 @@ pub fn engine_core_stop(s: &mut EngineState) {
     s.queued_patterns.iter_mut().for_each(|q| *q = -1);
 }
 
+/// Resolve the effective global step for a given tick.
+/// Walks backwards to find the most recent active step.
+pub fn resolve_global_step(s: &EngineState, tick: i32) -> Option<&GlobalStep> {
+    if s.global_step_count == 0 { return None; }
+    let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+    let song_tick = mod_positive(tick, total_song_ticks);
+    let step_idx = (song_tick / TICKS_PER_SIXTEENTH) as usize;
+    // Walk backwards from step_idx to find most recent active step
+    for i in 0..s.global_step_count as usize {
+        let idx = if step_idx >= i { step_idx - i } else { s.global_step_count as usize - (i - step_idx) };
+        if s.global_steps[idx].active != 0 {
+            return Some(&s.global_steps[idx]);
+        }
+    }
+    None
+}
+
+/// Apply global automation at the current tick (scale root + scale type changes)
+fn apply_global_automation(s: &mut EngineState, tick: i32) {
+    if s.global_step_count == 0 { return; }
+    let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+    let song_tick = mod_positive(tick, total_song_ticks);
+    // Only apply at step boundaries (every 120 ticks = 1/16 note)
+    if song_tick % TICKS_PER_SIXTEENTH != 0 { return; }
+    let step_idx = (song_tick / TICKS_PER_SIXTEENTH) as usize;
+    if step_idx >= s.global_step_count as usize { return; }
+
+    // Walk backwards to find the most recent active step
+    let mut found_idx = None;
+    for i in 0..s.global_step_count as usize {
+        let idx = if step_idx >= i { step_idx - i } else { s.global_step_count as usize - (i - step_idx) };
+        if s.global_steps[idx].active != 0 {
+            found_idx = Some(idx);
+            break;
+        }
+    }
+
+    if let Some(idx) = found_idx {
+        let gs = s.global_steps[idx];
+        if gs.scale_root != s.scale_root || gs.scale_id_idx != s.scale_id_idx {
+            s.scale_root = gs.scale_root;
+            s.scale_id_idx = gs.scale_id_idx;
+            engine_rebuild_scale(s);
+            s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+        }
+    }
+}
+
 pub fn engine_core_tick(s: &mut EngineState) {
     let next_tick = s.current_tick + 1;
+
+    // Apply global song automation
+    apply_global_automation(s, next_tick);
 
     let mut switch_channels: Vec<(u8, u8)> = Vec::new();
     let any_soloed = s.soloed.iter().any(|&v| v != 0);

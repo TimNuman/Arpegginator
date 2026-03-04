@@ -418,7 +418,18 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
 // ============ Channel Mode Button Press ============
 
 fn handle_channel_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) {
-    let ch_idx = vis_row as usize;
+    // Layout: row 0 = global button, row 1 = empty, rows 2-7 = channels 0-5
+    if vis_row == 0 && vis_col == 0 {
+        // Open global channel view
+        s.global_view_active = 1;
+        s.ui_mode = UiMode::Global as u8;
+        s.selected_event_idx = -1;
+        return;
+    }
+    if vis_row <= 1 { return; } // Empty row or non-col-0 global row
+
+    let ch_idx = (vis_row - 2) as usize;
+    if ch_idx >= NUM_CHANNELS { return; }
 
     if vis_col == 0 {
         if (mods & MOD_ALT) != 0 {
@@ -441,6 +452,7 @@ fn handle_channel_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
     s.current_channel = ch_idx as u8;
     s.current_patterns[ch_idx] = pat_idx as u8;
     s.selected_event_idx = -1;
+    s.global_view_active = 0;
     engine_mark_dirty(s, ch_idx as u8);
     s.ui_mode = UiMode::Pattern as u8;
 }
@@ -516,6 +528,91 @@ fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
     engine_set_sub_mode_value(s, s.selected_event_idx as u16, sm, vis_col as u16, value);
 }
 
+// ============ Global Mode Button Press ============
+
+fn handle_global_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) {
+    // In the global view, the grid is a wrapped view of the entire song.
+    // Each cell = one step. Rows wrap: row 0 = steps 0-15, row 1 = steps 16-31, etc.
+    let tpc = s.global_zoom;
+    let step_count = s.global_step_count as usize;
+    let total_song_ticks = step_count as i32 * TICKS_PER_SIXTEENTH;
+    let total_cols = if total_song_ticks > 0 && tpc > 0 {
+        (total_song_ticks + tpc - 1) / tpc
+    } else { 0 };
+    let max_col_offset = (total_cols - VISIBLE_COLS as i32).max(0);
+    let start_col = if max_col_offset > 0 {
+        (s.global_col_offset * max_col_offset as f32 + 0.5).min(max_col_offset as f32).max(0.0) as i32
+    } else { 0 };
+    let cols_per_row = VISIBLE_COLS as i32;
+    let cell_tick = (start_col + vis_row as i32 * cols_per_row + vis_col as i32) * tpc;
+    let step_idx = cell_tick / TICKS_PER_SIXTEENTH;
+
+    if step_idx < 0 || step_idx >= step_count as i32 { return; }
+    let si = step_idx as usize;
+
+    if (mods & MOD_META) != 0 {
+        // Cmd+click: clear step (set inactive)
+        s.global_steps[si].active = 0;
+        if s.global_selected_step == step_idx as i16 {
+            s.global_selected_step = -1;
+        }
+        return;
+    }
+
+    if s.global_steps[si].active == 0 {
+        // Activate step with current scale settings
+        s.global_steps[si].scale_root = s.scale_root;
+        s.global_steps[si].scale_id_idx = s.scale_id_idx;
+        s.global_steps[si].active = 1;
+    }
+
+    // Toggle selection
+    if s.global_selected_step == step_idx as i16 {
+        s.global_selected_step = -1;
+    } else {
+        s.global_selected_step = step_idx as i16;
+    }
+}
+
+// ============ Global Mode Arrow Press ============
+
+fn handle_arrow_global(s: &mut EngineState, dir: u8, mods: u8) {
+    if s.global_selected_step >= 0 {
+        let si = s.global_selected_step as usize;
+        if si < s.global_step_count as usize && s.global_steps[si].active != 0 {
+            // Alt+arrows: change root/scale on the selected step (same as pattern mode)
+            if (mods & MOD_ALT) != 0 && (mods & (MOD_META | MOD_CTRL | MOD_SHIFT)) == 0 {
+                match dir {
+                    DIR_UP | DIR_DOWN => {
+                        let cur = s.global_steps[si].scale_id_idx as i32;
+                        let new_idx = (cur + if dir == DIR_UP { 1 } else { -1 }).rem_euclid(NUM_SCALES as i32);
+                        s.global_steps[si].scale_id_idx = new_idx as u8;
+                    }
+                    DIR_LEFT | DIR_RIGHT => {
+                        let cur = s.global_steps[si].scale_root as i32;
+                        let new_root = (cur + if dir == DIR_RIGHT { 7 } else { -7 }).rem_euclid(12);
+                        s.global_steps[si].scale_root = new_root as u8;
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            // Plain arrows: no note selected, no action
+        }
+    }
+
+    // Arrow left/right without selection: adjust song length
+    if mods == 0 && (dir == DIR_LEFT || dir == DIR_RIGHT) && s.global_selected_step < 0 {
+        let step_count = s.global_step_count as i32;
+        let new_count = if dir == DIR_RIGHT {
+            (step_count + 16).min(MAX_GLOBAL_STEPS as i32)
+        } else {
+            (step_count - 16).max(16)
+        };
+        s.global_step_count = new_count as u16;
+    }
+}
+
 // ============ Main Button Press Dispatch ============
 
 pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8) {
@@ -525,6 +622,7 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
             UiMode::Loop as u8, UiMode::Modify as u8,
         ];
         s.ui_mode = MODE_MAP[col as usize];
+        s.global_view_active = 0;
         return;
     }
 
@@ -533,6 +631,7 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
         UiMode::Channel => handle_channel_press(s, row, col, modifiers),
         UiMode::Loop => handle_loop_press(s, row, col, modifiers),
         UiMode::Modify => handle_modify_press(s, row, col, modifiers),
+        UiMode::Global => handle_global_press(s, row, col, modifiers),
     }
 }
 
@@ -804,6 +903,7 @@ pub fn engine_arrow_press(s: &mut EngineState, direction: u8, modifiers: u8) {
         UiMode::Pattern => handle_arrow_pattern(s, direction, modifiers),
         UiMode::Loop => handle_arrow_loop(s, direction, modifiers),
         UiMode::Modify => handle_arrow_modify(s, direction, modifiers),
+        UiMode::Global => handle_arrow_global(s, direction, modifiers),
         _ => {}
     }
 }
@@ -821,14 +921,34 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
             }
         }
         ACTION_DESELECT => {
-            if s.selected_event_idx >= 0 {
+            if s.ui_mode == UiMode::Global as u8 {
+                if s.global_selected_step >= 0 {
+                    s.global_selected_step = -1;
+                } else {
+                    // Exit global mode back to channel mode
+                    s.ui_mode = UiMode::Channel as u8;
+                    s.global_view_active = 0;
+                }
+            } else if s.selected_event_idx >= 0 {
                 s.selected_event_idx = -1;
             } else {
                 s.current_tick = -1;
             }
         }
-        ACTION_ZOOM_IN => { s.zoom = zoom_cycle(s.zoom, 1); }
-        ACTION_ZOOM_OUT => { s.zoom = zoom_cycle(s.zoom, -1); }
+        ACTION_ZOOM_IN => {
+            if s.ui_mode == UiMode::Global as u8 {
+                s.global_zoom = zoom_cycle(s.global_zoom, 1);
+            } else {
+                s.zoom = zoom_cycle(s.zoom, 1);
+            }
+        }
+        ACTION_ZOOM_OUT => {
+            if s.ui_mode == UiMode::Global as u8 {
+                s.global_zoom = zoom_cycle(s.global_zoom, -1);
+            } else {
+                s.zoom = zoom_cycle(s.zoom, -1);
+            }
+        }
         ACTION_DELETE_NOTE => {
             if s.selected_event_idx >= 0 {
                 engine_remove_event(s, s.selected_event_idx as u16);

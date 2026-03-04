@@ -228,6 +228,22 @@ export class WasmEngine {
   // Edit operations
   private _clearPattern!: () => void;
 
+  // Global channel
+  private _getGlobalStepCount!: () => number;
+  private _setGlobalStepCount!: (count: number) => void;
+  private _getGlobalSelectedStep!: () => number;
+  private _setGlobalSelectedStep!: (idx: number) => void;
+  private _getGlobalZoom!: () => number;
+  private _setGlobalZoom!: (tpc: number) => void;
+  private _getGlobalColOffset!: () => number;
+  private _setGlobalColOffset!: (offset: number) => void;
+  private _getGlobalViewActive!: () => number;
+  private _setGlobalViewActive!: (active: number) => void;
+  private _getGlobalStepRoot!: (step: number) => number;
+  private _getGlobalStepScale!: (step: number) => number;
+  private _getGlobalStepActive!: (step: number) => number;
+  private _getScaleNameByIdx!: (idx: number) => number;
+
   // Event index mapping: [ch][pat] → Map<UUID, index>
   private eventIndexMaps: Map<string, number>[][] = [];
 
@@ -374,6 +390,22 @@ export class WasmEngine {
     // Edit operations
     this._clearPattern = cw('engine_clear_pattern_export', null, []) as unknown as () => void;
 
+    // Global channel
+    this._getGlobalStepCount = cw('engine_get_global_step_count', 'number', []);
+    this._setGlobalStepCount = cw('engine_set_global_step_count', null, ['number']) as unknown as (c: number) => void;
+    this._getGlobalSelectedStep = cw('engine_get_global_selected_step', 'number', []);
+    this._setGlobalSelectedStep = cw('engine_set_global_selected_step', null, ['number']) as unknown as (i: number) => void;
+    this._getGlobalZoom = cw('engine_get_global_zoom', 'number', []);
+    this._setGlobalZoom = cw('engine_set_global_zoom', null, ['number']) as unknown as (t: number) => void;
+    this._getGlobalColOffset = cw('engine_get_global_col_offset', 'number', []);
+    this._setGlobalColOffset = cw('engine_set_global_col_offset', null, ['number']) as unknown as (o: number) => void;
+    this._getGlobalViewActive = cw('engine_get_global_view_active', 'number', []);
+    this._setGlobalViewActive = cw('engine_set_global_view_active', null, ['number']) as unknown as (a: number) => void;
+    this._getGlobalStepRoot = cw('engine_get_global_step_root', 'number', ['number']);
+    this._getGlobalStepScale = cw('engine_get_global_step_scale', 'number', ['number']);
+    this._getGlobalStepActive = cw('engine_get_global_step_active', 'number', ['number']);
+    this._getScaleNameByIdx = cw('engine_get_scale_name_by_idx', 'number', ['number']);
+
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
@@ -383,7 +415,8 @@ export class WasmEngine {
     }
 
     // Init event index maps
-    for (let ch = 0; ch < 8; ch++) {
+    const numChannels = this._getNumChannels();
+    for (let ch = 0; ch < numChannels; ch++) {
       this.eventIndexMaps[ch] = [];
       this.eventIndexToId[ch] = [];
       for (let pat = 0; pat < 8; pat++) {
@@ -548,9 +581,10 @@ export class WasmEngine {
 
   syncMuteSolo(muted: boolean[], soloed: boolean[]): void {
     const mod = this.module!;
+    const numCh = this._getNumChannels();
     const mutedPtr = this._getMutedBuffer();
     const soloedPtr = this._getSoloedBuffer();
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < numCh; ch++) {
       mod.HEAPU8[mutedPtr + ch] = muted[ch] ? 1 : 0;
       mod.HEAPU8[soloedPtr + ch] = soloed[ch] ? 1 : 0;
     }
@@ -559,11 +593,12 @@ export class WasmEngine {
   /** Read mute/solo state from WASM memory. */
   readMuteSolo(): { muted: boolean[]; soloed: boolean[] } {
     const mod = this.module!;
+    const numCh = this._getNumChannels();
     const mutedPtr = this._getMutedBuffer();
     const soloedPtr = this._getSoloedBuffer();
     const muted: boolean[] = [];
     const soloed: boolean[] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < numCh; ch++) {
       muted.push(mod.HEAPU8[mutedPtr + ch] !== 0);
       soloed.push(mod.HEAPU8[soloedPtr + ch] !== 0);
     }
@@ -629,12 +664,13 @@ export class WasmEngine {
     return this._isAnimating() !== 0;
   }
 
-  /** Read which patterns have notes (8×8 boolean grid). */
+  /** Read which patterns have notes (channels×8 boolean grid). */
   readPatternsHaveNotes(): boolean[][] {
     const mod = this.module!;
+    const numCh = this._getNumChannels();
     const ptr = this._getPatternsHaveNotesBuffer();
     const result: boolean[][] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < numCh; ch++) {
       const row: boolean[] = [];
       for (let pat = 0; pat < 8; pat++) {
         row.push(mod.HEAPU8[ptr + ch * 8 + pat] !== 0);
@@ -647,9 +683,10 @@ export class WasmEngine {
   /** Read which channels are currently playing. */
   readChannelsPlayingNow(): boolean[] {
     const mod = this.module!;
+    const numCh = this._getNumChannels();
     const ptr = this._getChannelsPlayingNowBuffer();
     const result: boolean[] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < numCh; ch++) {
       result.push(mod.HEAPU8[ptr + ch] !== 0);
     }
     return result;
@@ -756,8 +793,9 @@ export class WasmEngine {
   /** Write channel types to WASM memory. 0 = melodic, 1 = drum. */
   writeChannelTypes(types: number[]): void {
     const mod = this.module!;
+    const numCh = this._getNumChannels();
     const ptr = this._getChannelTypesBuffer();
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < numCh; ch++) {
       mod.HEAPU8[ptr + ch] = types[ch] ?? 0;
     }
   }
@@ -765,9 +803,10 @@ export class WasmEngine {
   /** Read current patterns from WASM memory. */
   readCurrentPatterns(): number[] {
     const mod = this.module!;
+    const numCh = this._getNumChannels();
     const ptr = this._getCurrentPatternsBuffer();
     const patterns: number[] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < numCh; ch++) {
       patterns.push(mod.HEAPU8[ptr + ch]);
     }
     return patterns;
@@ -793,4 +832,24 @@ export class WasmEngine {
   // ============ Edit Operations ============
 
   clearPattern(): void { this._clearPattern(); }
+
+  // ============ Global Channel ============
+
+  getGlobalStepCount(): number { return this._getGlobalStepCount(); }
+  setGlobalStepCount(count: number): void { this._setGlobalStepCount(count); }
+  getGlobalSelectedStep(): number { return this._getGlobalSelectedStep(); }
+  setGlobalSelectedStep(idx: number): void { this._setGlobalSelectedStep(idx); }
+  getGlobalZoom(): number { return this._getGlobalZoom(); }
+  setGlobalZoom(tpc: number): void { this._setGlobalZoom(tpc); }
+  getGlobalColOffset(): number { return this._getGlobalColOffset(); }
+  setGlobalColOffset(offset: number): void { this._setGlobalColOffset(offset); }
+  getGlobalViewActive(): boolean { return this._getGlobalViewActive() !== 0; }
+  setGlobalViewActive(active: boolean): void { this._setGlobalViewActive(active ? 1 : 0); }
+  getGlobalStepRoot(step: number): number { return this._getGlobalStepRoot(step); }
+  getGlobalStepScale(step: number): number { return this._getGlobalStepScale(step); }
+  getGlobalStepActive(step: number): boolean { return this._getGlobalStepActive(step) !== 0; }
+  getScaleNameByIdx(idx: number): string {
+    const ptr = this._getScaleNameByIdx(idx);
+    return ptr ? this.module!.UTF8ToString(ptr) : '';
+  }
 }
