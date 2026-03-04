@@ -541,8 +541,17 @@ fn render_modify(s: &EngineState, mods: u8) {
         ];
         draw_segments(VALUE_X, ROW_Y[1], &row1);
 
+        let m_shift = (mods & MOD_SHIFT) != 0;
+        let m_ctrl = (mods & MOD_CTRL) != 0;
         if m_meta {
             draw_icon_legend(ROW_Y[2], IconType::Vertical, "Sub-mode", sub_label, OLED_RED);
+        } else if m_shift {
+            draw_icon_legend(ROW_Y[2], IconType::Vertical, "Clock", clock_label, OLED_RED);
+            let speed_str = format!("{}t", sm_arr.clock_speed);
+            draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Speed", &speed_str, OLED_YELLOW);
+        } else if m_ctrl {
+            let trig_label = CLOCK_TRIGGER_LABELS.get(sm_arr.clock_trigger as usize).unwrap_or(&"FREE");
+            draw_icon_legend(ROW_Y[2], IconType::Vertical, "Trigger", trig_label, OLED_RED);
         } else {
             draw_icon_legend(ROW_Y[2], IconType::Vertical, "Loop mode", loop_label, OLED_RED);
             let len_str = format!("{}", arr_len);

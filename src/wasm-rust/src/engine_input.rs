@@ -781,6 +781,51 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
 
     if s.selected_event_idx < 0 { return; }
 
+    // Shift+Up/Down: toggle clock mode (Hit ↔ Clock)
+    if (mods & MOD_SHIFT) != 0 && (mods & (MOD_META | MOD_ALT | MOD_CTRL)) == 0 {
+        if dir == DIR_UP || dir == DIR_DOWN {
+            let sm = s.modify_sub_mode;
+            let ch = s.current_channel as usize;
+            let pat = s.current_patterns[ch] as usize;
+            let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+            let cur = get_sub_mode(&s.sub_mode_pool, &s.event_pool.slots[h as usize].sub_mode_handles, sm as usize).clock_mode;
+            let new_mode = if cur == CLOCK_HIT { CLOCK_TIMED } else { CLOCK_HIT };
+            engine_set_sub_mode_clock_mode(s, s.selected_event_idx as u16, sm, new_mode);
+            return;
+        }
+        // Shift+Left/Right: adjust clock speed
+        if dir == DIR_LEFT || dir == DIR_RIGHT {
+            let sm = s.modify_sub_mode;
+            let ch = s.current_channel as usize;
+            let pat = s.current_patterns[ch] as usize;
+            let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+            let cur = get_sub_mode(&s.sub_mode_pool, &s.event_pool.slots[h as usize].sub_mode_handles, sm as usize).clock_speed;
+            // Snap to musical divisions: 6, 12, 15, 20, 24, 30, 48, 60, 96, 120, 240
+            static SPEED_STEPS: [u8; 11] = [6, 12, 15, 20, 24, 30, 48, 60, 96, 120, 240];
+            let new_speed = if dir == DIR_RIGHT {
+                SPEED_STEPS.iter().find(|&&v| v > cur).copied().unwrap_or(cur)
+            } else {
+                SPEED_STEPS.iter().rev().find(|&&v| v < cur).copied().unwrap_or(cur)
+            };
+            engine_set_sub_mode_clock_speed(s, s.selected_event_idx as u16, sm, new_speed);
+            return;
+        }
+    }
+
+    // Ctrl+Up/Down: cycle clock trigger (Free → Note → Loop)
+    if (mods & MOD_CTRL) != 0 && (mods & (MOD_META | MOD_ALT | MOD_SHIFT)) == 0 {
+        if dir == DIR_UP || dir == DIR_DOWN {
+            let sm = s.modify_sub_mode;
+            let ch = s.current_channel as usize;
+            let pat = s.current_patterns[ch] as usize;
+            let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+            let cur = get_sub_mode(&s.sub_mode_pool, &s.event_pool.slots[h as usize].sub_mode_handles, sm as usize).clock_trigger;
+            let new_trig = if dir == DIR_DOWN { (cur + 1) % 3 } else { (cur + 2) % 3 };
+            engine_set_sub_mode_clock_trigger(s, s.selected_event_idx as u16, sm, new_trig);
+            return;
+        }
+    }
+
     if mods == 0 && (dir == DIR_UP || dir == DIR_DOWN) {
         engine_toggle_sub_mode_loop_mode(s, s.selected_event_idx as u16, s.modify_sub_mode);
         return;
