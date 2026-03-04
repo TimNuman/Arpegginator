@@ -162,7 +162,7 @@ fn get_drum_name(midi: i8) -> alloc::string::String {
 
 // ============ Sub-mode / loop mode labels ============
 
-static SUB_MODE_LABELS: [&str; 6] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV"];
+static SUB_MODE_LABELS: [&str; 8] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV", "CC", "PB"];
 static LOOP_MODE_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
 static ARP_STYLE_NAMES: [&str; 9] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U"];
 static INTERVAL_NAMES: [&str; 12] = [

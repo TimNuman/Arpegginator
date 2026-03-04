@@ -44,7 +44,7 @@ pub static mut G_STATE_PTR: *const EngineState = core::ptr::null();
 
 #[cfg(not(test))]
 extern "C" {
-    fn js_step_trigger(ch: i32, note: i32, tick: i32, len: i32, vel: i32, timing: i32, flam: i32, ev_idx: i32);
+    fn js_step_trigger(ch: i32, note: i32, tick: i32, len: i32, vel: i32, timing: i32, flam: i32, ev_idx: i32, cc_val: i32, pitch_bend: i32);
     fn js_note_off(ch: i32, note: i32);
     fn js_set_current_tick(tick: i32);
     fn js_set_current_patterns(ptr: i32);
@@ -61,6 +61,7 @@ pub fn platform_step_trigger(
     note_length_ticks: i32, velocity: u8,
     timing_offset_pct: i8, flam_count: u8,
     event_index: u16,
+    cc_value: i16, pitch_bend: i16,
 ) {
     unsafe {
         js_step_trigger(
@@ -68,6 +69,7 @@ pub fn platform_step_trigger(
             note_length_ticks, velocity as i32,
             timing_offset_pct as i32, flam_count as i32,
             event_index as i32,
+            cc_value as i32, pitch_bend as i32,
         );
     }
 }
@@ -118,6 +120,7 @@ pub fn platform_step_trigger(
     _note_length_ticks: i32, _velocity: u8,
     _timing_offset_pct: i8, _flam_count: u8,
     _event_index: u16,
+    _cc_value: i16, _pitch_bend: i16,
 ) {}
 
 #[cfg(test)]

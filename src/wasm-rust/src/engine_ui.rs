@@ -18,6 +18,8 @@ static SUB_MODE_CONFIGS: [SubModeRenderConfig; NUM_SUB_MODES] = [
     SubModeRenderConfig { render_style: 0, min_val: 12, max_val: 100, step: 12 },   // Flam
     SubModeRenderConfig { render_style: 1, min_val: -12, max_val: 12, step: 1 },    // Modulate
     SubModeRenderConfig { render_style: 1, min_val: -8, max_val: 8, step: 1 },     // Inversion
+    SubModeRenderConfig { render_style: 0, min_val: 0, max_val: 127, step: 16 },    // CC
+    SubModeRenderConfig { render_style: 1, min_val: -100, max_val: 100, step: 10 }, // PitchBend
 ];
 
 pub fn engine_get_sub_mode_config(sub_mode: u8) -> &'static SubModeRenderConfig {

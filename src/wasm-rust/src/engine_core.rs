@@ -8,7 +8,7 @@ pub const NUM_CHANNELS: usize = 8;
 pub const NUM_PATTERNS: usize = 8;
 pub const MAX_EVENTS: usize = 128;
 pub const MAX_SUB_MODE_LEN: usize = 32;
-pub const NUM_SUB_MODES: usize = 6;
+pub const NUM_SUB_MODES: usize = 8;
 pub const MAX_CHORD_SIZE: usize = 8;
 pub const MAX_SCALE_NOTES: usize = 128;
 pub const NUM_SCALES: usize = 32;
@@ -88,6 +88,8 @@ pub enum SubModeId {
     Flam = 3,
     Modulate = 4,
     Inversion = 5,
+    CC = 6,
+    PitchBend = 7,
 }
 
 impl SubModeId {
@@ -99,6 +101,8 @@ impl SubModeId {
             3 => Self::Flam,
             4 => Self::Modulate,
             5 => Self::Inversion,
+            6 => Self::CC,
+            7 => Self::PitchBend,
             _ => Self::Velocity,
         }
     }
@@ -220,6 +224,8 @@ pub static SM_DEFAULTS: [SubModeArray; NUM_SUB_MODES] = [
     make_sm_default(0),   // Flam
     make_sm_default(0),   // Modulate
     make_sm_default(0),   // Inversion
+    make_sm_default(0),   // CC
+    make_sm_default(0),   // PitchBend
 ];
 
 pub fn get_sub_mode<'a>(pool: &'a SubModePool, handles: &[u16; NUM_SUB_MODES], sm: usize) -> &'a SubModeArray {
@@ -1155,6 +1161,17 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
                     let flam_count = if flam_prob > 0 && (engine_random(s) % 100) < flam_prob as u32 { 1u8 } else { 0u8 };
 
+                    let cc_val = if ev.sub_mode_handles[SubModeId::CC as usize] != POOL_HANDLE_NONE {
+                        resolve_sub_mode(s, &ev, SubModeId::CC as usize, r, ch)
+                    } else {
+                        0
+                    };
+                    let pitch_bend = if ev.sub_mode_handles[SubModeId::PitchBend as usize] != POOL_HANDLE_NONE {
+                        resolve_sub_mode(s, &ev, SubModeId::PitchBend as usize, r, ch)
+                    } else {
+                        0
+                    };
+
                     let effective_row = ev.row + mod_val;
 
                     let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
@@ -1182,6 +1199,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
                             ch, midi_note as u8, channel_tick,
                             ev.length, (velocity.clamp(0, 127)) as u8,
                             timing as i8, flam_count, ev.event_index,
+                            cc_val, pitch_bend,
                         );
                     });
                 });
@@ -1292,6 +1310,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                         ch, midi_note as u8, ev_tick,
                         SCRUB_NOTE_LENGTH, velocity.clamp(0, 127) as u8,
                         0, 0, ev.event_index,
+                        0, 0,
                     );
                 });
             });

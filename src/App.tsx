@@ -135,6 +135,8 @@ function App() {
     setSelectedInput,
     playNote,
     stopNote,
+    sendCC,
+    sendPitchBend,
     stopAllNotes,
   } = useMidi({
     onStart: () => playExternalRef.current(),
@@ -181,6 +183,18 @@ function App() {
         pendingTimeouts.current.add(id);
       };
 
+      // Send CC (mod wheel, CC#1) if value is non-zero
+      if (extras?.ccValue !== undefined) {
+        const ccVal = Math.max(0, Math.min(127, extras.ccValue));
+        scheduleNote(() => sendCC(1, ccVal, midiChannel), noteDelayMs);
+      }
+
+      // Send pitch bend if value is non-zero (map -100..+100 to -1..+1)
+      if (extras?.pitchBend !== undefined) {
+        const pbNormalized = Math.max(-1, Math.min(1, extras.pitchBend / 100));
+        scheduleNote(() => sendPitchBend(pbNormalized, midiChannel), noteDelayMs);
+      }
+
       if (flamCount > 0) {
         const flamVelocity = Math.round(velocity * 0.6);
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
@@ -192,7 +206,7 @@ function App() {
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
       }
     },
-    [playNote, stopNote]
+    [playNote, stopNote, sendCC, sendPitchBend]
   );
 
   const handleNoteOff = useCallback(

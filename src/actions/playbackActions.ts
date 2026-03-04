@@ -10,6 +10,8 @@ import {
 export interface StepTriggerExtras {
   timingOffsetPercent?: number; // Fixed micro-timing offset as % of step (signed)
   flamCount?: number;            // Number of flam grace notes (0 = none)
+  ccValue?: number;              // MIDI CC value (0-127), sent on CC#1 (mod wheel)
+  pitchBend?: number;            // Pitch bend value (-100 to +100, scaled to MIDI range)
 }
 
 // WASM engine reference (set from App.tsx when engine loads)

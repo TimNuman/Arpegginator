@@ -108,9 +108,9 @@ async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmMo
   return new RustWasmAdapter(instance);
 }
 
-// Rust enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5
+// Rust enum SubModeId: SM_VELOCITY=0, SM_HIT=1, SM_TIMING=2, SM_FLAM=3, SM_MODULATE=4, SM_INVERSION=5, SM_CC=6, SM_PITCHBEND=7
 const SUB_MODE_NAME_TO_ID: Record<string, number> = {
-  velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4, inversion: 5,
+  velocity: 0, hit: 1, timing: 2, flam: 3, modulate: 4, inversion: 5, cc: 6, pitchBend: 7,
 };
 
 export class WasmEngine {
@@ -243,12 +243,14 @@ export class WasmEngine {
 
     // Build callback table
     const callbacks = {
-      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number) => {
+      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number, ccVal: number, pitchBend: number) => {
         if (!this.onStepTrigger) return;
         const extras: StepTriggerExtras = {};
         if (timing !== 0) extras.timingOffsetPercent = timing;
         if (flam > 0) extras.flamCount = flam;
-        const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined;
+        if (ccVal !== 0) extras.ccValue = ccVal;
+        if (pitchBend !== 0) extras.pitchBend = pitchBend;
+        const hasExtras = extras.timingOffsetPercent !== undefined || extras.flamCount !== undefined || extras.ccValue !== undefined || extras.pitchBend !== undefined;
         this.onStepTrigger(ch, note, tick, len, vel, hasExtras ? extras : undefined);
       },
       noteOff: (ch: number, note: number) => {
@@ -475,9 +477,9 @@ export class WasmEngine {
 
       // Read sub-mode handles and dereference via pool
       const handlesBase = ptr + this.fieldOffsets[6];
-      const SM_DEFAULT_VALUES = [100, 100, 0, 0, 0, 0];
+      const SM_DEFAULT_VALUES = [100, 100, 0, 0, 0, 0, 0, 0];
       const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
-      for (let sm = 0; sm < 6; sm++) {
+      for (let sm = 0; sm < 8; sm++) {
         const handle = view.getUint16(handlesBase + sm * 2, true);
         if (handle === this.poolHandleNone) {
           subModeArrays.push({ values: [SM_DEFAULT_VALUES[sm]], loopMode: 'reset' });
@@ -521,6 +523,10 @@ export class WasmEngine {
         modulateLoopMode: subModeArrays[4].loopMode,
         inversion: subModeArrays[5].values,
         inversionLoopMode: subModeArrays[5].loopMode,
+        cc: subModeArrays[6].values,
+        ccLoopMode: subModeArrays[6].loopMode,
+        pitchBend: subModeArrays[7].values,
+        pitchBendLoopMode: subModeArrays[7].loopMode,
         chordAmount: mod.HEAPU8[ptr + this.fieldOffsets[7]],
         chordSpace: mod.HEAPU8[ptr + this.fieldOffsets[8]],
         chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),

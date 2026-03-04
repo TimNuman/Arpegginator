@@ -183,6 +183,25 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
     []
   );
 
+  const sendCC = useCallback(
+    (cc: number, value: number, channel = 1) => {
+      if (selectedOutput) {
+        selectedOutput.channels[channel].sendControlChange(cc, value);
+      }
+    },
+    [selectedOutput]
+  );
+
+  const sendPitchBend = useCallback(
+    (value: number, channel = 1) => {
+      if (selectedOutput) {
+        // value is -1 to +1 range for webmidi
+        selectedOutput.channels[channel].sendPitchBend(value);
+      }
+    },
+    [selectedOutput]
+  );
+
   const stopAllNotes = useCallback(() => {
     if (selectedOutput) {
       for (let ch = 1; ch <= 16; ch++) {
@@ -222,6 +241,8 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
     setSelectedInput: selectInput,
     playNote,
     stopNote,
+    sendCC,
+    sendPitchBend,
     stopAllNotes,
   };
 };
