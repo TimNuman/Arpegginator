@@ -279,7 +279,8 @@ export class WasmEngine {
       },
     };
 
-    this.module = await loadRustWasm(callbacks);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.module = await loadRustWasm(callbacks as Record<string, (...args: any[]) => unknown>);
 
     // Wire cwrap bindings (identical for both engine types)
     const cw = (name: string, ret: string | null, args: string[]) =>
