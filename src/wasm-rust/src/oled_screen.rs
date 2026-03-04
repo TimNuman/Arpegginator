@@ -617,7 +617,30 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let s_buf = tick_to_beat_display(loop_data.start);
     let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
     let loop_str = format!("{}-{}", s_buf, e_buf);
-    draw_labeled_row(if is_drum { ROW_Y[2] } else { ROW_Y[1] }, "LOOP", &loop_str, OLED_CYAN);
+    let loop_row = if is_drum { ROW_Y[2] } else { ROW_Y[1] };
+    draw_labeled_row(loop_row, "LOOP", &loop_str, OLED_CYAN);
+
+    // Row 3: current key/scale (non-drum only)
+    if !is_drum {
+        let root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
+        let scale_name = engine_get_scale_name_str(s);
+        let key_str = format!("{} {}", root_name, scale_name);
+        draw_labeled_row(ROW_Y[2], "KEY", &key_str, OLED_CYAN);
+    }
+
+    // Song position row
+    if s.global_step_count > 0 {
+        let pos_str = if s.current_tick >= 0 {
+            let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+            let song_tick = mod_positive(s.current_tick, total_song_ticks);
+            let bar = song_tick / (TICKS_PER_QUARTER * 4) + 1;
+            let beat = (song_tick % (TICKS_PER_QUARTER * 4)) / TICKS_PER_QUARTER + 1;
+            format!("{}.{}", bar, beat)
+        } else {
+            format!("1.1")
+        };
+        draw_labeled_row(ROW_Y[3], "SONG", &pos_str, OLED_CYAN);
+    }
 }
 
 // ============ Chord name (simplified inline version for screen rendering) ============

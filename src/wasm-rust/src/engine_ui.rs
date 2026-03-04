@@ -712,7 +712,9 @@ fn render_global_mode(s: &mut EngineState) {
     let total_cols = if total_song_ticks > 0 && tpc > 0 {
         (total_song_ticks + tpc - 1) / tpc
     } else { 0 };
-    let max_col_offset = (total_cols - VISIBLE_COLS as i32).max(0);
+    // Wrapped view: 8 rows x 16 cols = 128 cells. Only scroll if more cells needed.
+    let total_cells = (VISIBLE_ROWS * VISIBLE_COLS) as i32;
+    let max_col_offset = (total_cols - total_cells).max(0);
     let start_col = if max_col_offset > 0 {
         (s.global_col_offset * max_col_offset as f32 + 0.5).min(max_col_offset as f32).max(0.0) as i32
     } else { 0 };
