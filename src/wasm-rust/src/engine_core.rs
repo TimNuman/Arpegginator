@@ -569,6 +569,25 @@ pub fn note_to_midi(row: i16, s: &EngineState) -> i8 {
     }
 }
 
+/// Inverse of note_to_midi: given a MIDI pitch, find the row in the current scale.
+/// If the exact MIDI note is not in the scale, finds the nearest scale note.
+pub fn midi_to_row(midi: i8, s: &EngineState) -> i16 {
+    if midi < 0 || s.scale_count == 0 { return 0; }
+    let target = midi as u8;
+    // Binary search or linear scan for exact match
+    let mut best_idx: usize = 0;
+    let mut best_dist: i32 = i32::MAX;
+    for i in 0..s.scale_count as usize {
+        let dist = (s.scale_notes[i] as i32 - target as i32).abs();
+        if dist < best_dist {
+            best_dist = dist;
+            best_idx = i;
+            if dist == 0 { break; }
+        }
+    }
+    best_idx as i16 - s.scale_zero_index as i16
+}
+
 // ============ Scale Definitions ============
 
 static SCALE_PATTERNS: [[u8; 12]; NUM_SCALES] = [
@@ -1222,16 +1241,19 @@ fn apply_global_automation(s: &mut EngineState, tick: i32) {
     if let Some(idx) = found_idx {
         let gs = s.global_steps[idx];
         if gs.scale_root != s.scale_root || gs.scale_id_idx != s.scale_id_idx {
-            // Compute row offset to compensate: find where the new root sits in the current scale
-            let new_root_midi = (60 + gs.scale_root as u16) as u8;
+            // Like engine_cycle_scale_root: find new root (or closest note) in current
+            // scale, compute row offset, shift all melodic notes to preserve pitch.
+            let new_root_midi = (60 + gs.scale_root) as u8;
             let offset = (0..s.scale_count as usize)
-                .find(|&i| s.scale_notes[i] == new_root_midi)
+                .min_by_key(|&i| (s.scale_notes[i] as i32 - new_root_midi as i32).abs())
                 .map(|i| i as i16 - s.scale_zero_index as i16)
                 .unwrap_or(0);
 
-            // Shift all melodic notes by -offset to keep original pitches
+            // Shift all melodic note rows by -offset to keep original pitches
             (0..NUM_CHANNELS).for_each(|ch| {
-                if s.channel_types[ch] == ChannelType::Drum as u8 { return; }
+                if s.channel_types[ch] == ChannelType::Drum as u8 {
+                    return;
+                }
                 (0..NUM_PATTERNS).for_each(|pat| {
                     let ec = s.patterns[ch][pat].event_count as usize;
                     (0..ec).for_each(|e| {
