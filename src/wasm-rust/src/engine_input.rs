@@ -955,7 +955,20 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
                 engine_remove_event(s, s.selected_event_idx as u16);
             }
         }
-        ACTION_CLEAR_PATTERN => { engine_clear_pattern(s); }
+        ACTION_CLEAR_PATTERN => {
+            if s.ui_mode == UiMode::Global as u8 {
+                // Clear the global song: reset step count, deselect, reset all steps
+                s.global_step_count = DEFAULT_GLOBAL_STEPS as u16;
+                s.global_selected_step = -1;
+                s.global_steps[0] = GlobalStep { scale_root: 0, scale_id_idx: 0, active: 1 };
+                (1..MAX_GLOBAL_STEPS).for_each(|i| {
+                    s.global_steps[i] = GlobalStep::default();
+                });
+                engine_mark_dirty(s, s.current_channel);
+            } else {
+                engine_clear_pattern(s);
+            }
+        }
         _ => {}
     }
 }

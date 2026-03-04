@@ -5,7 +5,7 @@ import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
 import { WasmEngine } from './engine/WasmEngine';
 import { useMidi } from './hooks/useMidi';
-import { useRenderVersion, getIsPlaying, getIsExternalPlayback, getBpm } from './store/renderStore';
+import { useRenderVersion, getIsPlaying, getIsExternalPlayback, getBpm, markDirty } from './store/renderStore';
 import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
 import { TICKS_PER_QUARTER } from './types/event';
@@ -283,8 +283,11 @@ function App() {
   }, [stopAllNotes]);
 
   const handleClear = useCallback(() => {
-    actions.clearPattern();
-  }, []);
+    if (wasmEngine) {
+      wasmEngine.keyAction(5); // ACTION_CLEAR_PATTERN
+      markDirty();
+    }
+  }, [wasmEngine]);
 
   const handleSetBpm = useCallback((newBpm: number) => {
     actions.setBpm(newBpm);
