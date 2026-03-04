@@ -102,7 +102,8 @@ async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmMo
     },
   };
 
-  const response = await fetch('/wasm-rust/engine.wasm');
+  const base = import.meta.env.BASE_URL ?? '/';
+  const response = await fetch(`${base}wasm-rust/engine.wasm`);
   const { instance } = await WebAssembly.instantiateStreaming(response, importObject);
   return new RustWasmAdapter(instance);
 }
