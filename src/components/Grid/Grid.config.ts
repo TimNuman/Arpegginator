@@ -100,3 +100,11 @@ export const SUB_MODE_CONFIG: Record<ModifySubMode, { label: string }> = {
 
 // Loop mode names (index = C enum value)
 export const LOOP_MODE_NAMES = ["reset", "continue", "fill"] as const;
+
+// Clock mode names (index = C enum value)
+export const CLOCK_MODE_NAMES = ["hit", "clock"] as const;
+export type ClockMode = (typeof CLOCK_MODE_NAMES)[number];
+
+// Clock trigger names (index = C enum value)
+export const CLOCK_TRIGGER_NAMES = ["free", "note", "loop"] as const;
+export type ClockTrigger = (typeof CLOCK_TRIGGER_NAMES)[number];

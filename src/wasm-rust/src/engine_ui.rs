@@ -58,24 +58,26 @@ pub fn engine_get_default_modify_scroll(levels: &[i16], count: u8, render_style:
 
 // ============ Helpers ============
 
-fn resolve_render_sub_mode(s: &EngineState, ev: &NoteEvent, sm: usize, repeat_idx: u16, channel: u8) -> i16 {
+fn resolve_render_sub_mode(s: &EngineState, ev: &NoteEvent, sm: usize, repeat_idx: u16, channel: u8, channel_tick: i32, loop_start: i32) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
-    resolve_render_sub_mode_inline(arr, repeat_idx, s.counter_snapshots[sm][channel as usize][(ev.event_index as usize) % MAX_EVENTS])
+    let snapshot = s.counter_snapshots[sm][channel as usize][(ev.event_index as usize) % MAX_EVENTS];
+    resolve_render_sub_mode_inline(arr, repeat_idx, snapshot, channel_tick, ev.position, loop_start)
 }
 
 /// Variant that works with a pre-extracted SubModeArray and counter snapshot, avoiding borrow conflicts
-fn resolve_render_sub_mode_inline(arr: &SubModeArray, repeat_idx: u16, snapshot: u16) -> i16 {
+fn resolve_render_sub_mode_inline(arr: &SubModeArray, repeat_idx: u16, snapshot: u16, channel_tick: i32, ev_position: i32, loop_start: i32) -> i16 {
     if arr.length == 0 { return arr.values[0]; }
+    let idx = compute_sub_mode_index(arr, repeat_idx, channel_tick, ev_position, loop_start);
     match arr.mode() {
         LoopMode::Fill => {
-            let idx = repeat_idx.min(arr.length as u16 - 1);
-            arr.values[idx as usize]
+            arr.values[idx.min(arr.length as u16 - 1) as usize]
         },
         LoopMode::Continue => {
-            arr.values[((snapshot + repeat_idx) % arr.length as u16) as usize]
+            let effective = if arr.clock_mode == CLOCK_TIMED { idx } else { snapshot + repeat_idx };
+            arr.values[(effective % arr.length as u16) as usize]
         },
         LoopMode::Reset => {
-            arr.values[(repeat_idx % arr.length as u16) as usize]
+            arr.values[(idx % arr.length as u16) as usize]
         },
     }
 }
@@ -167,14 +169,16 @@ pub fn engine_render_events(
                 pos = mod_positive(pos, pat.length_ticks);
             }
 
+            let ev_tick = ev.position + r as i32 * ev.repeat_space;
+            let ls = s.loops[channel as usize][pattern as usize].start;
             let mod_offset = if ev.sub_mode_handles[SubModeId::Modulate as usize] != POOL_HANDLE_NONE {
-                resolve_render_sub_mode(s, ev, SubModeId::Modulate as usize, r, channel)
+                resolve_render_sub_mode(s, ev, SubModeId::Modulate as usize, r, channel, ev_tick, ls)
             } else {
                 0
             };
 
             let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
-                resolve_render_sub_mode(s, ev, SubModeId::Inversion as usize, r, channel) as i8
+                resolve_render_sub_mode(s, ev, SubModeId::Inversion as usize, r, channel, ev_tick, ls) as i8
             } else {
                 0
             };
@@ -324,7 +328,8 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     // Pre-extract event data to avoid borrow conflict (patterns vs active_notes/button_values)
     let event_count = s.patterns[ch][pat].event_count as usize;
     let mut ev_indexes = [0u16; MAX_EVENTS];
-    // Heap-allocate to avoid ~50KB stack usage (128 events × 6 sub-modes × 66 bytes)
+    let mut ev_positions = [0i32; MAX_EVENTS];
+    // Heap-allocate to avoid ~50KB stack usage (128 events × 8 sub-modes × ~69 bytes)
     let mut ev_sub_modes = alloc::vec![[SubModeArray::default(); NUM_SUB_MODES]; MAX_EVENTS];
     let mut ev_hit_snapshots = [0u16; MAX_EVENTS];
     let mut ev_vel_snapshots = [0u16; MAX_EVENTS];
@@ -333,6 +338,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
         let ev = &s.event_pool.slots[h as usize];
         let ev_idx = ev.event_index;
         ev_indexes[i] = ev_idx;
+        ev_positions[i] = ev.position;
         for sm in 0..NUM_SUB_MODES {
             ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
         }
@@ -405,7 +411,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 let src_sub_modes = &ev_sub_modes[rn.source_idx as usize];
 
                 let hit_sm = &src_sub_modes[SubModeId::Hit as usize];
-                let hit_chance = resolve_render_sub_mode_inline(hit_sm, rn.repeat_index, ev_hit_snapshots[rn.source_idx as usize]);
+                let hit_chance = resolve_render_sub_mode_inline(hit_sm, rn.repeat_index, ev_hit_snapshots[rn.source_idx as usize], rn.position, ev_positions[rn.source_idx as usize], lp_start);
                 value = if hit_chance >= 75 { BTN_COLOR_100 }
                     else if hit_chance >= 50 { BTN_COLOR_50 }
                     else { BTN_COLOR_25 };
@@ -423,7 +429,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 }
 
                 let vel_sm = &src_sub_modes[SubModeId::Velocity as usize];
-                let vel = resolve_render_sub_mode_inline(vel_sm, rn.repeat_index, ev_vel_snapshots[rn.source_idx as usize]);
+                let vel = resolve_render_sub_mode_inline(vel_sm, rn.repeat_index, ev_vel_snapshots[rn.source_idx as usize], rn.position, ev_positions[rn.source_idx as usize], lp_start);
                 color = velocity_color_blend(ch_color, vel);
             } else {
                 // Off-screen indicators

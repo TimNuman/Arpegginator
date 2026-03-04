@@ -164,6 +164,8 @@ fn get_drum_name(midi: i8) -> alloc::string::String {
 
 static SUB_MODE_LABELS: [&str; 8] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV", "CC", "PB"];
 static LOOP_MODE_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
+static CLOCK_MODE_LABELS: [&str; 2] = ["HIT", "CLK"];
+static CLOCK_TRIGGER_LABELS: [&str; 3] = ["FREE", "NOTE", "LOOP"];
 static ARP_STYLE_NAMES: [&str; 9] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U"];
 static INTERVAL_NAMES: [&str; 12] = [
     "unison", "min 2nd", "2nd", "min 3rd", "3rd", "4th",
@@ -522,11 +524,20 @@ fn render_modify(s: &EngineState, mods: u8) {
         ];
         draw_segments(VALUE_X, ROW_Y[0], &row0);
 
-        // Row 1: loop mode + length
+        // Row 1: loop mode + length + clock info
+        let clock_mode = sm_arr.clock_mode;
+        let clock_label = CLOCK_MODE_LABELS.get(clock_mode as usize).unwrap_or(&"HIT");
         let len_buf = format!(" L{}", arr_len);
+        let clock_buf = if clock_mode == CLOCK_TIMED {
+            let trig_label = CLOCK_TRIGGER_LABELS.get(sm_arr.clock_trigger as usize).unwrap_or(&"FREE");
+            format!(" {} {}t {}", clock_label, sm_arr.clock_speed, trig_label)
+        } else {
+            format!(" {}", clock_label)
+        };
         let row1 = [
             Segment { text: loop_label, color: if !m_meta { OLED_RED } else { OLED_CYAN } },
             Segment { text: &len_buf, color: if !m_meta { OLED_YELLOW } else { OLED_CYAN } },
+            Segment { text: &clock_buf, color: OLED_DIM },
         ];
         draw_segments(VALUE_X, ROW_Y[1], &row1);
 

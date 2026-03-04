@@ -486,6 +486,45 @@ pub extern "C" fn engine_toggle_sub_mode_loop_mode_export(event_idx: u16, sub_mo
 }
 
 #[no_mangle]
+pub extern "C" fn engine_set_sub_mode_clock_mode_export(event_idx: u16, sub_mode: u8, clock_mode: u8) {
+    engine_edit::engine_set_sub_mode_clock_mode(state(), event_idx, sub_mode, clock_mode);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_set_sub_mode_clock_speed_export(event_idx: u16, sub_mode: u8, speed: u8) {
+    engine_edit::engine_set_sub_mode_clock_speed(state(), event_idx, sub_mode, speed);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_set_sub_mode_clock_trigger_export(event_idx: u16, sub_mode: u8, trigger: u8) {
+    engine_edit::engine_set_sub_mode_clock_trigger(state(), event_idx, sub_mode, trigger);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_sel_sub_mode_clock_mode(sm: u8) -> u8 {
+    let s = state_ref();
+    get_selected_event()
+        .filter(|_| (sm as usize) < NUM_SUB_MODES)
+        .map_or(0, |ev| get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm as usize).clock_mode)
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_sel_sub_mode_clock_speed(sm: u8) -> u8 {
+    let s = state_ref();
+    get_selected_event()
+        .filter(|_| (sm as usize) < NUM_SUB_MODES)
+        .map_or(12, |ev| get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm as usize).clock_speed)
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_sel_sub_mode_clock_trigger(sm: u8) -> u8 {
+    let s = state_ref();
+    get_selected_event()
+        .filter(|_| (sm as usize) < NUM_SUB_MODES)
+        .map_or(0, |ev| get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm as usize).clock_trigger)
+}
+
+#[no_mangle]
 pub extern "C" fn engine_adjust_chord_stack_export(event_idx: u16, direction: i8) {
     engine_edit::engine_adjust_chord_stack(state(), event_idx, direction);
 }

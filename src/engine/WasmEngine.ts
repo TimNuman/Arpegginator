@@ -191,6 +191,12 @@ export class WasmEngine {
   private _getSelArpVoices!: () => number;
   private _getSelSubModeLoopMode!: (sm: number) => number;
   private _getSelSubModeArrayLength!: (sm: number) => number;
+  private _getSelSubModeClockMode!: (sm: number) => number;
+  private _getSelSubModeClockSpeed!: (sm: number) => number;
+  private _getSelSubModeClockTrigger!: (sm: number) => number;
+  private _setSubModeClockMode!: (eventIdx: number, sm: number, mode: number) => void;
+  private _setSubModeClockSpeed!: (eventIdx: number, sm: number, speed: number) => void;
+  private _setSubModeClockTrigger!: (eventIdx: number, sm: number, trigger: number) => void;
   private _getChordName!: () => number;
 
   // Current pattern/loop getters
@@ -339,6 +345,12 @@ export class WasmEngine {
     this._getSelArpVoices = cw('engine_get_sel_arp_voices', 'number', []);
     this._getSelSubModeLoopMode = cw('engine_get_sel_sub_mode_loop_mode', 'number', ['number']);
     this._getSelSubModeArrayLength = cw('engine_get_sel_sub_mode_array_length', 'number', ['number']);
+    this._getSelSubModeClockMode = cw('engine_get_sel_sub_mode_clock_mode', 'number', ['number']);
+    this._getSelSubModeClockSpeed = cw('engine_get_sel_sub_mode_clock_speed', 'number', ['number']);
+    this._getSelSubModeClockTrigger = cw('engine_get_sel_sub_mode_clock_trigger', 'number', ['number']);
+    this._setSubModeClockMode = cw('engine_set_sub_mode_clock_mode_export', null, ['number', 'number', 'number']);
+    this._setSubModeClockSpeed = cw('engine_set_sub_mode_clock_speed_export', null, ['number', 'number', 'number']);
+    this._setSubModeClockTrigger = cw('engine_set_sub_mode_clock_trigger_export', null, ['number', 'number', 'number']);
     this._getChordName = cw('engine_get_chord_name', 'number', []);
 
     // Current pattern/loop getters
@@ -478,23 +490,31 @@ export class WasmEngine {
       // Read sub-mode handles and dereference via pool
       const handlesBase = ptr + this.fieldOffsets[6];
       const SM_DEFAULT_VALUES = [100, 100, 0, 0, 0, 0, 0, 0];
-      const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
+      // SubModeArray layout: values[64 bytes] + length(u8) + loop_mode(u8) + clock_mode(u8) + clock_speed(u8) + clock_trigger(u8)
+      const SM_LENGTH_OFFSET = 64;  // MAX_SUB_MODE_LEN * 2
+      const SM_LOOP_MODE_OFFSET = 65;
+      const SM_CLOCK_MODE_OFFSET = 66;
+      const SM_CLOCK_SPEED_OFFSET = 67;
+      const SM_CLOCK_TRIGGER_OFFSET = 68;
+      const subModeArrays: { values: number[]; loopMode: VelocityLoopMode; clockMode: number; clockSpeed: number; clockTrigger: number }[] = [];
       for (let sm = 0; sm < 8; sm++) {
         const handle = view.getUint16(handlesBase + sm * 2, true);
         if (handle === this.poolHandleNone) {
-          subModeArrays.push({ values: [SM_DEFAULT_VALUES[sm]], loopMode: 'reset' });
+          subModeArrays.push({ values: [SM_DEFAULT_VALUES[sm]], loopMode: 'reset', clockMode: 0, clockSpeed: 12, clockTrigger: 0 });
         } else {
           const arrBase = this.poolBasePtr + handle * this.subModeArraySize;
-          const lenOffset = this.subModeArraySize - 2;
-          const len = mod.HEAPU8[arrBase + lenOffset];
+          const len = mod.HEAPU8[arrBase + SM_LENGTH_OFFSET];
           const values: number[] = [];
           for (let j = 0; j < len; j++) {
             values.push(view.getInt16(arrBase + j * 2, true));
           }
-          const loopModeVal = mod.HEAPU8[arrBase + lenOffset + 1];
+          const loopModeVal = mod.HEAPU8[arrBase + SM_LOOP_MODE_OFFSET];
           subModeArrays.push({
             values,
             loopMode: LOOP_MODE_REVERSE[loopModeVal] ?? 'reset',
+            clockMode: mod.HEAPU8[arrBase + SM_CLOCK_MODE_OFFSET],
+            clockSpeed: mod.HEAPU8[arrBase + SM_CLOCK_SPEED_OFFSET],
+            clockTrigger: mod.HEAPU8[arrBase + SM_CLOCK_TRIGGER_OFFSET],
           });
         }
       }
@@ -732,6 +752,12 @@ export class WasmEngine {
   getSelArpVoices(): number { return this._getSelArpVoices(); }
   getSelSubModeLoopMode(sm: number): number { return this._getSelSubModeLoopMode(sm); }
   getSelSubModeArrayLength(sm: number): number { return this._getSelSubModeArrayLength(sm); }
+  getSelSubModeClockMode(sm: number): number { return this._getSelSubModeClockMode(sm); }
+  getSelSubModeClockSpeed(sm: number): number { return this._getSelSubModeClockSpeed(sm); }
+  getSelSubModeClockTrigger(sm: number): number { return this._getSelSubModeClockTrigger(sm); }
+  setSubModeClockMode(eventIdx: number, sm: number, mode: number) { this._setSubModeClockMode(eventIdx, sm, mode); }
+  setSubModeClockSpeed(eventIdx: number, sm: number, speed: number) { this._setSubModeClockSpeed(eventIdx, sm, speed); }
+  setSubModeClockTrigger(eventIdx: number, sm: number, trigger: number) { this._setSubModeClockTrigger(eventIdx, sm, trigger); }
   getChordName(): string {
     const ptr = this._getChordName();
     return this.module!.UTF8ToString(ptr);

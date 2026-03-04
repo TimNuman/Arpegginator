@@ -141,6 +141,15 @@ impl UiMode {
     }
 }
 
+// Clock modes for sub-mode array progression
+pub const CLOCK_HIT: u8 = 0;   // Advance per note hit (default, current behavior)
+pub const CLOCK_TIMED: u8 = 1; // Advance by ticks at clock_speed rate
+
+// Clock trigger modes (when timed clock resets its phase)
+pub const CLOCK_TRIGGER_FREE: u8 = 0;  // Runs from transport start, never resets
+pub const CLOCK_TRIGGER_NOTE: u8 = 1;  // Anchored to event's base position
+pub const CLOCK_TRIGGER_LOOP: u8 = 2;  // Resets at each loop iteration start
+
 // ============ Data Structures ============
 
 #[derive(Clone, Copy)]
@@ -148,7 +157,10 @@ impl UiMode {
 pub struct SubModeArray {
     pub values: [i16; MAX_SUB_MODE_LEN],
     pub length: u8,
-    pub loop_mode: u8, // LoopMode as u8
+    pub loop_mode: u8,     // LoopMode as u8
+    pub clock_mode: u8,    // CLOCK_HIT or CLOCK_TIMED
+    pub clock_speed: u8,   // Ticks per array step (when timed), 1-255
+    pub clock_trigger: u8, // CLOCK_TRIGGER_FREE / NOTE / LOOP
 }
 
 impl Default for SubModeArray {
@@ -157,6 +169,9 @@ impl Default for SubModeArray {
             values: [0; MAX_SUB_MODE_LEN],
             length: 1,
             loop_mode: LoopMode::Reset as u8,
+            clock_mode: CLOCK_HIT,
+            clock_speed: 12, // default: 32nd note at 48 PPQ
+            clock_trigger: CLOCK_TRIGGER_FREE,
         }
     }
 }
@@ -212,7 +227,10 @@ pub fn pool_free_event_handles(pool: &mut SubModePool, handles: &mut [u16; NUM_S
 }
 
 const fn make_sm_default(val: i16) -> SubModeArray {
-    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 0 };
+    let mut a = SubModeArray {
+        values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 0,
+        clock_mode: CLOCK_HIT, clock_speed: 12, clock_trigger: CLOCK_TRIGGER_FREE,
+    };
     a.values[0] = val;
     a
 }
@@ -660,29 +678,48 @@ pub fn engine_get_scale_name_str(s: &EngineState) -> &'static str {
 
 // ============ Sub-Mode Resolution ============
 
+/// Compute the effective array index for a sub-mode, supporting both hit-based and timed progression.
+/// For hit-based (CLOCK_HIT): uses repeat_index directly.
+/// For timed (CLOCK_TIMED): uses elapsed ticks / clock_speed.
+pub fn compute_sub_mode_index(arr: &SubModeArray, repeat_index: u16, channel_tick: i32, ev_position: i32, loop_start: i32) -> u16 {
+    if arr.clock_mode == CLOCK_TIMED && arr.clock_speed > 0 {
+        let elapsed = match arr.clock_trigger {
+            CLOCK_TRIGGER_NOTE => (channel_tick - ev_position).max(0),
+            CLOCK_TRIGGER_LOOP => (channel_tick - loop_start).max(0),
+            _ /* FREE */ => channel_tick.max(0),
+        };
+        (elapsed / arr.clock_speed as i32) as u16
+    } else {
+        repeat_index
+    }
+}
+
 fn resolve_sub_mode(
     s: &mut EngineState,
     ev: &NoteEvent,
     sm: usize,
     repeat_index: u16,
     channel: u8,
+    channel_tick: i32,
+    loop_start: i32,
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let len = arr.length as u16;
+    let idx = compute_sub_mode_index(arr, repeat_index, channel_tick, ev.position, loop_start);
     match arr.mode() {
         LoopMode::Continue => {
-            let idx = (ev.event_index as usize) % MAX_EVENTS;
-            let count = s.continue_counters[sm][channel as usize][idx];
-            let val = arr.values[(count % len) as usize];
-            s.continue_counters[sm][channel as usize][idx] = count + 1;
+            let eidx = (ev.event_index as usize) % MAX_EVENTS;
+            let count = s.continue_counters[sm][channel as usize][eidx];
+            let effective = if arr.clock_mode == CLOCK_TIMED { idx } else { count };
+            let val = arr.values[(effective % len) as usize];
+            s.continue_counters[sm][channel as usize][eidx] = count + 1;
             val
         }
         LoopMode::Fill => {
-            let idx = repeat_index.min(len - 1);
-            arr.values[idx as usize]
+            arr.values[idx.min(len - 1) as usize]
         }
         LoopMode::Reset => {
-            arr.values[(repeat_index % len) as usize]
+            arr.values[(idx % len) as usize]
         }
     }
 }
@@ -693,20 +730,23 @@ pub fn resolve_sub_mode_preview(
     sm: usize,
     repeat_index: u16,
     channel: u8,
+    channel_tick: i32,
+    loop_start: i32,
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let len = arr.length as u16;
+    let idx = compute_sub_mode_index(arr, repeat_index, channel_tick, ev.position, loop_start);
     match arr.mode() {
         LoopMode::Continue => {
             let snapshot = s.counter_snapshots[sm][channel as usize][(ev.event_index as usize) % MAX_EVENTS];
-            arr.values[((snapshot + repeat_index) % len) as usize]
+            let effective = if arr.clock_mode == CLOCK_TIMED { idx } else { snapshot + repeat_index };
+            arr.values[(effective % len) as usize]
         }
         LoopMode::Fill => {
-            let idx = repeat_index.min(len - 1);
-            arr.values[idx as usize]
+            arr.values[idx.min(len - 1) as usize]
         }
         LoopMode::Reset => {
-            arr.values[(repeat_index % len) as usize]
+            arr.values[(idx % len) as usize]
         }
     }
 }
@@ -1017,7 +1057,7 @@ fn compute_preview_for_channel(s: &mut EngineState, ch: u8) {
             (0..ev.repeat_amount).for_each(|r| {
                 let ev_tick = ev.position + r as i32 * ev.repeat_space;
                 if ev_tick < loop_data.start || ev_tick >= loop_end { return; }
-                let val = resolve_sub_mode_preview(s, ev, sm, r, ch);
+                let val = resolve_sub_mode_preview(s, ev, sm, r, ch, ev_tick, loop_data.start);
                 crate::platform_preview_value(sm as u8, ch, ev.event_index, ev_tick, val);
             });
         });
@@ -1151,23 +1191,24 @@ pub fn engine_core_tick(s: &mut EngineState) {
                     if ev_tick >= s.patterns[ch as usize][pat_idx as usize].length_ticks { return; }
                     if ev_tick != channel_tick { return; }
 
-                    let velocity = resolve_sub_mode(s, &ev, 0, r, ch);
-                    let chance = resolve_sub_mode(s, &ev, 1, r, ch);
-                    let timing = resolve_sub_mode(s, &ev, 2, r, ch);
-                    let flam_prob = resolve_sub_mode(s, &ev, 3, r, ch);
-                    let mod_val = resolve_sub_mode(s, &ev, 4, r, ch);
+                    let ls = loop_data.start;
+                    let velocity = resolve_sub_mode(s, &ev, 0, r, ch, channel_tick, ls);
+                    let chance = resolve_sub_mode(s, &ev, 1, r, ch, channel_tick, ls);
+                    let timing = resolve_sub_mode(s, &ev, 2, r, ch, channel_tick, ls);
+                    let flam_prob = resolve_sub_mode(s, &ev, 3, r, ch, channel_tick, ls);
+                    let mod_val = resolve_sub_mode(s, &ev, 4, r, ch, channel_tick, ls);
 
                     if chance < 100 && (engine_random(s) % 100) >= chance as u32 { return; }
 
                     let flam_count = if flam_prob > 0 && (engine_random(s) % 100) < flam_prob as u32 { 1u8 } else { 0u8 };
 
                     let cc_val = if ev.sub_mode_handles[SubModeId::CC as usize] != POOL_HANDLE_NONE {
-                        resolve_sub_mode(s, &ev, SubModeId::CC as usize, r, ch)
+                        resolve_sub_mode(s, &ev, SubModeId::CC as usize, r, ch, channel_tick, ls)
                     } else {
                         0
                     };
                     let pitch_bend = if ev.sub_mode_handles[SubModeId::PitchBend as usize] != POOL_HANDLE_NONE {
-                        resolve_sub_mode(s, &ev, SubModeId::PitchBend as usize, r, ch)
+                        resolve_sub_mode(s, &ev, SubModeId::PitchBend as usize, r, ch, channel_tick, ls)
                     } else {
                         0
                     };
@@ -1175,7 +1216,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
                     let effective_row = ev.row + mod_val;
 
                     let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
-                        resolve_sub_mode(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
+                        resolve_sub_mode(s, &ev, SubModeId::Inversion as usize, r, ch, channel_tick, ls) as i8
                     } else {
                         0
                     };
@@ -1283,12 +1324,13 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 if ev_tick >= s.patterns[ch as usize][pat_idx as usize].length_ticks { return; }
                 if ev_tick < scan_start || ev_tick > scan_end { return; }
 
-                let velocity = resolve_sub_mode_preview(s, &ev, 0, r, ch);
-                let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, ch);
+                let ls = loop_data.start;
+                let velocity = resolve_sub_mode_preview(s, &ev, 0, r, ch, ev_tick, ls);
+                let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, ch, ev_tick, ls);
                 let effective_row = ev.row + mod_val;
 
                 let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
-                    resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
+                    resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, ch, ev_tick, ls) as i8
                 } else {
                     0
                 };
@@ -1336,11 +1378,12 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 let ev_end = ev_tick + ev.length;
                 if view_looped < ev_tick || view_looped >= ev_end { return; }
 
-                let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, view_ch as u8);
+                let vls = vloop.start;
+                let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, view_ch as u8, ev_tick, vls);
                 let effective_row = ev.row + mod_val;
 
                 let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
-                    resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, view_ch as u8) as i8
+                    resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, view_ch as u8, ev_tick, vls) as i8
                 } else {
                     0
                 };

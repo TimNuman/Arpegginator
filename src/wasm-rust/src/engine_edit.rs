@@ -212,6 +212,39 @@ pub fn engine_toggle_sub_mode_loop_mode(s: &mut EngineState, event_idx: u16, sub
     engine_mark_dirty(s, ch as u8);
 }
 
+pub fn engine_set_sub_mode_clock_mode(s: &mut EngineState, event_idx: u16, sub_mode: u8, clock_mode: u8) {
+    let (ch, pat_idx) = get_current_pattern_indices(s);
+    if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
+
+    let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
+    let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
+    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    arr.clock_mode = clock_mode.min(1);
+    engine_mark_dirty(s, ch as u8);
+}
+
+pub fn engine_set_sub_mode_clock_speed(s: &mut EngineState, event_idx: u16, sub_mode: u8, speed: u8) {
+    let (ch, pat_idx) = get_current_pattern_indices(s);
+    if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
+
+    let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
+    let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
+    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    arr.clock_speed = speed.max(1); // minimum 1 tick per step
+    engine_mark_dirty(s, ch as u8);
+}
+
+pub fn engine_set_sub_mode_clock_trigger(s: &mut EngineState, event_idx: u16, sub_mode: u8, trigger: u8) {
+    let (ch, pat_idx) = get_current_pattern_indices(s);
+    if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
+
+    let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
+    let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
+    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    arr.clock_trigger = trigger.min(2);
+    engine_mark_dirty(s, ch as u8);
+}
+
 // ============ Chord Operations ============
 
 pub fn engine_adjust_chord_stack(s: &mut EngineState, event_idx: u16, direction: i8) {
