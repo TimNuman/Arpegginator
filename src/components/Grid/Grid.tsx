@@ -43,7 +43,6 @@ import {
   ACTION_ZOOM_OUT,
   ACTION_DELETE_NOTE,
   UI_MODE_NAMES,
-  SUB_MODE_NAMES,
   TICKS_TO_SUBDIVISION,
 } from "./Grid.config";
 import {
@@ -93,13 +92,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const uiModeIdx = wasmEngine.getUiMode();
   const uiMode = UI_MODE_NAMES[uiModeIdx] ?? "pattern";
   const isGlobalView = uiModeIdx === 4; // UiMode::Global
-  const modifySubModeIdx = wasmEngine.getModifySubMode();
-  const modifySubMode = SUB_MODE_NAMES[modifySubModeIdx] ?? "velocity";
   const ticksPerCol = isGlobalView ? wasmEngine.getGlobalZoom() : wasmEngine.getZoom();
   const zoom = TICKS_TO_SUBDIVISION[ticksPerCol] ?? "1/16";
-  const scaleRoot = wasmEngine.getScaleRoot();
   const isDrumChannel = !isGlobalView && wasmEngine.getChannelType(currentChannel) === 1;
-  const currentPattern = wasmEngine.getCurrentPattern(currentChannel);
   const loopStart = wasmEngine.getCurrentLoopStart();
   const loopLength = wasmEngine.getCurrentLoopLength();
   const loopEndTick = loopStart + loopLength;

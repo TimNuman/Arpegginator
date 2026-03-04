@@ -43,17 +43,24 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
 
   // Use refs to avoid stale closures in event handlers
   const stateRef = useRef(state);
-  stateRef.current = state;
-
   const onKeyDownRef = useRef(onKeyDown);
-  onKeyDownRef.current = onKeyDown;
-
   const onKeyUpRef = useRef(onKeyUp);
-  onKeyUpRef.current = onKeyUp;
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    onKeyDownRef.current = onKeyDown;
+  }, [onKeyDown]);
+
+  useEffect(() => {
+    onKeyUpRef.current = onKeyUp;
+  }, [onKeyUp]);
 
   useEffect(() => {
     if (!enabled) {
-      // Reset state when disabled
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset when disabled
       setState(createInitialState());
       return;
     }

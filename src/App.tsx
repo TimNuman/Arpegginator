@@ -109,7 +109,7 @@ function App() {
     }).catch((err) => {
       console.warn('WASM engine not available:', err);
     });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentional one-time init
 
   // Subscribe to render version for transport state re-renders
   useRenderVersion();
@@ -225,6 +225,7 @@ function App() {
   useEffect(() => {
     console.log('[startup] Wiring callbacks: wasmEngine=' + !!wasmEngine);
     if (wasmEngine) {
+      // eslint-disable-next-line react-hooks/immutability -- WasmEngine is a mutable class instance
       wasmEngine.onStepTrigger = handleStepTrigger;
       wasmEngine.onNoteOff = handleNoteOff;
       wasmEngine.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {

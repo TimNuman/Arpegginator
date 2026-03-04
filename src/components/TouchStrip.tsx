@@ -37,9 +37,12 @@ export const TouchStrip = memo(({
   const currentValue = useRef(value);
   const animationId = useRef<number | null>(null);
   const onShiftChangeRef = useRef(onShiftChange);
-  onShiftChangeRef.current = onShiftChange;
   const onShiftEndRef = useRef(onShiftEnd);
-  onShiftEndRef.current = onShiftEnd;
+
+  useEffect(() => {
+    onShiftChangeRef.current = onShiftChange;
+    onShiftEndRef.current = onShiftEnd;
+  }, [onShiftChange, onShiftEnd]);
 
   // Calculate how many items can be scrolled
   const scrollableItems = totalItems - visibleItems;

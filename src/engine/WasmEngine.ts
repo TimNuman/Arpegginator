@@ -45,7 +45,7 @@ class RustWasmAdapter implements WasmModule {
   }
 
   cwrap(name: string, _returnType: string | null, argTypes: string[]): (...args: number[]) => number {
-    const fn = this.instance.exports[name] as Function;
+    const fn = this.instance.exports[name] as (...args: unknown[]) => number;
     if (!fn) throw new Error(`WASM export "${name}" not found`);
 
     const hasStringArgs = argTypes.some(t => t === 'string');
@@ -89,7 +89,7 @@ class RustWasmAdapter implements WasmModule {
 }
 
 /** Load the Rust WASM module directly (no Emscripten glue). */
-async function loadRustWasm(callbacks: Record<string, Function>): Promise<WasmModule> {
+async function loadRustWasm(callbacks: Record<string, (...args: unknown[]) => unknown>): Promise<WasmModule> {
   const importObject = {
     env: {
       js_step_trigger: callbacks.stepTrigger ?? (() => {}),
@@ -259,7 +259,7 @@ export class WasmEngine {
 
     // Build callback table
     const callbacks = {
-      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number, _evIdx: number) => {
+      stepTrigger: (ch: number, note: number, tick: number, len: number, vel: number, timing: number, flam: number) => {
         if (!this.onStepTrigger) return;
         const extras: StepTriggerExtras = {};
         if (timing !== 0) extras.timingOffsetPercent = timing;
@@ -270,9 +270,9 @@ export class WasmEngine {
       noteOff: (ch: number, note: number) => {
         this.onNoteOff?.(ch, note);
       },
-      setCurrentTick: (_tick: number) => { markDirty(); },
-      setCurrentPatterns: (_ptr: number) => { markDirty(); },
-      clearQueuedPattern: (_ch: number) => { markDirty(); },
+      setCurrentTick: () => { markDirty(); },
+      setCurrentPatterns: () => { markDirty(); },
+      clearQueuedPattern: () => { markDirty(); },
       previewValue: () => {},
       playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
         this.onPlayPreviewNote?.(ch, row, lengthTicks);
