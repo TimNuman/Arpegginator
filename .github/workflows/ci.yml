@@ -86,6 +86,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_BASE_PATH: /Arpegginator/
 
       - name: Deploy to GitHub Pages (root)
         uses: peaceiris/actions-gh-pages@v4
@@ -138,7 +140,7 @@ jobs:
       - name: Build for subdirectory
         run: npm run build
         env:
-          VITE_BASE_PATH: ./
+          VITE_BASE_PATH: /Arpegginator/branch/${{ steps.branch.outputs.name }}/
 
       - name: Deploy to GitHub Pages (branch preview)
         uses: peaceiris/actions-gh-pages@v4
