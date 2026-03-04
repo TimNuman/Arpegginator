@@ -92,18 +92,6 @@ export const TouchStrip = memo(({
       return orientation === 'vertical' ? e.clientY : e.clientX;
     };
 
-    // Convert absolute pixel position to 0-1 value relative to strip
-    const posToAbsoluteValue = (pos: number): number => {
-      const rect = container.getBoundingClientRect();
-      const start = orientation === 'vertical' ? rect.top : rect.left;
-      const size = orientation === 'vertical' ? rect.height : rect.width;
-      const fraction = (pos - start) / size;
-      // Vertical strip is inverted (top = 1, bottom = 0)
-      return orientation === 'vertical'
-        ? Math.max(0, Math.min(1, 1 - fraction))
-        : Math.max(0, Math.min(1, fraction));
-    };
-
     const onStart = (pos: number, shiftKey: boolean) => {
       stopAnimation();
       isDragging.current = true;

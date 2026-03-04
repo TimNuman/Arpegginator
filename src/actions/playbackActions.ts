@@ -12,10 +12,6 @@ export interface StepTriggerExtras {
   flamCount?: number;            // Number of flam grace notes (0 = none)
 }
 
-// Callback references
-let stepTriggerCallback: ((channel: number, row: number, tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => void) | null = null;
-let noteOffCallback: ((channel: number, midiNote: number) => void) | null = null;
-
 // WASM engine reference (set from App.tsx when engine loads)
 let wasmEngine: WasmEngine | null = null;
 
@@ -42,18 +38,6 @@ let tickAccumulator: number = 0;
 let resumeTick: number = -1;
 
 // ============ Public API ============
-
-export function setStepTriggerCallback(
-  callback: ((channel: number, row: number, tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => void) | null
-): void {
-  stepTriggerCallback = callback;
-}
-
-export function setNoteOffCallback(
-  callback: ((channel: number, midiNote: number) => void) | null
-): void {
-  noteOffCallback = callback;
-}
 
 export function tick(): void {
   if (!wasmReady()) return;

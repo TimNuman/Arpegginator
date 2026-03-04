@@ -78,7 +78,6 @@ export class OledRenderer {
   private _fontHeight: (font: number) => number;
   private _render: (modifiers: number) => void;
   private _getFramebufferPtr: () => number;
-  private _getFramebufferSize: () => number;
 
   constructor(module: WasmModule) {
     this.module = module;
@@ -169,11 +168,11 @@ export class OledRenderer {
       "number",
       [],
     ) as () => number;
-    this._getFramebufferSize = cw(
+    cw(
       "oled_get_framebuffer_size",
       "number",
       [],
-    ) as () => number;
+    );
 
     this._init();
   }

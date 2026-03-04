@@ -224,8 +224,6 @@ function App() {
   // Wire up step trigger and note-off callbacks
   useEffect(() => {
     console.log('[startup] Wiring callbacks: wasmEngine=' + !!wasmEngine);
-    actions.setStepTriggerCallback(handleStepTrigger);
-    actions.setNoteOffCallback(handleNoteOff);
     if (wasmEngine) {
       wasmEngine.onStepTrigger = handleStepTrigger;
       wasmEngine.onNoteOff = handleNoteOff;
@@ -240,8 +238,6 @@ function App() {
       };
     }
     return () => {
-      actions.setStepTriggerCallback(null);
-      actions.setNoteOffCallback(null);
       if (wasmEngine) {
         wasmEngine.onStepTrigger = null;
         wasmEngine.onNoteOff = null;
@@ -336,7 +332,7 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        <Grid onPlayNote={handlePlayNote} wasmEngine={wasmEngine} />
+        <Grid wasmEngine={wasmEngine} />
       </Box>
     </ThemeProvider>
   );

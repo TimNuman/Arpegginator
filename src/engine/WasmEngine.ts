@@ -136,14 +136,11 @@ export class WasmEngine {
   // Buffer accessors
   private _getEventPoolBasePtr!: () => number;
   private _getEventHandlesBuffer!: (ch: number, pat: number) => number;
-  private _setEventCount!: (ch: number, pat: number, count: number) => void;
-  private _setPatternLength!: (ch: number, pat: number, len: number) => void;
   private _getLoopsBuffer!: () => number;
   private _getMutedBuffer!: () => number;
   private _getSoloedBuffer!: () => number;
   private _getChannelTypesBuffer!: () => number;
   private _getCurrentPatternsBuffer!: () => number;
-  private _getQueuedPatternsBuffer!: () => number;
   private _setRngSeed!: (seed: number) => void;
   private _getNoteEventSize!: () => number;
   private _getFieldOffset!: (fieldId: number) => number;
@@ -281,14 +278,14 @@ export class WasmEngine {
     this._getVersion = cw('engine_get_version', 'number', []);
     this._getEventPoolBasePtr = cw('engine_get_event_pool_base_ptr', 'number', []) as unknown as () => number;
     this._getEventHandlesBuffer = cw('engine_get_event_handles_buffer', 'number', ['number', 'number']);
-    this._setEventCount = cw('engine_set_event_count', null, ['number', 'number', 'number']) as unknown as (ch: number, pat: number, count: number) => void;
-    this._setPatternLength = cw('engine_set_pattern_length', null, ['number', 'number', 'number']) as unknown as (ch: number, pat: number, len: number) => void;
+    cw('engine_set_event_count', null, ['number', 'number', 'number']);
+    cw('engine_set_pattern_length', null, ['number', 'number', 'number']);
     this._getLoopsBuffer = cw('engine_get_loops_buffer', 'number', []);
     this._getMutedBuffer = cw('engine_get_muted_buffer', 'number', []);
     this._getSoloedBuffer = cw('engine_get_soloed_buffer', 'number', []);
     this._getChannelTypesBuffer = cw('engine_get_channel_types_buffer', 'number', []);
     this._getCurrentPatternsBuffer = cw('engine_get_current_patterns_buffer', 'number', []);
-    this._getQueuedPatternsBuffer = cw('engine_get_queued_patterns_buffer', 'number', []);
+    cw('engine_get_queued_patterns_buffer', 'number', []);
     this._setRngSeed = cw('engine_set_rng_seed', null, ['number']) as unknown as (seed: number) => void;
     this._getNoteEventSize = cw('engine_get_note_event_size', 'number', []);
     this._getFieldOffset = cw('engine_get_field_offset', 'number', ['number']);

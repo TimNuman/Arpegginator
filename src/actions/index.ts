@@ -7,11 +7,9 @@ export {
   scrubToTick,
   scrubEnd,
   setBpm,
-  setStepTriggerCallback,
   playExternal,
   externalTick,
   stopExternal,
-  setNoteOffCallback,
   setWasmEngine,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
