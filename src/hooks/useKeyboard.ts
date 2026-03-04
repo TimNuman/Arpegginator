@@ -45,22 +45,15 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
   const stateRef = useRef(state);
   const onKeyDownRef = useRef(onKeyDown);
   const onKeyUpRef = useRef(onKeyUp);
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  useEffect(() => {
-    onKeyDownRef.current = onKeyDown;
-  }, [onKeyDown]);
-
-  useEffect(() => {
-    onKeyUpRef.current = onKeyUp;
-  }, [onKeyUp]);
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep refs in sync to avoid stale closures
+  stateRef.current = state;
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep refs in sync to avoid stale closures
+  onKeyDownRef.current = onKeyDown;
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep refs in sync to avoid stale closures
+  onKeyUpRef.current = onKeyUp;
 
   useEffect(() => {
     if (!enabled) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset when disabled
       setState(createInitialState());
       return;
     }
