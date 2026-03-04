@@ -746,8 +746,10 @@ fn render_global_mode(s: &mut EngineState) {
             let is_playhead = looped_tick >= 0 &&
                 cell_tick <= looped_tick && cell_tick + tpc > looped_tick;
 
-            let mut value: u16 = if is_active {
+            let mut value: u16 = if is_active && is_playhead {
                 BTN_WHITE_100
+            } else if is_active {
+                BTN_WHITE_50
             } else {
                 BTN_OFF
             };
@@ -766,7 +768,7 @@ fn render_global_mode(s: &mut EngineState) {
 
             // Color override: white for global channel
             s.button_values[vr][vc] = value;
-            s.color_overrides[vr][vc] = if is_active { 0xFFFFFF } else { 0 };
+            s.color_overrides[vr][vc] = if is_active && is_playhead { 0xFFFFFF } else if is_active { 0x808080 } else { 0 };
         });
     });
 }

@@ -28,7 +28,7 @@ pub const DEFAULT_LOOP_TICKS: i32 = TICKS_PER_QUARTER * 4;        // 1 bar = 192
 
 // Global channel constants
 pub const MAX_GLOBAL_STEPS: usize = 256;  // Max 16th-note steps in the global song
-pub const DEFAULT_GLOBAL_STEPS: usize = 16; // Default: 16 steps (1 bar of 16th notes)
+pub const DEFAULT_GLOBAL_STEPS: usize = 128; // Default: 128 steps (8 bars of 16th notes)
 pub const TICKS_PER_SIXTEENTH: i32 = TICKS_PER_QUARTER / 4; // 120 ticks
 
 // ============ Button Value Constants ============
@@ -529,7 +529,7 @@ impl Default for EngineState {
             global_steps: [GlobalStep::default(); MAX_GLOBAL_STEPS],
             global_step_count: DEFAULT_GLOBAL_STEPS as u16,
             global_selected_step: -1,
-            global_zoom: 120,  // 1/16 note resolution
+            global_zoom: 480,  // 1/4 note resolution
             global_col_offset: 0.0,
             global_view_active: 0,
         }
@@ -1092,7 +1092,7 @@ pub fn engine_core_init(s: &mut EngineState) {
     // Initialize global channel
     s.global_step_count = DEFAULT_GLOBAL_STEPS as u16;
     s.global_selected_step = -1;
-    s.global_zoom = 120;
+    s.global_zoom = 480;
     s.global_col_offset = 0.0;
     s.global_view_active = 0;
     // First step is active with default C Major

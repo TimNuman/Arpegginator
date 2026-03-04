@@ -560,9 +560,16 @@ fn handle_global_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
     }
 
     if s.global_steps[si].active == 0 {
-        // Activate step with current scale settings
-        s.global_steps[si].scale_root = s.scale_root;
-        s.global_steps[si].scale_id_idx = s.scale_id_idx;
+        // Activate step: inherit key/scale from previous active step, or fall back to current settings
+        let (root, scale) = {
+            let tick = step_idx * TICKS_PER_SIXTEENTH;
+            match resolve_global_step(s, tick) {
+                Some(gs) => (gs.scale_root, gs.scale_id_idx),
+                None => (s.scale_root, s.scale_id_idx),
+            }
+        };
+        s.global_steps[si].scale_root = root;
+        s.global_steps[si].scale_id_idx = scale;
         s.global_steps[si].active = 1;
     }
 
