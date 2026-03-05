@@ -428,6 +428,8 @@ pub struct EngineState {
     pub target_row_offsets: [f32; NUM_CHANNELS],
     pub col_offset: f32,
     pub song_browse_tick: i32,        // Song position for browsing with Cmd+arrows (in pattern mode)
+    pub song_browse_root: u8,        // Browsed key root (for OLED display only)
+    pub song_browse_scale: u8,       // Browsed scale index (for OLED display only)
 
     pub ctrl_held: u8,
     pub channel_colors: [u32; NUM_CHANNELS],
@@ -522,6 +524,8 @@ impl Default for EngineState {
             target_row_offsets: [0.0; NUM_CHANNELS],
             col_offset: 0.0,
             song_browse_tick: 0,
+            song_browse_root: 0,
+            song_browse_scale: 0,
             ctrl_held: 0,
             channel_colors: [0; NUM_CHANNELS],
             button_values: [[0; VISIBLE_COLS]; VISIBLE_ROWS],

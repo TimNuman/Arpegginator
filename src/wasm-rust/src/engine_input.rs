@@ -668,16 +668,12 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
             } else {
                 s.song_browse_tick = s.song_browse_tick.max(0);
             }
-            // Update key based on song browse position
+            // Update browse key for OLED display (don't touch actual scale)
             let gs_copy = resolve_global_step(s, s.song_browse_tick).copied();
             if let Some(gs) = gs_copy {
-                if gs.scale_root != s.scale_root || gs.scale_id_idx != s.scale_id_idx {
-                    s.scale_root = gs.scale_root;
-                    s.scale_id_idx = gs.scale_id_idx;
-                    engine_rebuild_scale(s);
-                }
+                s.song_browse_root = gs.scale_root;
+                s.song_browse_scale = gs.scale_id_idx;
             }
-            s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
         }
         return;
     }

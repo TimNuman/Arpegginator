@@ -621,9 +621,15 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     draw_labeled_row(loop_row, "LOOP", &loop_str, OLED_CYAN);
 
     // Row 3: current key/scale (non-drum only)
+    // When stopped and browsing, show the key at the browse position
     if !is_drum {
-        let root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        let scale_name = engine_get_scale_name_str(s);
+        let (root, scale_idx) = if s.current_tick < 0 && s.global_step_count > 0 {
+            (s.song_browse_root, s.song_browse_scale)
+        } else {
+            (s.scale_root, s.scale_id_idx)
+        };
+        let root_name = NOTE_NAMES[(root % 12) as usize];
+        let scale_name = if (scale_idx as usize) < NUM_SCALES { SCALE_NAMES[scale_idx as usize] } else { "Major" };
         let key_str = format!("{} {}", root_name, scale_name);
         draw_labeled_row(ROW_Y[2], "KEY", &key_str, OLED_CYAN);
     }
