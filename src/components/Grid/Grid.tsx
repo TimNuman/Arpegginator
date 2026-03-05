@@ -91,25 +91,30 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const isPlaying = getIsPlaying(); // JS owns transport
   const uiModeIdx = wasmEngine.getUiMode();
   const uiMode = UI_MODE_NAMES[uiModeIdx] ?? "pattern";
-  const ticksPerCol = wasmEngine.getZoom();
+  const isGlobalView = uiModeIdx === 4; // UiMode::Global
+  const ticksPerCol = isGlobalView ? wasmEngine.getGlobalZoom() : wasmEngine.getZoom();
   const zoom = TICKS_TO_SUBDIVISION[ticksPerCol] ?? "1/16";
-  const isDrumChannel = wasmEngine.getChannelType(currentChannel) === 1;
+  const isDrumChannel = !isGlobalView && wasmEngine.getChannelType(currentChannel) === 1;
   const loopStart = wasmEngine.getCurrentLoopStart();
   const loopLength = wasmEngine.getCurrentLoopLength();
   const loopEndTick = loopStart + loopLength;
-  const patternLengthTicks = wasmEngine.getCurrentPatternLengthTicks();
-  const rowOffset = wasmEngine.getRowOffset(currentChannel);
-  const colOffset = wasmEngine.getColOffset();
+  const patternLengthTicks = isGlobalView
+    ? wasmEngine.getGlobalStepCount() * 120 // steps * ticks per 16th note
+    : wasmEngine.getCurrentPatternLengthTicks();
+  const rowOffset = isGlobalView ? 0 : wasmEngine.getRowOffset(currentChannel);
+  const colOffset = isGlobalView ? wasmEngine.getGlobalColOffset() : wasmEngine.getColOffset();
 
-  const channelColor = CHANNEL_COLORS[currentChannel];
+  const channelColor = isGlobalView ? '#ffffff' : CHANNEL_COLORS[currentChannel];
 
   // Tick-based layout
   const totalCols = Math.ceil(patternLengthTicks / ticksPerCol);
 
-  const totalRows = isDrumChannel
+  const totalRows = isGlobalView
+    ? 1 // Global view has no vertical scrolling (rows wrap horizontally)
+    : isDrumChannel
     ? DRUM_TOTAL_ROWS
     : wasmEngine.getScaleCount();
-  const minRow = isDrumChannel ? DRUM_MIN_ROW : -wasmEngine.getScaleZeroIndex();
+  const minRow = isGlobalView ? 0 : isDrumChannel ? DRUM_MIN_ROW : -wasmEngine.getScaleZeroIndex();
   const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
   const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
   const startArrayIndex =
@@ -337,10 +342,14 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       if (isPlaying) {
         manualScrollOverride.current = true;
       }
-      wasmEngine.setColOffset(offset);
+      if (isGlobalView) {
+        wasmEngine.setGlobalColOffset(offset);
+      } else {
+        wasmEngine.setColOffset(offset);
+      }
       markDirty();
     },
-    [wasmEngine, isPlaying],
+    [wasmEngine, isPlaying, isGlobalView],
   );
 
   const scrubAccumulator = useRef(0);

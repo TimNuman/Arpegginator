@@ -4,7 +4,7 @@ extern crate alloc;
 
 // ============ Constants ============
 
-pub const NUM_CHANNELS: usize = 8;
+pub const NUM_CHANNELS: usize = 6;
 pub const NUM_PATTERNS: usize = 8;
 pub const MAX_EVENTS: usize = 128;
 pub const MAX_SUB_MODE_LEN: usize = 32;
@@ -25,6 +25,11 @@ pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
 
 pub const DEFAULT_PATTERN_TICKS: i32 = TICKS_PER_QUARTER * 4 * 4; // 4 bars of 4/4 = 7680
 pub const DEFAULT_LOOP_TICKS: i32 = TICKS_PER_QUARTER * 4;        // 1 bar = 1920
+
+// Global channel constants
+pub const MAX_GLOBAL_STEPS: usize = 256;  // Max 16th-note steps in the global song
+pub const DEFAULT_GLOBAL_STEPS: usize = 128; // Default: 128 steps (8 bars of 16th notes)
+pub const TICKS_PER_SIXTEENTH: i32 = TICKS_PER_QUARTER / 4; // 120 ticks
 
 // ============ Button Value Constants ============
 
@@ -123,6 +128,7 @@ pub enum UiMode {
     Channel = 1,
     Loop = 2,
     Modify = 3,
+    Global = 4,
 }
 
 impl UiMode {
@@ -132,7 +138,27 @@ impl UiMode {
             1 => Self::Channel,
             2 => Self::Loop,
             3 => Self::Modify,
+            4 => Self::Global,
             _ => Self::Pattern,
+        }
+    }
+}
+
+// ============ Global Step ============
+
+#[derive(Clone, Copy)]
+pub struct GlobalStep {
+    pub scale_root: u8,     // Root note (0-11, MIDI pitch class)
+    pub scale_id_idx: u8,   // Scale index
+    pub active: u8,         // 0 = inherit previous, 1 = explicit setting
+}
+
+impl Default for GlobalStep {
+    fn default() -> Self {
+        Self {
+            scale_root: 0,      // C
+            scale_id_idx: 0,    // Major
+            active: 0,
         }
     }
 }
@@ -401,6 +427,9 @@ pub struct EngineState {
     pub row_offsets: [f32; NUM_CHANNELS],
     pub target_row_offsets: [f32; NUM_CHANNELS],
     pub col_offset: f32,
+    pub song_browse_tick: i32,        // Song position for browsing with Cmd+arrows (in pattern mode)
+    pub song_browse_root: u8,        // Browsed key root (for OLED display only)
+    pub song_browse_scale: u8,       // Browsed scale index (for OLED display only)
 
     pub ctrl_held: u8,
     pub channel_colors: [u32; NUM_CHANNELS],
@@ -417,6 +446,19 @@ pub struct EngineState {
     pub rendered_count: u16,
     pub rendered_for_channel: u8,
     pub rendered_dirty: [u8; NUM_CHANNELS],
+
+    // Playback key-change tracking: cumulative row shift applied during playback
+    pub playback_row_shift: i16,      // total rows shifted (to reverse on stop)
+    pub playback_home_root: u8,       // scale_root at play start
+    pub playback_home_scale: u8,      // scale_id_idx at play start
+
+    // Global channel state
+    pub global_steps: [GlobalStep; MAX_GLOBAL_STEPS],
+    pub global_step_count: u16,       // Total number of steps in the song
+    pub global_selected_step: i16,    // Currently selected step (-1 = none)
+    pub global_zoom: i32,             // Ticks per col for global view (same zoom levels)
+    pub global_col_offset: f32,       // Horizontal scroll for global view
+    pub global_view_active: u8,       // 1 = viewing global channel
 }
 
 impl Default for EngineState {
@@ -481,6 +523,9 @@ impl Default for EngineState {
             row_offsets: [0.0; NUM_CHANNELS],
             target_row_offsets: [0.0; NUM_CHANNELS],
             col_offset: 0.0,
+            song_browse_tick: 0,
+            song_browse_root: 0,
+            song_browse_scale: 0,
             ctrl_held: 0,
             channel_colors: [0; NUM_CHANNELS],
             button_values: [[0; VISIBLE_COLS]; VISIBLE_ROWS],
@@ -492,6 +537,15 @@ impl Default for EngineState {
             rendered_count: 0,
             rendered_for_channel: 0xFF,
             rendered_dirty: [1; NUM_CHANNELS],
+            playback_row_shift: 0,
+            playback_home_root: 0,
+            playback_home_scale: 0,
+            global_steps: [GlobalStep::default(); MAX_GLOBAL_STEPS],
+            global_step_count: DEFAULT_GLOBAL_STEPS as u16,
+            global_selected_step: -1,
+            global_zoom: 480,  // 1/4 note resolution
+            global_col_offset: 0.0,
+            global_view_active: 0,
         }
     }
 }
@@ -519,6 +573,25 @@ pub fn note_to_midi(row: i16, s: &EngineState) -> i8 {
     } else {
         s.scale_notes[idx as usize] as i8
     }
+}
+
+/// Inverse of note_to_midi: given a MIDI pitch, find the row in the current scale.
+/// If the exact MIDI note is not in the scale, finds the nearest scale note.
+pub fn midi_to_row(midi: i8, s: &EngineState) -> i16 {
+    if midi < 0 || s.scale_count == 0 { return 0; }
+    let target = midi as u8;
+    // Binary search or linear scan for exact match
+    let mut best_idx: usize = 0;
+    let mut best_dist: i32 = i32::MAX;
+    for i in 0..s.scale_count as usize {
+        let dist = (s.scale_notes[i] as i32 - target as i32).abs();
+        if dist < best_dist {
+            best_dist = dist;
+            best_idx = i;
+            if dist == 0 { break; }
+        }
+    }
+    best_idx as i16 - s.scale_zero_index as i16
 }
 
 // ============ Scale Definitions ============
@@ -1048,24 +1121,48 @@ pub fn engine_core_init(s: &mut EngineState) {
     s.scale_root = 0;
     s.scale_id_idx = 0;
     engine_rebuild_scale(s);
+
+    // Initialize global channel
+    s.global_step_count = DEFAULT_GLOBAL_STEPS as u16;
+    s.global_selected_step = -1;
+    s.global_zoom = 480;
+    s.global_col_offset = 0.0;
+    s.global_view_active = 0;
+    // First step is active with default C Major
+    s.global_steps[0] = GlobalStep { scale_root: 0, scale_id_idx: 0, active: 1 };
+    (1..MAX_GLOBAL_STEPS).for_each(|i| {
+        s.global_steps[i] = GlobalStep::default();
+    });
 }
 
 pub fn engine_core_play_init(s: &mut EngineState) {
+    // Reverse any accumulated key-change shifts before starting fresh
+    revert_playback_key_shift(s);
     s.current_tick = -1;
     s.last_scrub_tick = -1;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    // Save home key for this playback session
+    s.playback_home_root = s.scale_root;
+    s.playback_home_scale = s.scale_id_idx;
+    s.playback_row_shift = 0;
 }
 
 pub fn engine_core_play_init_from_tick(s: &mut EngineState, tick: i32) {
+    // Reverse any accumulated key-change shifts before starting fresh
+    revert_playback_key_shift(s);
     s.current_tick = tick - 1;
     s.last_scrub_tick = -1;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    // Save home key for this playback session
+    s.playback_home_root = s.scale_root;
+    s.playback_home_scale = s.scale_id_idx;
+    s.playback_row_shift = 0;
 }
 
 pub fn engine_core_stop(s: &mut EngineState) {
@@ -1076,14 +1173,121 @@ pub fn engine_core_stop(s: &mut EngineState) {
             n.active = false;
         });
 
+    // Reverse accumulated key-change shifts — restore notes + key to home state
+    revert_playback_key_shift(s);
+
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
     s.queued_patterns.iter_mut().for_each(|q| *q = -1);
 }
 
+/// Resolve the effective global step for a given tick.
+/// Walks backwards to find the most recent active step.
+pub fn resolve_global_step(s: &EngineState, tick: i32) -> Option<&GlobalStep> {
+    if s.global_step_count == 0 { return None; }
+    let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+    let song_tick = mod_positive(tick, total_song_ticks);
+    let step_idx = (song_tick / TICKS_PER_SIXTEENTH) as usize;
+    // Walk backwards from step_idx to find most recent active step
+    for i in 0..s.global_step_count as usize {
+        let idx = if step_idx >= i { step_idx - i } else { s.global_step_count as usize - (i - step_idx) };
+        if s.global_steps[idx].active != 0 {
+            return Some(&s.global_steps[idx]);
+        }
+    }
+    None
+}
+
+/// Reverse all accumulated playback key-change shifts, restoring notes and key to home state
+fn revert_playback_key_shift(s: &mut EngineState) {
+    if s.playback_row_shift != 0 {
+        let shift = s.playback_row_shift;
+        (0..NUM_CHANNELS).for_each(|ch| {
+            if s.channel_types[ch] == ChannelType::Drum as u8 { return; }
+            (0..NUM_PATTERNS).for_each(|pat| {
+                let ec = s.patterns[ch][pat].event_count as usize;
+                (0..ec).for_each(|e| {
+                    let h = s.patterns[ch][pat].event_handles[e];
+                    s.event_pool.slots[h as usize].row += shift;
+                });
+            });
+        });
+        s.playback_row_shift = 0;
+    }
+    // Restore home key/scale
+    if s.playback_home_root != s.scale_root || s.playback_home_scale != s.scale_id_idx {
+        s.scale_root = s.playback_home_root;
+        s.scale_id_idx = s.playback_home_scale;
+        engine_rebuild_scale(s);
+        s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    }
+}
+
+/// Apply global automation at the current tick (scale root + scale type changes)
+fn apply_global_automation(s: &mut EngineState, tick: i32) {
+    if s.global_step_count == 0 { return; }
+    let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+    let song_tick = mod_positive(tick, total_song_ticks);
+    // Only apply at step boundaries (every 120 ticks = 1/16 note)
+    if song_tick % TICKS_PER_SIXTEENTH != 0 { return; }
+    let step_idx = (song_tick / TICKS_PER_SIXTEENTH) as usize;
+    if step_idx >= s.global_step_count as usize { return; }
+
+    // On song loop (back to step 0), revert all accumulated shifts to prevent drift
+    if step_idx == 0 && s.playback_row_shift != 0 {
+        revert_playback_key_shift(s);
+    }
+
+    // Walk backwards to find the most recent active step
+    let mut found_idx = None;
+    for i in 0..s.global_step_count as usize {
+        let idx = if step_idx >= i { step_idx - i } else { s.global_step_count as usize - (i - step_idx) };
+        if s.global_steps[idx].active != 0 {
+            found_idx = Some(idx);
+            break;
+        }
+    }
+
+    if let Some(idx) = found_idx {
+        let gs = s.global_steps[idx];
+        if gs.scale_root != s.scale_root || gs.scale_id_idx != s.scale_id_idx {
+            // Like engine_cycle_scale_root: find new root (or closest note) in current
+            // scale, compute row offset, shift all melodic notes to preserve pitch.
+            let new_root_midi = (60 + gs.scale_root) as u8;
+            let offset = (0..s.scale_count as usize)
+                .min_by_key(|&i| (s.scale_notes[i] as i32 - new_root_midi as i32).abs())
+                .map(|i| i as i16 - s.scale_zero_index as i16)
+                .unwrap_or(0);
+
+            // Shift all melodic note rows by -offset to keep original pitches
+            (0..NUM_CHANNELS).for_each(|ch| {
+                if s.channel_types[ch] == ChannelType::Drum as u8 {
+                    return;
+                }
+                (0..NUM_PATTERNS).for_each(|pat| {
+                    let ec = s.patterns[ch][pat].event_count as usize;
+                    (0..ec).for_each(|e| {
+                        let h = s.patterns[ch][pat].event_handles[e];
+                        s.event_pool.slots[h as usize].row -= offset;
+                    });
+                });
+            });
+            s.playback_row_shift += offset; // track for reversal on stop
+
+            s.scale_root = gs.scale_root;
+            s.scale_id_idx = gs.scale_id_idx;
+            engine_rebuild_scale(s);
+            s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+        }
+    }
+}
+
 pub fn engine_core_tick(s: &mut EngineState) {
     let next_tick = s.current_tick + 1;
+
+    // Apply global song automation
+    apply_global_automation(s, next_tick);
 
     let mut switch_channels: Vec<(u8, u8)> = Vec::new();
     let any_soloed = s.soloed.iter().any(|&v| v != 0);

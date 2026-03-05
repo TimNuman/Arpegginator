@@ -891,6 +891,73 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
     }
 }
 
+// ============ Global Channel Exports ============
+
+#[no_mangle]
+pub extern "C" fn engine_get_global_step_count() -> u16 { state_ref().global_step_count }
+
+#[no_mangle]
+pub extern "C" fn engine_set_global_step_count(count: u16) {
+    state().global_step_count = count.min(MAX_GLOBAL_STEPS as u16);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_global_selected_step() -> i16 { state_ref().global_selected_step }
+
+#[no_mangle]
+pub extern "C" fn engine_set_global_selected_step(idx: i16) { state().global_selected_step = idx; }
+
+#[no_mangle]
+pub extern "C" fn engine_get_global_zoom() -> i32 { state_ref().global_zoom }
+
+#[no_mangle]
+pub extern "C" fn engine_set_global_zoom(tpc: i32) { state().global_zoom = tpc; }
+
+#[no_mangle]
+pub extern "C" fn engine_get_global_col_offset() -> f32 { state_ref().global_col_offset }
+
+#[no_mangle]
+pub extern "C" fn engine_set_global_col_offset(offset: f32) { state().global_col_offset = offset; }
+
+#[no_mangle]
+pub extern "C" fn engine_get_global_view_active() -> u8 { state_ref().global_view_active }
+
+#[no_mangle]
+pub extern "C" fn engine_set_global_view_active(active: u8) { state().global_view_active = active; }
+
+/// Get scale_root for a given global step
+#[no_mangle]
+pub extern "C" fn engine_get_global_step_root(step: u16) -> u8 {
+    if (step as usize) < MAX_GLOBAL_STEPS { state_ref().global_steps[step as usize].scale_root } else { 0 }
+}
+
+/// Get scale_id_idx for a given global step
+#[no_mangle]
+pub extern "C" fn engine_get_global_step_scale(step: u16) -> u8 {
+    if (step as usize) < MAX_GLOBAL_STEPS { state_ref().global_steps[step as usize].scale_id_idx } else { 0 }
+}
+
+/// Get active flag for a given global step
+#[no_mangle]
+pub extern "C" fn engine_get_global_step_active(step: u16) -> u8 {
+    if (step as usize) < MAX_GLOBAL_STEPS { state_ref().global_steps[step as usize].active } else { 0 }
+}
+
+/// Get a scale name by index (for OLED display of global steps)
+static mut GLOBAL_SCALE_NAME_BUF: [u8; 32] = [0; 32];
+
+#[no_mangle]
+pub extern "C" fn engine_get_scale_name_by_idx(idx: u8) -> *const u8 {
+    let name = if (idx as usize) < NUM_SCALES { SCALE_NAMES[idx as usize] } else { "Major" };
+    unsafe {
+        let bytes = name.as_bytes();
+        let len = bytes.len().min(31);
+        GLOBAL_SCALE_NAME_BUF[..len].copy_from_slice(&bytes[..len]);
+        GLOBAL_SCALE_NAME_BUF[len] = 0;
+        GLOBAL_SCALE_NAME_BUF.as_ptr()
+    }
+}
+
 // ============ Grid Dimension Getters ============
 
 #[no_mangle]

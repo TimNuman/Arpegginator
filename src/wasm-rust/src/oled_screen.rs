@@ -590,7 +590,6 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let is_drum = s.channel_types[ch] == CH_DRUM;
-    let p_alt = (mods & MOD_ALT) != 0;
     let p_shift = (mods & MOD_SHIFT) != 0;
 
     if p_shift {
@@ -608,35 +607,42 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     ];
     draw_segments(VALUE_X, ROW_Y[0], &row0);
 
-    // Row 1: type or key
+    // Row 1: type (drums only)
     if is_drum {
         draw_labeled_row(ROW_Y[1], "TYPE", "DRUMS", OLED_CYAN);
-    } else {
-        let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        let scale_name = engine_get_scale_name_str(s);
-
-        let lx = LABEL_X;
-        gfx_text(lx, ROW_Y[1], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
-        let kx = lx + gfx_text_width("KEY ", &FONT_SMALL);
-        gfx_text(kx, ROW_Y[1], scale_root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
-
-        let root_sp = format!("{} ", scale_root_name);
-        let cx2 = kx + gfx_text_width(&root_sp, &FONT_MAIN);
-        gfx_text(cx2, ROW_Y[1], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
     }
 
-    // Row 2+
-    if p_alt && !is_drum {
-        let scale_name = engine_get_scale_name_str(s);
-        let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        draw_icon_legend(ROW_Y[2], IconType::Vertical, "Scale", scale_name, OLED_RED);
-        draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Root", scale_root_name, OLED_YELLOW);
-    } else {
-        let loop_data = &s.loops[ch][pat];
-        let s_buf = tick_to_beat_display(loop_data.start);
-        let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
-        let loop_str = format!("{}-{}", s_buf, e_buf);
-        draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
+    // Row 2: loop
+    let loop_data = &s.loops[ch][pat];
+    let s_buf = tick_to_beat_display(loop_data.start);
+    let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
+    let loop_str = format!("{}-{}", s_buf, e_buf);
+    let loop_row = if is_drum { ROW_Y[2] } else { ROW_Y[1] };
+    draw_labeled_row(loop_row, "LOOP", &loop_str, OLED_CYAN);
+
+    // Row 3: current key/scale (non-drum only)
+    // When stopped and browsing, show the key at the browse position
+    if !is_drum {
+        let (root, scale_idx) = if s.current_tick < 0 && s.global_step_count > 0 {
+            (s.song_browse_root, s.song_browse_scale)
+        } else {
+            (s.scale_root, s.scale_id_idx)
+        };
+        let root_name = NOTE_NAMES[(root % 12) as usize];
+        let scale_name = if (scale_idx as usize) < NUM_SCALES { SCALE_NAMES[scale_idx as usize] } else { "Major" };
+        let key_str = format!("{} {}", root_name, scale_name);
+        draw_labeled_row(ROW_Y[2], "KEY", &key_str, OLED_CYAN);
+    }
+
+    // Song position row
+    if s.global_step_count > 0 {
+        let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+        let raw_tick = if s.current_tick >= 0 { s.current_tick } else { s.song_browse_tick };
+        let song_tick = mod_positive(raw_tick, total_song_ticks);
+        let bar = song_tick / (TICKS_PER_QUARTER * 4) + 1;
+        let beat = (song_tick % (TICKS_PER_QUARTER * 4)) / TICKS_PER_QUARTER + 1;
+        let pos_str = format!("{}.{}", bar, beat);
+        draw_labeled_row(ROW_Y[3], "SONG", &pos_str, OLED_CYAN);
     }
 }
 
@@ -769,6 +775,55 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String 
     result
 }
 
+// ============ Global mode renderer ============
+
+fn render_global(s: &EngineState, mods: u8) {
+    let p_alt = (mods & MOD_ALT) != 0;
+
+    let steps = s.global_step_count;
+    let bars = steps / 16;
+    let extra = steps % 16;
+    let len_str = if extra == 0 {
+        format!("{} bars ({} steps)", bars, steps)
+    } else {
+        format!("{} steps", steps)
+    };
+
+    draw_labeled_row(ROW_Y[0], "MODE", "GLOBAL", OLED_CYAN);
+    draw_labeled_row(ROW_Y[1], "LEN", &len_str, OLED_CYAN);
+
+    if s.global_selected_step >= 0 {
+        let si = s.global_selected_step as usize;
+        if si < s.global_step_count as usize && s.global_steps[si].active != 0 {
+            let gs = &s.global_steps[si];
+            let root_name = NOTE_NAMES[(gs.scale_root % 12) as usize];
+            let scale_name = if (gs.scale_id_idx as usize) < NUM_SCALES {
+                SCALE_NAMES[gs.scale_id_idx as usize]
+            } else { "Major" };
+            let step_str = format!("Step {}", si + 1);
+            draw_labeled_row(ROW_Y[2], "STEP", &step_str, OLED_CYAN);
+
+            let lx = LABEL_X;
+            gfx_text(lx, ROW_Y[3], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
+            let kx = lx + gfx_text_width("KEY ", &FONT_SMALL);
+            gfx_text(kx, ROW_Y[3], root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
+            let root_sp = format!("{} ", root_name);
+            let cx2 = kx + gfx_text_width(&root_sp, &FONT_MAIN);
+            gfx_text(cx2, ROW_Y[3], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
+
+            if p_alt {
+                draw_icon_legend(ROW_Y[4], IconType::Vertical, "Scale", scale_name, OLED_RED);
+                draw_icon_legend(ROW_Y[5], IconType::Horizontal, "Root", root_name, OLED_YELLOW);
+            }
+        } else {
+            let step_str = format!("Step {} (empty)", si + 1);
+            draw_labeled_row(ROW_Y[2], "STEP", &step_str, OLED_DIM);
+        }
+    } else {
+        draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Song length", "", OLED_CYAN);
+    }
+}
+
 // ============ Public entry point ============
 
 pub fn oled_render(modifiers: u8) {
@@ -791,6 +846,7 @@ pub fn oled_render(modifiers: u8) {
         1 => render_channel(s),             // UI_CHANNEL
         2 => render_loop(s, modifiers),     // UI_LOOP
         3 => render_modify(s, modifiers),   // UI_MODIFY
+        4 => render_global(s, modifiers),   // UI_GLOBAL
         _ => render_pattern_default(s, modifiers),
     }
 }

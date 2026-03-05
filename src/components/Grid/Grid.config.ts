@@ -65,7 +65,7 @@ export const ACTION_CLEAR_PATTERN = 5;
 // ============ UI mode / sub-mode mappings ============
 
 // UI mode names (index = C enum value)
-export const UI_MODE_NAMES = ["pattern", "channel", "loop", "modify"] as const;
+export const UI_MODE_NAMES = ["pattern", "channel", "loop", "modify", "global"] as const;
 export type UiMode = (typeof UI_MODE_NAMES)[number];
 
 // Sub-mode names (index = C enum value)

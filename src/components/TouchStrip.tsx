@@ -37,8 +37,10 @@ export const TouchStrip = memo(({
   const currentValue = useRef(value);
   const animationId = useRef<number | null>(null);
   const onShiftChangeRef = useRef(onShiftChange);
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep ref in sync to avoid stale closures
   onShiftChangeRef.current = onShiftChange;
   const onShiftEndRef = useRef(onShiftEnd);
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep ref in sync to avoid stale closures
   onShiftEndRef.current = onShiftEnd;
 
   // Calculate how many items can be scrolled

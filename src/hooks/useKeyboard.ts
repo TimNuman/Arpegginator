@@ -43,17 +43,17 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
 
   // Use refs to avoid stale closures in event handlers
   const stateRef = useRef(state);
-  stateRef.current = state;
-
   const onKeyDownRef = useRef(onKeyDown);
-  onKeyDownRef.current = onKeyDown;
-
   const onKeyUpRef = useRef(onKeyUp);
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep refs in sync to avoid stale closures
+  stateRef.current = state;
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep refs in sync to avoid stale closures
+  onKeyDownRef.current = onKeyDown;
+  // eslint-disable-next-line react-hooks/refs -- intentional: keep refs in sync to avoid stale closures
   onKeyUpRef.current = onKeyUp;
 
   useEffect(() => {
     if (!enabled) {
-      // Reset state when disabled
       setState(createInitialState());
       return;
     }
