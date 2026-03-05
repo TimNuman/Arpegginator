@@ -668,22 +668,6 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
             } else {
                 s.song_browse_tick = s.song_browse_tick.max(0);
             }
-            // Also scroll the pattern view by one screen
-            let ch = s.current_channel as usize;
-            let pat = s.current_patterns[ch] as usize;
-            let pat_len = s.patterns[ch][pat].length_ticks;
-            let tpc = s.zoom;
-            let total_cols = if pat_len > 0 && tpc > 0 { (pat_len + tpc - 1) / tpc } else { 0 };
-            let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
-            if max_col_off > 0 {
-                let start_col = (s.col_offset * max_col_off as f32 + 0.5) as i32;
-                let new_col = if dir == DIR_RIGHT {
-                    (start_col + VISIBLE_COLS as i32).min(max_col_off)
-                } else {
-                    (start_col - VISIBLE_COLS as i32).max(0)
-                };
-                s.col_offset = new_col as f32 / max_col_off as f32;
-            }
             // Update key based on song browse position
             let gs_copy = resolve_global_step(s, s.song_browse_tick).copied();
             if let Some(gs) = gs_copy {

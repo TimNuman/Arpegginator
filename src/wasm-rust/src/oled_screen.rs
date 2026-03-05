@@ -630,15 +630,12 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
 
     // Song position row
     if s.global_step_count > 0 {
-        let pos_str = if s.current_tick >= 0 {
-            let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
-            let song_tick = mod_positive(s.current_tick, total_song_ticks);
-            let bar = song_tick / (TICKS_PER_QUARTER * 4) + 1;
-            let beat = (song_tick % (TICKS_PER_QUARTER * 4)) / TICKS_PER_QUARTER + 1;
-            format!("{}.{}", bar, beat)
-        } else {
-            format!("1.1")
-        };
+        let total_song_ticks = s.global_step_count as i32 * TICKS_PER_SIXTEENTH;
+        let raw_tick = if s.current_tick >= 0 { s.current_tick } else { s.song_browse_tick };
+        let song_tick = mod_positive(raw_tick, total_song_ticks);
+        let bar = song_tick / (TICKS_PER_QUARTER * 4) + 1;
+        let beat = (song_tick % (TICKS_PER_QUARTER * 4)) / TICKS_PER_QUARTER + 1;
+        let pos_str = format!("{}.{}", bar, beat);
         draw_labeled_row(ROW_Y[3], "SONG", &pos_str, OLED_CYAN);
     }
 }
