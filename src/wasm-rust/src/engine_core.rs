@@ -1228,6 +1228,11 @@ fn apply_global_automation(s: &mut EngineState, tick: i32) {
     let step_idx = (song_tick / TICKS_PER_SIXTEENTH) as usize;
     if step_idx >= s.global_step_count as usize { return; }
 
+    // On song loop (back to step 0), revert all accumulated shifts to prevent drift
+    if step_idx == 0 && s.playback_row_shift != 0 {
+        revert_playback_key_shift(s);
+    }
+
     // Walk backwards to find the most recent active step
     let mut found_idx = None;
     for i in 0..s.global_step_count as usize {

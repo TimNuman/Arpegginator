@@ -390,15 +390,18 @@ fn global_automation_circle_of_fifths_round_trip() {
     s.is_playing = 1;
     engine_core_play_init(&mut s);
 
-    // Advance through all 13 steps (13 * 120 = 1560 ticks)
-    for _ in 0..1560 {
+    // Advance past 1 full song loop so the song wraps back to step 0.
+    // play_init sets current_tick=-1, so after N iterations current_tick=N-1.
+    // We need next_tick = 13*120 = 1560 to hit song_tick=0 (the loop reset).
+    // That happens on iteration 1561 (next_tick = current_tick+1 = 1560).
+    for _ in 0..1561 {
         engine_core_tick(&mut s);
     }
 
-    // After full circle back to C Major, small drift is accepted (same as engine_cycle_scale_root)
+    // The song looped back to step 0, triggering revert_playback_key_shift.
+    // This restores rows and key to the home state exactly.
     let final_midi = note_to_midi(s.event_pool.slots[0].row, &s);
-    let drift = (final_midi as i32 - original_midi as i32).abs();
-    assert!(drift <= 2, "MIDI drift {} should be <= 2 semitones after full CoF round trip", drift);
+    assert_eq!(final_midi, original_midi, "MIDI pitch should be exact after CoF round trip (song-loop reset)");
 }
 
 #[test]
@@ -475,6 +478,42 @@ fn global_automation_many_back_and_forth() {
     // Should be back on C Major (step 0 wraps), pitch preserved
     let final_midi = note_to_midi(s.event_pool.slots[0].row, &s);
     assert_eq!(final_midi, original_midi, "Pitch should be stable after many C/G alternations");
+}
+
+#[test]
+fn global_automation_song_loop_resets_drift() {
+    let mut s = init_state();
+    // Place a note at row=0 (C4 in C Major)
+    add_note_at_row(&mut s, 0);
+
+    let original_row = s.event_pool.slots[0].row;
+    let original_midi = note_to_midi(original_row, &s);
+    assert_eq!(original_midi, 60); // C4
+
+    // User's scenario: 4 bars (64 sixteenths) with C, G, D, A major
+    // Step 0 = C Major, step 16 = G Major, step 32 = D Major, step 48 = A Major
+    s.global_steps[0] = GlobalStep { scale_root: 0, scale_id_idx: 0, active: 1 };
+    s.global_steps[16] = GlobalStep { scale_root: 7, scale_id_idx: 0, active: 1 };
+    s.global_steps[32] = GlobalStep { scale_root: 2, scale_id_idx: 0, active: 1 };
+    s.global_steps[48] = GlobalStep { scale_root: 9, scale_id_idx: 0, active: 1 };
+    s.global_step_count = 64;
+
+    s.is_playing = 1;
+    engine_core_play_init(&mut s);
+
+    // Play past 3 full song loops so we hit step 0 of the 4th loop.
+    // Song length = 64 * 120 = 7680 ticks. We need next_tick = 3 * 7680 = 23040
+    // to trigger the loop reset. That's iteration 23041.
+    for _ in 0..(3 * 64 * TICKS_PER_SIXTEENTH + 1) {
+        engine_core_tick(&mut s);
+    }
+
+    // After 3 loops, step 0 reset fires, restoring home key and rows.
+    assert_eq!(s.scale_root, 0, "Should be back in C Major");
+    let final_row = s.event_pool.slots[0].row;
+    let final_midi = note_to_midi(final_row, &s);
+    assert_eq!(final_row, original_row, "Row should be unchanged after song loops");
+    assert_eq!(final_midi, original_midi, "MIDI pitch should be unchanged after song loops");
 }
 
 // ============ Misc ============
