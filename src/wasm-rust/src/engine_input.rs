@@ -674,6 +674,20 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 s.song_browse_root = gs.scale_root;
                 s.song_browse_scale = gs.scale_id_idx;
             }
+            // Scroll pattern view to the position within the pattern
+            let ch = s.current_channel as usize;
+            let pat = s.current_patterns[ch] as usize;
+            let pat_len = s.patterns[ch][pat].length_ticks;
+            if pat_len > 0 {
+                let tpc = s.zoom;
+                let pat_tick = mod_positive(s.song_browse_tick, pat_len);
+                let col = pat_tick / tpc;
+                let total_cols = (pat_len + tpc - 1) / tpc;
+                let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
+                if max_col_off > 0 {
+                    s.col_offset = (col as f32 / max_col_off as f32).clamp(0.0, 1.0);
+                }
+            }
         }
         return;
     }
