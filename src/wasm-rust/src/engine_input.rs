@@ -168,11 +168,9 @@ fn find_disabled_event_at(s: &EngineState, row: i16, tick: i32, tpc: i32) -> i16
         .find(|&i| {
             let ev = &s.event_pool.slots[pd.event_handles[i] as usize];
             if ev.enabled != 0 || ev.row != row { return false; }
-            // Check if any repeat overlaps this column
-            (0..ev.repeat_amount).any(|r| {
-                let pos = ev.position + r as i32 * ev.repeat_space;
-                pos < col_end && pos + ev.length > tick
-            })
+            // Only match the root note (repeat index 0), not repeated/stacked copies
+            let pos = ev.position;
+            pos < col_end && pos + ev.length > tick
         })
         .map(|i| i as i16)
         .unwrap_or(-1)
