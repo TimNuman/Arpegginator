@@ -388,8 +388,8 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
                 if looped_tick >= 0 && looped_tick >= rn.position && looped_tick < note_end {
                     let ev_id = ev_indexes[rn.source_idx as usize];
-                    if is_playing != 0 && active_notes.iter().any(|an| {
-                        an.active && an.channel == ch as u8 && an.event_index == ev_id && an.start <= looped_tick && an.end > looped_tick
+                    if active_notes.iter().any(|an| {
+                        an.active && an.channel == ch as u8 && an.event_index == ev_id && an.start <= looped_tick && an.end >= looped_tick
                     }) {
                         playing_note = Some(n);
                     }
