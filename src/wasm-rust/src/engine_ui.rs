@@ -361,7 +361,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
             let mut best: Option<usize> = None;
             let mut starting_here: Option<usize> = None;
             let mut selected_here: Option<usize> = None;
-            let mut any_playing = false;
+            let mut playing_note: Option<usize> = None;
 
             (0..note_count).for_each(|n| {
                 let rn = &notes[n];
@@ -369,8 +369,15 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 let note_end = rn.position + rn.length;
                 if rn.position >= col_end_tick || note_end <= actual_tick { return; }
 
-                if selected_idx >= 0 && rn.source_idx == selected_idx as u16 && selected_here.is_none() {
-                    selected_here = Some(n);
+                if selected_idx >= 0 && rn.source_idx == selected_idx as u16 {
+                    let rn_starts = rn.position >= actual_tick && rn.position < col_end_tick;
+                    let prev_starts = selected_here.map_or(false, |si|
+                        notes[si].position >= actual_tick && notes[si].position < col_end_tick
+                    );
+                    // Prefer a selected note that starts in this cell over one just continuing
+                    if selected_here.is_none() || (rn_starts && !prev_starts) {
+                        selected_here = Some(n);
+                    }
                 }
                 if rn.position >= actual_tick && rn.position < col_end_tick && starting_here.is_none() {
                     starting_here = Some(n);
@@ -384,7 +391,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                     if is_playing != 0 && active_notes.iter().any(|an| {
                         an.active && an.channel == ch as u8 && an.event_index == ev_id && an.start <= looped_tick && an.end > looped_tick
                     }) {
-                        any_playing = true;
+                        playing_note = Some(n);
                     }
                 }
             });
@@ -403,7 +410,12 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
                 let is_start = rn.position >= actual_tick && rn.position < col_end_tick;
                 if !is_start { value |= FLAG_CONTINUATION; }
-                if any_playing { value |= FLAG_PLAYING; }
+                // Show playing highlight if the displayed note itself is playing,
+                // but not if a different note's hold is underneath a hit
+                let chosen_playing = playing_note.map_or(false, |pn| pn == ni);
+                if chosen_playing || (playing_note.is_some() && !is_start) {
+                    value |= FLAG_PLAYING;
+                }
                 if selected_idx >= 0 && rn.source_idx == selected_idx as u16 {
                     value |= FLAG_SELECTED;
                 }
