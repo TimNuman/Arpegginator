@@ -610,7 +610,25 @@ pub fn engine_cycle_scale_root(s: &mut EngineState, direction: i8) {
         .map(|i| i as i16 - s.scale_zero_index as i16)
         .unwrap_or(0);
 
+    // Circle of Fifths drift compensation for 7-note scales.
+    // 12 fifths = 7 octaves in pitch, but the scale-degree offsets (+4 up, -3 down)
+    // don't sum to zero over a full cycle — they drift by exactly 1 degree.
+    // Correcting at the D↔A boundary (roots 2↔9) cancels this drift.
+    let cof_correction: i16 = if s.scale_octave_size == 7 {
+        let old = s.scale_root;
+        if (direction > 0 && old == 2 && new_root_midi == 9)
+            || (direction < 0 && old == 9 && new_root_midi == 2)
+        {
+            -(direction as i16)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
     // Shift all melodic notes by -offset to keep original pitches
+    let total_shift = offset - cof_correction;
     (0..NUM_CHANNELS).for_each(|ch| {
         if s.channel_types[ch] == ChannelType::Drum as u8 {
             return;
@@ -619,7 +637,7 @@ pub fn engine_cycle_scale_root(s: &mut EngineState, direction: i8) {
             let ec = s.patterns[ch][pat].event_count as usize;
             (0..ec).for_each(|e| {
                 let h = s.patterns[ch][pat].event_handles[e];
-                s.event_pool.slots[h as usize].row -= offset;
+                s.event_pool.slots[h as usize].row -= total_shift;
             });
         });
     });
