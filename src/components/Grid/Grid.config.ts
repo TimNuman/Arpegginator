@@ -58,6 +58,3 @@ export const ACTION_DESELECT = 1;
 export const ACTION_ZOOM_IN = 2;
 export const ACTION_ZOOM_OUT = 3;
 export const ACTION_DELETE_NOTE = 4;
-
-// UI mode indices (must match UiMode enum in engine_core.rs)
-export const UI_MODE_LOOP = 2;

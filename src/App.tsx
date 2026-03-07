@@ -1,19 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { css, Global } from '@emotion/react';
-import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import { Grid } from './components/Grid';
-import { Transport } from './components/Transport';
-import { WasmEngine } from './engine/WasmEngine';
-import { useMidi } from './hooks/useMidi';
-import { useRenderVersion } from './store/renderStore';
-import * as actions from './actions';
-import type { StepTriggerExtras } from './actions';
-import { TICKS_PER_QUARTER } from './components/Grid/Grid.config';
-
+import { useCallback, useEffect, useRef, useState } from "react";
+import { css, Global } from "@emotion/react";
+import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
+import { Grid } from "./components/Grid";
+import { Transport } from "./components/Transport";
+import { WasmEngine } from "./engine/WasmEngine";
+import { useMidi } from "./hooks/useMidi";
+import { useRenderVersion } from "./store/renderStore";
+import * as actions from "./actions";
+import type { StepTriggerExtras } from "./actions";
+import { TICKS_PER_QUARTER } from "./components/Grid/Grid.config";
 
 const darkTheme = createTheme({
   palette: {
-    mode: 'dark',
+    mode: "dark",
   },
 });
 
@@ -27,7 +26,11 @@ const globalStyles = css`
     padding: 0;
     background: linear-gradient(180deg, #0a0a0a 0%, #1a0a1a 100%);
     min-height: 100vh;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family:
+      "Inter",
+      -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
   }
 `;
 
@@ -58,56 +61,73 @@ function App() {
   const [wasmEngine, setWasmEngine] = useState<WasmEngine | null>(null);
 
   useEffect(() => {
-    console.log('[startup] Loading WASM engine...');
+    console.log("[startup] Loading WASM engine...");
     const engine = new WasmEngine();
-    engine.load().then(() => {
-      // Full init (resets UI state, generates chord shapes, sets default loops/patterns)
-      engine.fullInit();
+    engine
+      .load()
+      .then(() => {
+        // Full init (resets UI state, generates chord shapes, sets default loops/patterns)
+        engine.fullInit();
 
-      // Set initial channel colors
-      const CHANNEL_COLORS = ['#ff3366', '#ff9933', '#ffcc00', '#33cc66', '#3399ff', '#9966ff', '#ff6699', '#66cccc'];
-      for (let ch = 0; ch < 8; ch++) {
-        const hex = CHANNEL_COLORS[ch];
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        engine.setChannelColor(ch, (r << 16) | (g << 8) | b);
-      }
-
-      // Set channel types: channels 0-5 melodic, 6-7 drum
-      engine.writeChannelTypes([0, 0, 0, 0, 0, 0, 1, 1]);
-
-      // Set initial zoom (1/16 = 120 ticks per col)
-      engine.setZoom(120);
-
-      // Set initial BPM in WASM
-      engine.setBpm(120);
-
-      // Compute initial row offsets to position C4 at bottom for melodic channels
-      // Scale mapping is built by engine_core_init() in WASM (default: C Major)
-      {
-        const scaleCount = engine.getScaleCount();
-        const scaleZeroIndex = engine.getScaleZeroIndex();
-        const visibleRows = engine.getVisibleRows();
-        const melodicMaxRowOffset = Math.max(0, scaleCount - visibleRows);
-        const melodicOffset = melodicMaxRowOffset > 0
-          ? 1 - scaleZeroIndex / melodicMaxRowOffset
-          : 0.5;
-        const drumMaxRowOffset = Math.max(0, 128 - visibleRows);
-        const drumOffset = drumMaxRowOffset > 0
-          ? 1 - 36 / drumMaxRowOffset
-          : 0.5;
+        // Set initial channel colors
+        const CHANNEL_COLORS = [
+          "#ff3366",
+          "#ff9933",
+          "#ffcc00",
+          "#33cc66",
+          "#3399ff",
+          "#9966ff",
+          "#ff6699",
+          "#66cccc",
+        ];
         for (let ch = 0; ch < 8; ch++) {
-          engine.setRowOffset(ch, ch >= 6 ? drumOffset : melodicOffset);
+          const hex = CHANNEL_COLORS[ch];
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+          engine.setChannelColor(ch, (r << 16) | (g << 8) | b);
         }
-      }
 
-      setWasmEngine(engine);
-      actions.setWasmEngine(engine);
-      console.log('[startup] WASM engine v' + engine.getVersion() + ' ready, isEnabled=' + isEnabled);
-    }).catch((err) => {
-      console.warn('WASM engine not available:', err);
-    });
+        // Set channel types: channels 0-5 melodic, 6-7 drum
+        engine.writeChannelTypes([0, 0, 0, 0, 0, 0, 1, 1]);
+
+        // Set initial zoom (1/16 = 120 ticks per col)
+        engine.setZoom(120);
+
+        // Set initial BPM in WASM
+        engine.setBpm(120);
+
+        // Compute initial row offsets to position C4 at bottom for melodic channels
+        // Scale mapping is built by engine_core_init() in WASM (default: C Major)
+        {
+          const scaleCount = engine.getScaleCount();
+          const scaleZeroIndex = engine.getScaleZeroIndex();
+          const visibleRows = engine.getVisibleRows();
+          const melodicMaxRowOffset = Math.max(0, scaleCount - visibleRows);
+          const melodicOffset =
+            melodicMaxRowOffset > 0
+              ? 1 - scaleZeroIndex / melodicMaxRowOffset
+              : 0.5;
+          const drumMaxRowOffset = Math.max(0, 128 - visibleRows);
+          const drumOffset =
+            drumMaxRowOffset > 0 ? 1 - 36 / drumMaxRowOffset : 0.5;
+          for (let ch = 0; ch < 8; ch++) {
+            engine.setRowOffset(ch, ch >= 6 ? drumOffset : melodicOffset);
+          }
+        }
+
+        setWasmEngine(engine);
+        actions.setWasmEngine(engine);
+        console.log(
+          "[startup] WASM engine v" +
+            engine.getVersion() +
+            " ready, isEnabled=" +
+            isEnabled,
+        );
+      })
+      .catch((err) => {
+        console.warn("WASM engine not available:", err);
+      });
   }, []);
 
   // Subscribe to render version for transport state re-renders
@@ -144,7 +164,14 @@ function App() {
   });
 
   const handleStepTrigger = useCallback(
-    (channel: number, midiNote: number, _tick: number, noteLengthTicks: number, velocity: number, extras?: StepTriggerExtras) => {
+    (
+      channel: number,
+      midiNote: number,
+      _tick: number,
+      noteLengthTicks: number,
+      velocity: number,
+      extras?: StepTriggerExtras,
+    ) => {
       const note = midiNote;
       const midiChannel = channel + 1;
 
@@ -185,25 +212,30 @@ function App() {
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
         for (let f = 0; f < flamCount; f++) {
           const flamTime = noteDelayMs + (f + 1) * thirtySecondMs;
-          scheduleNote(() => playNote(note, flamVelocity, midiChannel), flamTime);
+          scheduleNote(
+            () => playNote(note, flamVelocity, midiChannel),
+            flamTime,
+          );
         }
       } else {
         scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
       }
     },
-    [playNote, stopNote]
+    [playNote, stopNote],
   );
 
   const handleNoteOff = useCallback(
     (channel: number, midiNote: number) => {
       stopNote(midiNote, channel + 1);
     },
-    [stopNote]
+    [stopNote],
   );
 
   // Read transport state from WASM
   const isPlaying = wasmEngine ? wasmEngine.getIsPlaying() : false;
-  const isExternalPlayback = wasmEngine ? wasmEngine.getIsExternalPlayback() : false;
+  const isExternalPlayback = wasmEngine
+    ? wasmEngine.getIsExternalPlayback()
+    : false;
   const bpm = wasmEngine ? wasmEngine.getBpm() : 120;
 
   // Keep bpmRef in sync with actual BPM
@@ -212,27 +244,35 @@ function App() {
   const handlePlayNote = useCallback(
     (note: number, channel: number, lengthTicks?: number) => {
       playNote(note, 100, channel + 1);
-      const ticks = lengthTicks ?? (TICKS_PER_QUARTER / 4);
+      const ticks = lengthTicks ?? TICKS_PER_QUARTER / 4;
       const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
       const duration = Math.max(50, ticks * tickDurationMs - 10);
       setTimeout(() => stopNote(note, channel + 1), duration);
     },
-    [playNote, stopNote]
+    [playNote, stopNote],
   );
 
   // Wire up step trigger and note-off callbacks
   useEffect(() => {
-    console.log('[startup] Wiring callbacks: wasmEngine=' + !!wasmEngine);
+    console.log("[startup] Wiring callbacks: wasmEngine=" + !!wasmEngine);
     if (wasmEngine) {
       wasmEngine.onStepTrigger = handleStepTrigger;
       wasmEngine.onNoteOff = handleNoteOff;
-      wasmEngine.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
+      wasmEngine.onPlayPreviewNote = (
+        channel: number,
+        row: number,
+        lengthTicks: number,
+      ) => {
         const isDrum = wasmEngine.getChannelType(channel) === 1;
         const midiNote = isDrum
           ? Math.max(0, Math.min(127, row))
           : wasmEngine.noteToMidi(row);
         if (midiNote >= 0) {
-          handlePlayNote(midiNote, channel, lengthTicks > 0 ? lengthTicks : undefined);
+          handlePlayNote(
+            midiNote,
+            channel,
+            lengthTicks > 0 ? lengthTicks : undefined,
+          );
         }
       };
     }
@@ -290,7 +330,9 @@ function App() {
 
   // Don't render anything until both WASM and MIDI are ready
   if (!wasmEngine || !isEnabled) {
-    console.log('[startup] Gated: wasmEngine=' + !!wasmEngine + ' isEnabled=' + isEnabled);
+    console.log(
+      "[startup] Gated: wasmEngine=" + !!wasmEngine + " isEnabled=" + isEnabled,
+    );
     return (
       <ThemeProvider theme={darkTheme}>
         <CssBaseline />
@@ -304,7 +346,12 @@ function App() {
     );
   }
 
-  console.log('[startup] Full render: wasmEngine=' + !!wasmEngine + ' isEnabled=' + isEnabled);
+  // console.log(
+  //   "[startup] Full render: wasmEngine=" +
+  //     !!wasmEngine +
+  //     " isEnabled=" +
+  //     isEnabled,
+  // );
 
   return (
     <ThemeProvider theme={darkTheme}>

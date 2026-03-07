@@ -178,6 +178,12 @@ export class WasmEngine {
   private _getResumeTick!: () => number;
   private _setResumeTick!: (tick: number) => void;
 
+  // Touchstrip
+  private _stripStart!: (strip: number, pos: number, shift: number, timeMs: number) => void;
+  private _stripMove!: (strip: number, pos: number, timeMs: number) => void;
+  private _stripEnd!: (strip: number) => void;
+  private _stripInertiaTick!: (strip: number) => number;
+
   // Selected event getters (OLED)
   private _getSelRow!: () => number;
   private _getSelLength!: () => number;
@@ -327,6 +333,12 @@ export class WasmEngine {
     this._getIsExternalPlayback = cw('engine_get_is_external_playback', 'number', []);
     this._getResumeTick = cw('engine_get_resume_tick', 'number', []);
     this._setResumeTick = cw('engine_set_resume_tick', null, ['number']) as unknown as (t: number) => void;
+
+    // Touchstrip
+    this._stripStart = cw('engine_strip_start', null, ['number', 'number', 'number', 'number']) as unknown as (s: number, p: number, sh: number, t: number) => void;
+    this._stripMove = cw('engine_strip_move', null, ['number', 'number', 'number']) as unknown as (s: number, p: number, t: number) => void;
+    this._stripEnd = cw('engine_strip_end', null, ['number']) as unknown as (s: number) => void;
+    this._stripInertiaTick = cw('engine_strip_inertia_tick', 'number', ['number']);
 
     // Selected event getters (OLED)
     this._getSelRow = cw('engine_get_sel_row', 'number', []);
@@ -628,6 +640,12 @@ export class WasmEngine {
   getIsExternalPlayback(): boolean { return this._getIsExternalPlayback() !== 0; }
   getResumeTick(): number { return this._getResumeTick(); }
   setResumeTick(tick: number): void { this._setResumeTick(tick); }
+
+  // Touchstrip
+  stripStart(strip: number, pos: number, shift: boolean, timeMs: number): void { this._stripStart(strip, pos, shift ? 1 : 0, timeMs); }
+  stripMove(strip: number, pos: number, timeMs: number): void { this._stripMove(strip, pos, timeMs); }
+  stripEnd(strip: number): void { this._stripEnd(strip); }
+  stripInertiaTick(strip: number): boolean { return this._stripInertiaTick(strip) !== 0; }
 
   // Selected event getters (OLED display)
   getSelRow(): number { return this._getSelRow(); }

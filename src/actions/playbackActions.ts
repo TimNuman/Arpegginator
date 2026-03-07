@@ -105,19 +105,6 @@ export function resetPosition(): void {
   markDirty();
 }
 
-export function scrubToTick(targetTick: number): void {
-  if (!wasmReady()) return;
-  wasmEngine!.scrubToTick(targetTick);
-  markDirty();
-}
-
-export function scrubEnd(): void {
-  if (!wasmReady()) return;
-  const t = wasmEngine!.getCurrentTick();
-  if (t >= 0) wasmEngine!.setResumeTick(t);
-  wasmEngine!.scrubEnd();
-}
-
 export function setBpm(bpm: number): void {
   if (wasmReady()) {
     wasmEngine!.setBpm(bpm);

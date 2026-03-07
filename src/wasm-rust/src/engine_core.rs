@@ -404,6 +404,15 @@ pub struct EngineState {
     pub target_row_offsets: [f32; NUM_CHANNELS],
     pub col_offset: f32,
 
+    // Touchstrip state (0=vertical/row, 1=horizontal/col)
+    pub strip_dragging: [u8; 2],
+    pub strip_shift_dragging: u8,        // horizontal scrub mode
+    pub strip_velocity: [f32; 2],
+    pub strip_last_pos: [i32; 2],
+    pub strip_last_time: [f32; 2],
+    pub scrub_accumulator: f32,
+    pub manual_scroll_override: u8,
+
     pub ctrl_held: u8,
     pub channel_colors: [u32; NUM_CHANNELS],
 
@@ -485,6 +494,13 @@ impl Default for EngineState {
             row_offsets: [0.0; NUM_CHANNELS],
             target_row_offsets: [0.0; NUM_CHANNELS],
             col_offset: 0.0,
+            strip_dragging: [0; 2],
+            strip_shift_dragging: 0,
+            strip_velocity: [0.0; 2],
+            strip_last_pos: [0; 2],
+            strip_last_time: [0.0; 2],
+            scrub_accumulator: 0.0,
+            manual_scroll_override: 0,
             ctrl_held: 0,
             channel_colors: [0; NUM_CHANNELS],
             button_values: [[0; VISIBLE_COLS]; VISIBLE_ROWS],

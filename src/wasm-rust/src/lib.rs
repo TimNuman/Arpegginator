@@ -12,6 +12,7 @@ pub mod oled_gfx;
 pub mod oled_fonts;
 pub mod oled_display;
 pub mod oled_screen;
+pub mod engine_strip;
 
 use engine_core::*;
 
@@ -176,6 +177,28 @@ pub extern "C" fn engine_scrub_to_tick(target_tick: i32) {
 #[no_mangle]
 pub extern "C" fn engine_scrub_end() {
     engine_core::engine_core_scrub_end(state());
+}
+
+// ============ Touchstrip ============
+
+#[no_mangle]
+pub extern "C" fn engine_strip_start(strip: u8, pos: i32, shift: u8, time_ms: f32) {
+    engine_strip::engine_strip_start(state(), strip, pos, shift, time_ms);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_strip_move(strip: u8, pos: i32, time_ms: f32) {
+    engine_strip::engine_strip_move(state(), strip, pos, time_ms);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_strip_end(strip: u8) {
+    engine_strip::engine_strip_end(state(), strip);
+}
+
+#[no_mangle]
+pub extern "C" fn engine_strip_inertia_tick(strip: u8) -> u8 {
+    engine_strip::engine_strip_inertia_tick(state(), strip)
 }
 
 #[no_mangle]
@@ -344,7 +367,15 @@ pub extern "C" fn engine_get_col_offset() -> f32 { state_ref().col_offset }
 pub extern "C" fn engine_set_bpm(bpm: f32) { state().bpm = bpm; }
 
 #[no_mangle]
-pub extern "C" fn engine_set_is_playing(playing: u8) { state().is_playing = playing; }
+pub extern "C" fn engine_set_is_playing(playing: u8) {
+    let s = state();
+    let was_playing = s.is_playing;
+    s.is_playing = playing;
+    // Clear manual scroll override on play/stop transitions
+    if was_playing != playing {
+        s.manual_scroll_override = 0;
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn engine_set_ctrl_held(held: u8) { state().ctrl_held = held; }

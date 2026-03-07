@@ -713,6 +713,13 @@ const EASE_FACTOR: f32 = 0.12;
 const EASE_SNAP: f32 = 0.001;
 
 pub fn engine_compute_grid(s: &mut EngineState) {
+    // Auto-scroll to follow playhead
+    crate::engine_strip::engine_playhead_follow(s);
+
+    // Apply strip inertia (both strips)
+    crate::engine_strip::engine_strip_inertia_tick(s, 0);
+    crate::engine_strip::engine_strip_inertia_tick(s, 1);
+
     let ch = s.current_channel as usize;
 
     // Ease row offset toward target
@@ -755,4 +762,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
 pub fn engine_is_animating(s: &EngineState) -> bool {
     s.row_offsets.iter().zip(s.target_row_offsets.iter())
         .any(|(cur, tgt)| (tgt - cur).abs() > EASE_SNAP)
+    // Only count strip velocity when not actively dragging (inertia is a no-op during drag)
+    || (s.strip_dragging[0] == 0 && s.strip_velocity[0].abs() > 0.0001)
+    || (s.strip_dragging[1] == 0 && s.strip_velocity[1].abs() > 0.0001)
 }

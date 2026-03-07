@@ -4,8 +4,6 @@ export {
   stop,
   resetPosition,
   togglePlay,
-  scrubToTick,
-  scrubEnd,
   setBpm,
   playExternal,
   externalTick,

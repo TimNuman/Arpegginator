@@ -4,7 +4,7 @@ import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
 import { CHANNEL_COLORS } from "./ChannelColors";
-import { useRenderVersion, markDirty } from "../../store/renderStore";
+import { useRenderVersion, markDirty, setAnimatingCheck } from "../../store/renderStore";
 import * as actions from "../../actions";
 import type { WasmEngine } from "../../engine/WasmEngine";
 import { OledRenderer } from "../../engine/OledRenderer";
@@ -36,7 +36,6 @@ import {
   ACTION_ZOOM_IN,
   ACTION_ZOOM_OUT,
   ACTION_DELETE_NOTE,
-  UI_MODE_LOOP,
 } from "./Grid.config";
 import { noop, uint32ToHex, encodeModifiers } from "./Grid.helpers";
 
@@ -58,7 +57,12 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     if (!oledRendererRef.current) {
       oledRendererRef.current = wasmEngine.createOledRenderer();
     }
-    return () => console.log("[startup] Grid unmounted");
+    // Register animating check so render loop keeps running during inertia/easing
+    setAnimatingCheck(() => wasmEngine.isAnimating());
+    return () => {
+      setAnimatingCheck(null as unknown as () => boolean);
+      console.log("[startup] Grid unmounted");
+    };
   }, [wasmEngine]);
 
   // Attach canvas to renderer once
@@ -78,25 +82,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const VISIBLE_ROWS = wasmEngine.getVisibleRows();
   const VISIBLE_COLS = wasmEngine.getVisibleCols();
   const currentChannel = wasmEngine.getCurrentChannel();
-  const currentTick = wasmEngine.getCurrentTick();
-  const isPlaying = wasmEngine.getIsPlaying();
-  const uiMode = wasmEngine.getUiMode();
-  const ticksPerCol = wasmEngine.getZoom();
-  const isDrumChannel = wasmEngine.getChannelType(currentChannel) === 1;
-  const loopStart = wasmEngine.getCurrentLoopStart();
-  const loopLength = wasmEngine.getCurrentLoopLength();
-  const loopEndTick = loopStart + loopLength;
-  const patternLengthTicks = wasmEngine.getCurrentPatternLengthTicks();
-  const rowOffset = wasmEngine.getRowOffset(currentChannel);
-  const colOffset = wasmEngine.getColOffset();
 
   const channelColor = CHANNEL_COLORS[currentChannel];
-
-  // Tick-based layout
-  const totalCols = Math.ceil(patternLengthTicks / ticksPerCol);
-
-  const totalRows = isDrumChannel ? 128 : wasmEngine.getScaleCount();
-  const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
 
   const buttonSize = 44;
   const gridHeight = VISIBLE_ROWS * buttonSize;
@@ -214,20 +201,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmEngine, renderVersion, keyboard.ctrl]);
 
-  // ============ Camera Easing Animation Loop ============
-  const animFrameRef = useRef(0);
-  useEffect(() => {
-    if (!wasmEngine.isAnimating()) return;
-    const tick = () => {
-      markDirty();
-      if (wasmEngine.isAnimating()) {
-        animFrameRef.current = requestAnimationFrame(tick);
-      }
-    };
-    animFrameRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, [wasmEngine, renderVersion]);
-
   // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(
     (visibleRow: number, visibleCol: number) => {
@@ -254,97 +227,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     },
     [wasmEngine],
   );
-
-  // ============ Playhead Follow Mode ============
-  const manualScrollOverride = useRef(false);
-  const prevIsPlaying = useRef(false);
-
-  // Detect play/stop transitions -> clear manual override
-  if (isPlaying && !prevIsPlaying.current) {
-    manualScrollOverride.current = false;
-  }
-  if (!isPlaying && prevIsPlaying.current) {
-    manualScrollOverride.current = false;
-  }
-  prevIsPlaying.current = isPlaying;
-
-  // Auto-scroll to follow playhead while playing
-  if (
-    isPlaying &&
-    currentTick >= 0 &&
-    !manualScrollOverride.current &&
-    uiMode !== UI_MODE_LOOP
-  ) {
-    const loopedTick =
-      loopStart +
-      ((((currentTick - loopStart) % loopLength) + loopLength) % loopLength);
-    const loopStartCol = Math.floor(loopStart / ticksPerCol);
-    const loopLengthCols = Math.ceil(loopLength / ticksPerCol);
-    const loopEndCol = Math.ceil(loopEndTick / ticksPerCol);
-
-    if (loopLengthCols > VISIBLE_COLS) {
-      const FOLLOW_COL = 4;
-      const loopedCol =
-        Math.floor((loopedTick - loopStart) / ticksPerCol) + loopStartCol;
-      let targetStartCol = loopedCol - FOLLOW_COL;
-      targetStartCol = Math.max(targetStartCol, loopStartCol);
-      const maxLoopStartCol = loopEndCol - VISIBLE_COLS;
-      targetStartCol = Math.min(targetStartCol, maxLoopStartCol);
-      targetStartCol = Math.max(0, Math.min(maxColOffset, targetStartCol));
-      const newColOffset =
-        maxColOffset > 0
-          ? Math.max(0, Math.min(1, targetStartCol / maxColOffset))
-          : 0;
-      if (Math.abs(newColOffset - colOffset) > 0.001) {
-        wasmEngine.setColOffset(newColOffset);
-        markDirty();
-      }
-    }
-  }
-
-  // ============ Scroll Handlers ============
-  const handleRowOffsetChange = useCallback(
-    (offset: number) => {
-      wasmEngine.setRowOffset(currentChannel, offset);
-      markDirty();
-    },
-    [wasmEngine, currentChannel],
-  );
-
-  const handleColOffsetChange = useCallback(
-    (offset: number) => {
-      if (isPlaying) {
-        manualScrollOverride.current = true;
-      }
-      wasmEngine.setColOffset(offset);
-      markDirty();
-    },
-    [wasmEngine, isPlaying],
-  );
-
-  const scrubAccumulator = useRef(0);
-
-  const handleScrub = useCallback(
-    (deltaItems: number) => {
-      if (deltaItems === 0) {
-        // Scrub start — reset accumulator
-        scrubAccumulator.current = 0;
-        return;
-      }
-      scrubAccumulator.current += deltaItems * ticksPerCol;
-      const wholeTicks = Math.trunc(scrubAccumulator.current);
-      if (wholeTicks === 0) return;
-      scrubAccumulator.current -= wholeTicks;
-      const t = wasmEngine.getCurrentTick();
-      const base = t >= 0 ? t : loopStart;
-      actions.scrubToTick(base + wholeTicks);
-    },
-    [wasmEngine, ticksPerCol, loopStart],
-  );
-
-  const handleScrubEnd = useCallback(() => {
-    actions.scrubEnd();
-  }, []);
 
   // ============ Arrow button handlers (on-screen UI) ============
   const handleArrow = useCallback(
@@ -374,13 +256,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       <Box css={verticalStripContainerStyles}>
         <TouchStrip
           orientation="vertical"
-          value={rowOffset}
-          onChange={handleRowOffsetChange}
+          strip={0}
+          wasmEngine={wasmEngine}
           length={gridHeight}
           thickness={24}
-          totalItems={totalRows}
-          visibleItems={VISIBLE_ROWS}
-          itemSize={buttonSize}
         />
       </Box>
       <Box css={gridInnerContainerStyles}>
@@ -428,15 +307,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           </Box>
           <TouchStrip
             orientation="horizontal"
-            value={colOffset}
-            onChange={handleColOffsetChange}
-            onShiftChange={handleScrub}
-            onShiftEnd={handleScrubEnd}
+            strip={1}
+            wasmEngine={wasmEngine}
             length={buttonSize * 8}
             thickness={24}
-            totalItems={totalCols}
-            visibleItems={VISIBLE_COLS}
-            itemSize={buttonSize}
           />
         </Box>
       </Box>
