@@ -377,6 +377,18 @@ pub extern "C" fn engine_get_bpm() -> f32 { state_ref().bpm }
 #[no_mangle]
 pub extern "C" fn engine_get_is_playing() -> u8 { state_ref().is_playing }
 
+#[no_mangle]
+pub extern "C" fn engine_set_is_external_playback(ext: u8) { state().is_external_playback = ext; }
+
+#[no_mangle]
+pub extern "C" fn engine_get_is_external_playback() -> u8 { state_ref().is_external_playback }
+
+#[no_mangle]
+pub extern "C" fn engine_get_resume_tick() -> i32 { state_ref().resume_tick }
+
+#[no_mangle]
+pub extern "C" fn engine_set_resume_tick(tick: i32) { state().resume_tick = tick; }
+
 // ============ Grid Output Buffer Accessors ============
 
 #[no_mangle]
@@ -706,6 +718,7 @@ pub extern "C" fn engine_get_scale_name() -> *const u8 {
         SCALE_NAME_BUF.as_ptr()
     }
 }
+
 
 #[no_mangle]
 pub extern "C" fn engine_get_scale_count() -> u16 { state_ref().scale_count }

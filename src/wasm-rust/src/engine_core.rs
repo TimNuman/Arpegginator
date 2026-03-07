@@ -383,7 +383,9 @@ pub struct EngineState {
 
     pub current_tick: i32,
     pub last_scrub_tick: i32,
+    pub resume_tick: i32,
     pub is_playing: u8,
+    pub is_external_playback: u8,
     pub bpm: f32,
 
     pub active_notes: [ActiveNote; MAX_ACTIVE_NOTES],
@@ -467,7 +469,9 @@ impl Default for EngineState {
             scale_octave_size: 0,
             current_tick: -1,
             last_scrub_tick: -1,
+            resume_tick: -1,
             is_playing: 0,
+            is_external_playback: 0,
             bpm: 120.0,
             active_notes: [ActiveNote::default(); MAX_ACTIVE_NOTES],
             continue_counters: [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],

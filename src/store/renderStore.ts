@@ -28,29 +28,3 @@ export function markDirty(): void {
 export function useRenderVersion(): number {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
-
-// ============ Transport State ============
-// JS owns the playback timer, so it needs these values outside of WASM.
-
-let _isPlaying = false;
-let _isExternalPlayback = false;
-let _bpm = 120;
-
-export function getIsPlaying(): boolean { return _isPlaying; }
-export function getIsExternalPlayback(): boolean { return _isExternalPlayback; }
-export function getBpm(): number { return _bpm; }
-
-export function setIsPlaying(playing: boolean): void {
-  _isPlaying = playing;
-  markDirty();
-}
-
-export function setIsExternalPlayback(external: boolean): void {
-  _isExternalPlayback = external;
-  markDirty();
-}
-
-export function setBpm(bpm: number): void {
-  _bpm = bpm;
-  markDirty();
-}

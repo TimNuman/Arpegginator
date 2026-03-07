@@ -66,15 +66,6 @@ export const modifierKeyActiveStyles = css`
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 `;
 
-export const debugStyles = css`
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
-  font-family: monospace;
-  padding: 8px 20px;
-  display: flex;
-  justify-content: space-between;
-`;
-
 export const oledContainerStyles = css`
   display: flex;
   align-items: flex-start;

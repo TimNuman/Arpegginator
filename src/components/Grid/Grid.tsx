@@ -4,13 +4,8 @@ import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
 import { CHANNEL_COLORS } from "./ChannelColors";
-import {
-  useRenderVersion,
-  getIsPlaying,
-  markDirty,
-} from "../../store/renderStore";
+import { useRenderVersion, markDirty } from "../../store/renderStore";
 import * as actions from "../../actions";
-import { getDrumName, DRUM_TOTAL_ROWS, DRUM_MIN_ROW } from "../../types/drums";
 import type { WasmEngine } from "../../engine/WasmEngine";
 import { OledRenderer } from "../../engine/OledRenderer";
 import {
@@ -22,7 +17,6 @@ import {
   modifierKeysContainerStyles,
   modifierKeyStyles,
   modifierKeyActiveStyles,
-  debugStyles,
   oledContainerStyles,
   oledColumnStyles,
   oledScreenStyles,
@@ -42,16 +36,9 @@ import {
   ACTION_ZOOM_IN,
   ACTION_ZOOM_OUT,
   ACTION_DELETE_NOTE,
-  UI_MODE_NAMES,
-  TICKS_TO_SUBDIVISION,
+  UI_MODE_LOOP,
 } from "./Grid.config";
-import {
-  noop,
-  midiNoteToName,
-  tickToBeatDisplay,
-  uint32ToHex,
-  encodeModifiers,
-} from "./Grid.helpers";
+import { noop, uint32ToHex, encodeModifiers } from "./Grid.helpers";
 
 // ============ Grid Component ============
 
@@ -77,7 +64,11 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // Attach canvas to renderer once
   const oledCanvasAttached = useRef(false);
   useEffect(() => {
-    if (!oledCanvasAttached.current && oledCanvasRef.current && oledRendererRef.current) {
+    if (
+      !oledCanvasAttached.current &&
+      oledCanvasRef.current &&
+      oledRendererRef.current
+    ) {
       oledRendererRef.current.setCanvas(oledCanvasRef.current);
       oledCanvasAttached.current = true;
     }
@@ -88,11 +79,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const VISIBLE_COLS = wasmEngine.getVisibleCols();
   const currentChannel = wasmEngine.getCurrentChannel();
   const currentTick = wasmEngine.getCurrentTick();
-  const isPlaying = getIsPlaying(); // JS owns transport
-  const uiModeIdx = wasmEngine.getUiMode();
-  const uiMode = UI_MODE_NAMES[uiModeIdx] ?? "pattern";
+  const isPlaying = wasmEngine.getIsPlaying();
+  const uiMode = wasmEngine.getUiMode();
   const ticksPerCol = wasmEngine.getZoom();
-  const zoom = TICKS_TO_SUBDIVISION[ticksPerCol] ?? "1/16";
   const isDrumChannel = wasmEngine.getChannelType(currentChannel) === 1;
   const loopStart = wasmEngine.getCurrentLoopStart();
   const loopLength = wasmEngine.getCurrentLoopLength();
@@ -106,18 +95,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // Tick-based layout
   const totalCols = Math.ceil(patternLengthTicks / ticksPerCol);
 
-  const totalRows = isDrumChannel
-    ? DRUM_TOTAL_ROWS
-    : wasmEngine.getScaleCount();
-  const minRow = isDrumChannel ? DRUM_MIN_ROW : -wasmEngine.getScaleZeroIndex();
-  const maxRowOffset = Math.max(0, totalRows - VISIBLE_ROWS);
+  const totalRows = isDrumChannel ? 128 : wasmEngine.getScaleCount();
   const maxColOffset = Math.max(0, totalCols - VISIBLE_COLS);
-  const startArrayIndex =
-    maxRowOffset > 0 ? Math.round((1 - rowOffset) * maxRowOffset) : 0;
-  const startRow = startArrayIndex + minRow;
-  const endRow = startRow + VISIBLE_ROWS - 1;
-  const startCol = maxColOffset > 0 ? Math.round(colOffset * maxColOffset) : 0;
-  const startTick = startCol * ticksPerCol;
 
   const buttonSize = 44;
   const gridHeight = VISIBLE_ROWS * buttonSize;
@@ -294,7 +273,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     isPlaying &&
     currentTick >= 0 &&
     !manualScrollOverride.current &&
-    uiMode !== "loop"
+    uiMode !== UI_MODE_LOOP
   ) {
     const loopedTick =
       loopStart +
@@ -460,25 +439,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             itemSize={buttonSize}
           />
         </Box>
-        <Box css={debugStyles}>
-          <span>
-            Notes:{" "}
-            {isDrumChannel
-              ? `${getDrumName(startRow)} - ${getDrumName(endRow)}`
-              : `${(() => {
-                  const m = wasmEngine.noteToMidi(startRow);
-                  return m >= 0 ? midiNoteToName(m) : startRow;
-                })()} - ${(() => {
-                  const m = wasmEngine.noteToMidi(endRow);
-                  return m >= 0 ? midiNoteToName(m) : endRow;
-                })()}`}
-          </span>
-          <span>Zoom: {zoom}</span>
-          <span>
-            Beats: {tickToBeatDisplay(startTick)} -{" "}
-            {tickToBeatDisplay(startTick + VISIBLE_COLS * ticksPerCol)}
-          </span>
-        </Box>
       </Box>
       {/* OLED Screen and controls */}
       <Box css={oledContainerStyles}>
@@ -488,7 +448,11 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
               ref={oledCanvasRef}
               width={160}
               height={128}
-              style={{ width: '100%', height: '100%', imageRendering: 'pixelated' }}
+              style={{
+                width: "100%",
+                height: "100%",
+                imageRendering: "pixelated",
+              }}
             />
           </Box>
           <Box css={rotaryEncoderStyles}>

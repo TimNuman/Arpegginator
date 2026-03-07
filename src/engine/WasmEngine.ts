@@ -1,4 +1,3 @@
-import type { NoteEvent, PatternData, VelocityLoopMode } from '../types/event';
 import type { StepTriggerExtras } from '../actions/playbackActions';
 import { markDirty } from '../store/renderStore';
 import { OledRenderer } from './OledRenderer';
@@ -174,6 +173,10 @@ export class WasmEngine {
   private _getSelectedEvent!: () => number;
   private _getBpm!: () => number;
   private _getIsPlaying!: () => number;
+  private _setIsExternalPlayback!: (ext: number) => void;
+  private _getIsExternalPlayback!: () => number;
+  private _getResumeTick!: () => number;
+  private _setResumeTick!: (tick: number) => void;
 
   // Selected event getters (OLED)
   private _getSelRow!: () => number;
@@ -320,6 +323,10 @@ export class WasmEngine {
     this._getSelectedEvent = cw('engine_get_selected_event', 'number', []);
     this._getBpm = cw('engine_get_bpm', 'number', []);
     this._getIsPlaying = cw('engine_get_is_playing', 'number', []);
+    this._setIsExternalPlayback = cw('engine_set_is_external_playback', null, ['number']) as unknown as (e: number) => void;
+    this._getIsExternalPlayback = cw('engine_get_is_external_playback', 'number', []);
+    this._getResumeTick = cw('engine_get_resume_tick', 'number', []);
+    this._setResumeTick = cw('engine_set_resume_tick', null, ['number']) as unknown as (t: number) => void;
 
     // Selected event getters (OLED)
     this._getSelRow = cw('engine_get_sel_row', 'number', []);
@@ -454,95 +461,6 @@ export class WasmEngine {
   seedRng(): void {
     this._setRngSeed(Math.floor(Math.random() * 0xFFFFFFFF) + 1);
   }
-
-  /**
-   * Read a specific pattern from WASM memory and return it.
-   */
-  readPatternData(ch: number, pat: number): PatternData {
-    const mod = this.module!;
-    const handlesPtr = this._getEventHandlesBuffer(ch, pat);
-    const eventCount = this._getEventCount(ch, pat);
-    const lengthTicks = this._getPatternLength(ch, pat);
-    const view = new DataView(mod.HEAPU8.buffer);
-
-    const events: NoteEvent[] = [];
-    const LOOP_MODE_REVERSE: VelocityLoopMode[] = ['reset', 'continue', 'fill'];
-
-    for (let i = 0; i < eventCount; i++) {
-      // Read handle from pattern's handle array, then dereference via event pool
-      const handle = view.getUint16(handlesPtr + i * 2, true);
-      const ptr = this.eventPoolBasePtr + handle * this.noteEventSize;
-
-      // Read sub-mode handles and dereference via pool
-      const handlesBase = ptr + this.fieldOffsets[6];
-      const SM_DEFAULT_VALUES = [100, 100, 0, 0, 0, 0];
-      const subModeArrays: { values: number[]; loopMode: VelocityLoopMode }[] = [];
-      for (let sm = 0; sm < 6; sm++) {
-        const handle = view.getUint16(handlesBase + sm * 2, true);
-        if (handle === this.poolHandleNone) {
-          subModeArrays.push({ values: [SM_DEFAULT_VALUES[sm]], loopMode: 'reset' });
-        } else {
-          const arrBase = this.poolBasePtr + handle * this.subModeArraySize;
-          const lenOffset = this.subModeArraySize - 2;
-          const len = mod.HEAPU8[arrBase + lenOffset];
-          const values: number[] = [];
-          for (let j = 0; j < len; j++) {
-            values.push(view.getInt16(arrBase + j * 2, true));
-          }
-          const loopModeVal = mod.HEAPU8[arrBase + lenOffset + 1];
-          subModeArrays.push({
-            values,
-            loopMode: LOOP_MODE_REVERSE[loopModeVal] ?? 'reset',
-          });
-        }
-      }
-
-      const eventIndex = view.getUint16(ptr + this.fieldOffsets[10], true);
-      // Look up UUID from event index
-      const eventId = this.eventIndexToId[ch]?.[pat]?.get(String(eventIndex));
-
-      const event: NoteEvent = {
-        id: eventId ?? `wasm-${eventIndex}`,
-        row: view.getInt16(ptr + this.fieldOffsets[0], true),
-        position: view.getInt32(ptr + this.fieldOffsets[1], true),
-        length: view.getInt32(ptr + this.fieldOffsets[2], true),
-        enabled: mod.HEAPU8[ptr + this.fieldOffsets[3]] !== 0,
-        repeatAmount: view.getUint16(ptr + this.fieldOffsets[4], true),
-        repeatSpace: view.getInt32(ptr + this.fieldOffsets[5], true),
-        velocity: subModeArrays[0].values,
-        velocityLoopMode: subModeArrays[0].loopMode,
-        chance: subModeArrays[1].values,
-        chanceLoopMode: subModeArrays[1].loopMode,
-        timingOffset: subModeArrays[2].values,
-        timingLoopMode: subModeArrays[2].loopMode,
-        flamChance: subModeArrays[3].values,
-        flamLoopMode: subModeArrays[3].loopMode,
-        modulate: subModeArrays[4].values,
-        modulateLoopMode: subModeArrays[4].loopMode,
-        inversion: subModeArrays[5].values,
-        inversionLoopMode: subModeArrays[5].loopMode,
-        chordAmount: mod.HEAPU8[ptr + this.fieldOffsets[7]],
-        chordSpace: mod.HEAPU8[ptr + this.fieldOffsets[8]],
-        chordInversion: view.getInt8(ptr + this.fieldOffsets[9]),
-        chordVoicing: mod.HEAPU8[ptr + this.fieldOffsets[14]],
-        arpStyle: mod.HEAPU8[ptr + this.fieldOffsets[11]],
-        arpOffset: view.getInt8(ptr + this.fieldOffsets[12]),
-        arpVoices: mod.HEAPU8[ptr + this.fieldOffsets[13]],
-      };
-
-      events.push(event);
-
-      // Update index maps for new events
-      if (!eventId) {
-        const newId = `wasm-${eventIndex}`;
-        this.eventIndexMaps[ch][pat].set(newId, i);
-        this.eventIndexToId[ch][pat].set(String(eventIndex), newId);
-      }
-    }
-
-    return { events, lengthTicks };
-  }
-
 
   // Loops live in WASM — use readLoop/writeLoop for individual access
 
@@ -706,6 +624,10 @@ export class WasmEngine {
   getSelectedEvent(): number { return this._getSelectedEvent(); }
   getBpm(): number { return this._getBpm(); }
   getIsPlaying(): boolean { return this._getIsPlaying() !== 0; }
+  setIsExternalPlayback(ext: boolean): void { this._setIsExternalPlayback(ext ? 1 : 0); }
+  getIsExternalPlayback(): boolean { return this._getIsExternalPlayback() !== 0; }
+  getResumeTick(): number { return this._getResumeTick(); }
+  setResumeTick(tick: number): void { this._setResumeTick(tick); }
 
   // Selected event getters (OLED display)
   getSelRow(): number { return this._getSelRow(); }

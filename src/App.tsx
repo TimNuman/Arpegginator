@@ -5,10 +5,10 @@ import { Grid } from './components/Grid';
 import { Transport } from './components/Transport';
 import { WasmEngine } from './engine/WasmEngine';
 import { useMidi } from './hooks/useMidi';
-import { useRenderVersion, getIsPlaying, getIsExternalPlayback, getBpm } from './store/renderStore';
+import { useRenderVersion } from './store/renderStore';
 import * as actions from './actions';
 import type { StepTriggerExtras } from './actions';
-import { TICKS_PER_QUARTER } from './types/event';
+import { TICKS_PER_QUARTER } from './components/Grid/Grid.config';
 
 
 const darkTheme = createTheme({
@@ -93,8 +93,7 @@ function App() {
         const melodicOffset = melodicMaxRowOffset > 0
           ? 1 - scaleZeroIndex / melodicMaxRowOffset
           : 0.5;
-        const DRUM_TOTAL_ROWS = 128;
-        const drumMaxRowOffset = Math.max(0, DRUM_TOTAL_ROWS - visibleRows);
+        const drumMaxRowOffset = Math.max(0, 128 - visibleRows);
         const drumOffset = drumMaxRowOffset > 0
           ? 1 - 36 / drumMaxRowOffset
           : 0.5;
@@ -202,10 +201,10 @@ function App() {
     [stopNote]
   );
 
-  // Read transport state from renderStore
-  const isPlaying = getIsPlaying();
-  const isExternalPlayback = getIsExternalPlayback();
-  const bpm = getBpm();
+  // Read transport state from WASM
+  const isPlaying = wasmEngine ? wasmEngine.getIsPlaying() : false;
+  const isExternalPlayback = wasmEngine ? wasmEngine.getIsExternalPlayback() : false;
+  const bpm = wasmEngine ? wasmEngine.getBpm() : 120;
 
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;

@@ -1,8 +1,6 @@
-import {
-  SUBDIVISION_TICKS,
-  type ModifySubMode,
-  type Subdivision,
-} from "../../types/event";
+// ============ Time Constants (must match WASM TICKS_PER_QUARTER) ============
+
+export const TICKS_PER_QUARTER = 480;
 
 // ============ Keyboard to grid position mapping ============
 
@@ -41,7 +39,7 @@ export const KEY_MAP: Record<string, { row: number; col: number }> = {
   ",": { row: 7, col: 7 },
 };
 
-// ============ WASM constants (must match engine_input.h) ============
+// ============ WASM constants (must match engine_input) ============
 
 // Modifier flags
 export const MOD_CTRL = 1;
@@ -60,39 +58,6 @@ export const ACTION_DESELECT = 1;
 export const ACTION_ZOOM_IN = 2;
 export const ACTION_ZOOM_OUT = 3;
 export const ACTION_DELETE_NOTE = 4;
-export const ACTION_CLEAR_PATTERN = 5;
 
-// ============ UI mode / sub-mode mappings ============
-
-// UI mode names (index = C enum value)
-export const UI_MODE_NAMES = ["pattern", "channel", "loop", "modify"] as const;
-export type UiMode = (typeof UI_MODE_NAMES)[number];
-
-// Sub-mode names (index = C enum value)
-export const SUB_MODE_NAMES: ModifySubMode[] = [
-  "velocity",
-  "hit",
-  "timing",
-  "flam",
-  "modulate",
-  "inversion",
-];
-
-// Subdivision names indexed by ticks-per-col (reverse lookup)
-export const TICKS_TO_SUBDIVISION: Record<number, Subdivision> = {};
-for (const [name, tpc] of Object.entries(SUBDIVISION_TICKS)) {
-  TICKS_TO_SUBDIVISION[tpc] = name as Subdivision;
-}
-
-// Sub-mode config for OLED display
-export const SUB_MODE_CONFIG: Record<ModifySubMode, { label: string }> = {
-  velocity: { label: "VEL" },
-  hit: { label: "HIT" },
-  timing: { label: "TIME" },
-  flam: { label: "FLAM" },
-  modulate: { label: "MOD" },
-  inversion: { label: "INV" },
-};
-
-// Loop mode names (index = C enum value)
-export const LOOP_MODE_NAMES = ["reset", "continue", "fill"] as const;
+// UI mode indices (must match UiMode enum in engine_core.rs)
+export const UI_MODE_LOOP = 2;
