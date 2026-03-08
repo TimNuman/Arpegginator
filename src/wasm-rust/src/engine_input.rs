@@ -258,6 +258,17 @@ fn follow_note(s: &mut EngineState, row: i16, tick: i32) {
 // ============ Pattern Mode Button Press ============
 
 fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) {
+    // Game of Life: toggle cells directly on the grid
+    let ch = s.current_channel as usize;
+    if s.gol_active[ch] != 0 {
+        let vr = vis_row as usize;
+        let vc = vis_col as usize;
+        if vr < VISIBLE_ROWS && vc < VISIBLE_COLS {
+            s.gol_grids[ch][vr][vc] ^= 1;
+        }
+        return;
+    }
+
     let row = engine_visible_to_actual_row(s, vis_row);
     let tick = engine_visible_to_tick(s, vis_col);
     let tpc = s.zoom;
