@@ -2,6 +2,7 @@
 // Mirrors src/wasm/tests/test_core.c
 
 use crate::engine_core::*;
+use crate::engine_input::{DIR_UP, DIR_DOWN, MOD_SHIFT};
 
 fn init_state() -> Box<EngineState> {
     let mut s = Box::new(EngineState::default());
@@ -335,4 +336,44 @@ fn alloc_event_id_increments() {
     let id1 = engine_alloc_event_id(&mut s);
     let id2 = engine_alloc_event_id(&mut s);
     assert_eq!(id2, id1 + 1);
+}
+
+// ============ Game of Life ============
+
+#[test]
+fn gol_toggle_on_off() {
+    let mut s = init_state();
+    assert_eq!(s.gol_active[0], 0);
+    engine_toggle_gol(&mut s);
+    assert_eq!(s.gol_active[0], 1);
+    engine_toggle_gol(&mut s);
+    assert_eq!(s.gol_active[0], 0);
+}
+
+#[test]
+fn gol_toggle_via_arrow_shift_up() {
+    let mut s = init_state();
+    s.selected_event_idx = -1; // no selection
+    crate::engine_input::engine_arrow_press(&mut s, DIR_UP, MOD_SHIFT);
+    assert_eq!(s.gol_active[0], 1);
+    crate::engine_input::engine_arrow_press(&mut s, DIR_DOWN, MOD_SHIFT);
+    assert_eq!(s.gol_active[0], 0);
+}
+
+#[test]
+fn gol_evolve_blinker() {
+    // Blinker: a period-2 oscillator
+    // . X .      . . .
+    // . X .  ->  X X X  -> back
+    // . X .      . . .
+    let mut grid = [[0u8; VISIBLE_COLS]; VISIBLE_ROWS];
+    grid[1][1] = 1;
+    grid[2][1] = 1;
+    grid[3][1] = 1;
+    gol_evolve(&mut grid);
+    assert_eq!(grid[2][0], 1);
+    assert_eq!(grid[2][1], 1);
+    assert_eq!(grid[2][2], 1);
+    assert_eq!(grid[1][1], 0);
+    assert_eq!(grid[3][1], 0);
 }
