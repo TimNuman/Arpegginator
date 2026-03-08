@@ -407,6 +407,11 @@ pub fn engine_clear_pattern(s: &mut EngineState) {
 
     s.selected_event_idx = -1;
 
+    // Clear GoL grid if active
+    if s.gol_active[ch] != 0 {
+        s.gol_grids[ch] = [[0; VISIBLE_COLS]; GOL_ROWS];
+    }
+
     engine_update_has_notes(s, ch as u8, pat_idx as u8);
     engine_mark_dirty(s, ch as u8);
 }
