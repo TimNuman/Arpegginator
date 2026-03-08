@@ -593,73 +593,58 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let is_drum = s.channel_types[ch] == CH_DRUM;
     let p_alt = (mods & MOD_ALT) != 0;
     let p_shift = (mods & MOD_SHIFT) != 0;
+    let gol = s.gol_active[ch] != 0;
 
     if p_shift {
-        draw_labeled_row(ROW_Y[0], "MODE", "EXTEND", OLED_CYAN);
-        draw_labeled_row(ROW_Y[1], "NOTE", "DRAG", OLED_CYAN);
+        // Row 0: show mode with current state highlighted
+        let mode_label = if gol { "LIFE" } else { "NORMAL" };
+        draw_labeled_row(ROW_Y[0], "MODE", mode_label, OLED_RED);
+        draw_labeled_row(ROW_Y[1], "", "Arrow to switch", OLED_DIM);
         return;
     }
 
-    // Game of Life indicator
-    if s.gol_active[ch] != 0 {
-        // Row 0: CH x  GOL
-        let ch_str = format!("CH {}", ch + 1);
-        let row0 = [
-            Segment { text: &ch_str, color: OLED_CYAN },
-            Segment { text: "  LIFE", color: OLED_RED },
-        ];
-        draw_segments(VALUE_X, ROW_Y[0], &row0);
-
-        // Count alive cells
-        let alive: u32 = s.gol_grids[ch].iter()
-            .flat_map(|row| row.iter())
-            .filter(|&&c| c != 0)
-            .count() as u32;
-        let alive_str = format!("{} cells alive", alive);
-        draw_labeled_row(ROW_Y[1], "", &alive_str, OLED_CYAN);
-
-        draw_labeled_row(ROW_Y[2], "", "Shift+Arrow toggle", OLED_DIM);
-        return;
-    }
-
-    // Row 0: CH x  PAT y
+    // Row 0: CH x - MODE
     let ch_str = format!("CH {}", ch + 1);
-    let pat_str = format!("  PAT {}", pat + 1);
+    let mode_str = if gol { " - LIFE" } else { " - NORMAL" };
     let row0 = [
         Segment { text: &ch_str, color: OLED_CYAN },
-        Segment { text: &pat_str, color: OLED_CYAN },
+        Segment { text: mode_str, color: if gol { OLED_RED } else { OLED_DIM } },
     ];
     draw_segments(VALUE_X, ROW_Y[0], &row0);
 
-    // Row 1: type or key
+    // Row 1: PAT y
+    let pat_str = format!("PAT {}", pat + 1);
+    draw_labeled_row(ROW_Y[1], "", &pat_str, OLED_CYAN);
+
+    // Row 2: type/key
     if is_drum {
-        draw_labeled_row(ROW_Y[1], "TYPE", "DRUMS", OLED_CYAN);
+        draw_labeled_row(ROW_Y[2], "TYPE", "DRUMS", OLED_CYAN);
     } else {
         let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
         let scale_name = engine_get_scale_name_str(s);
 
         let lx = LABEL_X;
-        gfx_text(lx, ROW_Y[1], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
+        gfx_text(lx, ROW_Y[2], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
         let kx = lx + gfx_text_width("KEY ", &FONT_SMALL);
-        gfx_text(kx, ROW_Y[1], scale_root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
+        gfx_text(kx, ROW_Y[2], scale_root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
 
         let root_sp = format!("{} ", scale_root_name);
         let cx2 = kx + gfx_text_width(&root_sp, &FONT_MAIN);
-        gfx_text(cx2, ROW_Y[1], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
+        gfx_text(cx2, ROW_Y[2], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
     }
 
-    // Row 2+
+    // Row 3+
     if p_alt && !is_drum {
         let scale_name = engine_get_scale_name_str(s);
         let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        draw_icon_legend(ROW_Y[2], IconType::Vertical, "Scale", scale_name, OLED_RED);
-        draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Root", scale_root_name, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[3], IconType::Vertical, "Scale", scale_name, OLED_RED);
+        draw_icon_legend(ROW_Y[4], IconType::Horizontal, "Root", scale_root_name, OLED_YELLOW);
     } else {
         let loop_data = &s.loops[ch][pat];
         let s_buf = tick_to_beat_display(loop_data.start);
         let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
         let loop_str = format!("{}-{}", s_buf, e_buf);
-        draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
+        draw_labeled_row(ROW_Y[3], "LOOP", &loop_str, OLED_CYAN);
     }
 }
 
