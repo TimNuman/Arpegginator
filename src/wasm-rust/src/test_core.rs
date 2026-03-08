@@ -366,7 +366,7 @@ fn gol_evolve_blinker() {
     // . X .      . . .
     // . X .  ->  X X X  -> back
     // . X .      . . .
-    let mut grid = [[0u8; VISIBLE_COLS]; VISIBLE_ROWS];
+    let mut grid = [[0u8; VISIBLE_COLS]; GOL_ROWS];
     grid[1][1] = 1;
     grid[2][1] = 1;
     grid[3][1] = 1;

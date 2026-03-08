@@ -261,10 +261,14 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
     // Game of Life: toggle cells directly on the grid
     let ch = s.current_channel as usize;
     if s.gol_active[ch] != 0 {
-        let vr = vis_row as usize;
         let vc = vis_col as usize;
-        if vr < VISIBLE_ROWS && vc < VISIBLE_COLS {
-            s.gol_grids[ch][vr][vc] ^= 1;
+        if vc < VISIBLE_COLS {
+            // Map visible row to grid row using scroll offset
+            let start_idx = get_start_array_index(s);
+            let gr = (start_idx + (VISIBLE_ROWS as i16 - 1 - vis_row as i16)) as usize;
+            if gr < GOL_ROWS {
+                s.gol_grids[ch][gr][vc] ^= 1;
+            }
         }
         return;
     }

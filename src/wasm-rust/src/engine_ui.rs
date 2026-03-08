@@ -766,9 +766,19 @@ pub fn engine_compute_grid(s: &mut EngineState) {
             if rel >= 0 { (rel / tpc) as i32 } else { -1 }
         } else { -1 };
 
+        // Compute scroll offset to map visible rows to grid rows
+        let is_drum = s.channel_types[ch] == ChannelType::Drum as u8;
+        let total_rows = if is_drum { 128i16 } else { s.scale_count as i16 };
+        let max_row_off = total_rows - VISIBLE_ROWS as i16;
+        let start_arr = if max_row_off <= 0 { 0i16 } else {
+            ((1.0 - s.row_offsets[ch] as f64) * max_row_off as f64 + 0.5).max(0.0).min(max_row_off as f64) as i16
+        };
+
         for vr in 0..VISIBLE_ROWS {
+            let gr = (start_arr + (VISIBLE_ROWS as i16 - 1 - vr as i16)) as usize;
             for vc in 0..VISIBLE_COLS {
-                if s.gol_grids[ch][vr][vc] != 0 {
+                let alive = gr < GOL_ROWS && s.gol_grids[ch][gr][vc] != 0;
+                if alive {
                     s.button_values[vr][vc] = BTN_COLOR_100;
                     s.color_overrides[vr][vc] = ch_color;
                     if playing_col >= 0 && vc as i32 == playing_col {
