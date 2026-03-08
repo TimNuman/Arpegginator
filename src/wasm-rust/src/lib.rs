@@ -1039,6 +1039,18 @@ pub extern "C" fn oled_render(modifiers: u8) {
     oled_screen::oled_render(modifiers);
 }
 
+// ============ Game of Life ============
+
+#[no_mangle]
+pub extern "C" fn engine_toggle_gol_export() {
+    engine_core::engine_toggle_gol(state());
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_gol_active(ch: u8) -> u8 {
+    if (ch as usize) < NUM_CHANNELS { state_ref().gol_active[ch as usize] } else { 0 }
+}
+
 // ============ Tests ============
 
 #[cfg(test)]

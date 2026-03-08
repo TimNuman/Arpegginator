@@ -237,6 +237,10 @@ export class WasmEngine {
   // Edit operations
   private _clearPattern!: () => void;
 
+  // Game of Life
+  private _toggleGol!: () => void;
+  private _getGolActive!: (ch: number) => number;
+
   // Event index mapping: [ch][pat] → Map<UUID, index>
   private eventIndexMaps: Map<string, number>[][] = [];
 
@@ -392,6 +396,10 @@ export class WasmEngine {
 
     // Edit operations
     this._clearPattern = cw('engine_clear_pattern_export', null, []) as unknown as () => void;
+
+    // Game of Life
+    this._toggleGol = cw('engine_toggle_gol_export', null, []) as unknown as () => void;
+    this._getGolActive = cw('engine_get_gol_active', 'number', ['number']);
 
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
@@ -733,4 +741,8 @@ export class WasmEngine {
   // ============ Edit Operations ============
 
   clearPattern(): void { this._clearPattern(); }
+
+  // Game of Life
+  toggleGol(): void { this._toggleGol(); }
+  getGolActive(ch: number): boolean { return this._getGolActive(ch) !== 0; }
 }

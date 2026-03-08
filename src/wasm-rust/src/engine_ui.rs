@@ -751,6 +751,43 @@ pub fn engine_compute_grid(s: &mut EngineState) {
         UiMode::Pattern => render_pattern_mode(s, &notes, note_count),
     }
 
+    // Game of Life overlay: when GoL is active, show alive cells
+    let ch = s.current_channel as usize;
+    if s.gol_active[ch] != 0 && UiMode::from_u8(s.ui_mode) == UiMode::Pattern {
+        let ch_color = s.channel_colors[ch];
+        let looped_tick = get_looped_tick(s);
+        let tpc = s.zoom;
+        let pat_idx = s.current_patterns[ch] as usize;
+        let lp = &s.loops[ch][pat_idx];
+
+        // Determine which column the playhead is at in the GoL grid
+        let playing_col = if looped_tick >= 0 && tpc > 0 {
+            let rel = looped_tick - lp.start;
+            if rel >= 0 { (rel / tpc) as i32 } else { -1 }
+        } else { -1 };
+
+        for vr in 0..VISIBLE_ROWS {
+            for vc in 0..VISIBLE_COLS {
+                if s.gol_grids[ch][vr][vc] != 0 {
+                    s.button_values[vr][vc] = BTN_COLOR_100;
+                    s.color_overrides[vr][vc] = ch_color;
+                    if playing_col >= 0 && vc as i32 == playing_col {
+                        s.button_values[vr][vc] |= FLAG_PLAYING;
+                    }
+                } else {
+                    // Keep beat markers and playhead for alive cells column
+                    let base = s.button_values[vr][vc] & (FLAG_BEAT_MARKER | FLAG_C_NOTE | FLAG_LOOP_BOUNDARY);
+                    if playing_col >= 0 && vc as i32 == playing_col {
+                        s.button_values[vr][vc] = base | FLAG_PLAYHEAD;
+                    } else {
+                        s.button_values[vr][vc] = base;
+                    }
+                    s.color_overrides[vr][vc] = 0;
+                }
+            }
+        }
+    }
+
     apply_ctrl_overlay(s);
 
     // Update channels_playing_now

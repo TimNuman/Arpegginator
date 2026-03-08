@@ -600,6 +600,28 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         return;
     }
 
+    // Game of Life indicator
+    if s.gol_active[ch] != 0 {
+        // Row 0: CH x  GOL
+        let ch_str = format!("CH {}", ch + 1);
+        let row0 = [
+            Segment { text: &ch_str, color: OLED_CYAN },
+            Segment { text: "  LIFE", color: OLED_RED },
+        ];
+        draw_segments(VALUE_X, ROW_Y[0], &row0);
+
+        // Count alive cells
+        let alive: u32 = s.gol_grids[ch].iter()
+            .flat_map(|row| row.iter())
+            .filter(|&&c| c != 0)
+            .count() as u32;
+        let alive_str = format!("{} cells alive", alive);
+        draw_labeled_row(ROW_Y[1], "", &alive_str, OLED_CYAN);
+
+        draw_labeled_row(ROW_Y[2], "", "Shift+Arrow toggle", OLED_DIM);
+        return;
+    }
+
     // Row 0: CH x  PAT y
     let ch_str = format!("CH {}", ch + 1);
     let pat_str = format!("  PAT {}", pat + 1);

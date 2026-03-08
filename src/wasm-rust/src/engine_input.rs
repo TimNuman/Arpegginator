@@ -543,6 +543,14 @@ static MODIFY_SUB_MODE_ORDER: [u8; 6] = [
 
 fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
     if s.selected_event_idx < 0 {
+        // No selected note + Shift+Up/Down: toggle Game of Life mode
+        if (mods & MOD_SHIFT) != 0 && (mods & (MOD_META | MOD_CTRL | MOD_ALT)) == 0 {
+            if dir == DIR_UP || dir == DIR_DOWN {
+                engine_toggle_gol(s);
+                engine_mark_dirty(s, s.current_channel);
+            }
+            return;
+        }
         // No selected note + Alt: cycle scale
         if (mods & MOD_ALT) != 0 && (mods & (MOD_META | MOD_CTRL | MOD_SHIFT)) == 0 {
             match dir {

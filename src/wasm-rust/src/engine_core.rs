@@ -428,6 +428,10 @@ pub struct EngineState {
     pub rendered_count: u16,
     pub rendered_for_channel: u8,
     pub rendered_dirty: [u8; NUM_CHANNELS],
+
+    // Game of Life mode
+    pub gol_active: [u8; NUM_CHANNELS],
+    pub gol_grids: [[[u8; VISIBLE_COLS]; VISIBLE_ROWS]; NUM_CHANNELS],
 }
 
 impl Default for EngineState {
@@ -512,6 +516,8 @@ impl Default for EngineState {
             rendered_count: 0,
             rendered_for_channel: 0xFF,
             rendered_dirty: [1; NUM_CHANNELS],
+            gol_active: [0; NUM_CHANNELS],
+            gol_grids: [[[0; VISIBLE_COLS]; VISIBLE_ROWS]; NUM_CHANNELS],
         }
     }
 }
@@ -1120,6 +1126,95 @@ pub fn engine_core_stop(s: &mut EngineState) {
     s.queued_patterns.iter_mut().for_each(|q| *q = -1);
 }
 
+// ============ Game of Life ============
+
+/// Count live neighbors of cell (r, c) on the GoL grid with toroidal wrapping.
+fn gol_count_neighbors(grid: &[[u8; VISIBLE_COLS]; VISIBLE_ROWS], r: usize, c: usize) -> u8 {
+    let mut count = 0u8;
+    for dr in [VISIBLE_ROWS - 1, 0, 1] {
+        for dc in [VISIBLE_COLS - 1, 0, 1] {
+            if dr == 0 && dc == 0 { continue; }
+            let nr = (r + dr) % VISIBLE_ROWS;
+            let nc = (c + dc) % VISIBLE_COLS;
+            if grid[nr][nc] != 0 { count += 1; }
+        }
+    }
+    count
+}
+
+/// Evolve the Game of Life grid one generation (Conway's rules, toroidal wrap).
+pub fn gol_evolve(grid: &mut [[u8; VISIBLE_COLS]; VISIBLE_ROWS]) {
+    let old = *grid;
+    for r in 0..VISIBLE_ROWS {
+        for c in 0..VISIBLE_COLS {
+            let n = gol_count_neighbors(&old, r, c);
+            grid[r][c] = if old[r][c] != 0 {
+                if n == 2 || n == 3 { 1 } else { 0 }
+            } else {
+                if n == 3 { 1 } else { 0 }
+            };
+        }
+    }
+}
+
+/// Seed the GoL grid from the currently rendered notes for a channel.
+pub fn gol_seed_from_rendered(s: &mut EngineState, ch: u8) {
+    let ch_idx = ch as usize;
+    s.gol_grids[ch_idx] = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
+
+    let pat = s.current_patterns[ch_idx] as u8;
+    let mut temp_buf = alloc::vec![RenderedNote::default(); MAX_RENDERED_NOTES];
+    let count = crate::engine_ui::engine_render_events(s, ch, pat, &mut temp_buf, MAX_RENDERED_NOTES);
+
+    // Compute visible grid boundaries (same logic as engine_ui)
+    let tpc = s.zoom;
+    let pat_len = s.patterns[ch_idx][pat as usize].length_ticks;
+    let total_cols = if pat_len > 0 && tpc > 0 { (pat_len + tpc - 1) / tpc } else { 0 };
+    let max_col_offset = (total_cols - VISIBLE_COLS as i32).max(0);
+    let start_col = if max_col_offset > 0 {
+        (s.col_offset * max_col_offset as f32 + 0.5) as i32
+    } else { 0 };
+    let start_tick = start_col * tpc;
+
+    let is_drum = s.channel_types[ch_idx] == ChannelType::Drum as u8;
+    let total_rows = if is_drum { 128i16 } else { s.scale_count as i16 };
+    let min_row = if is_drum { 0i16 } else { -(s.scale_zero_index as i16) };
+    let max_row_off = total_rows - VISIBLE_ROWS as i16;
+    let start_row = if max_row_off <= 0 {
+        min_row
+    } else {
+        let offset = s.row_offsets[ch_idx];
+        let start_arr = ((1.0 - offset as f64) * max_row_off as f64 + 0.5).max(0.0).min(max_row_off as f64) as i16;
+        start_arr + min_row
+    };
+
+    for i in 0..count as usize {
+        let rn = &temp_buf[i];
+        // Map to visible row (flipped: row 0 at bottom)
+        let arr_pos = rn.row - start_row;
+        if arr_pos < 0 || arr_pos >= VISIBLE_ROWS as i16 { continue; }
+        let vis_row = (VISIBLE_ROWS as i16 - 1 - arr_pos) as usize;
+
+        // Map to visible column
+        let col_pos = (rn.position - start_tick) / tpc;
+        if col_pos < 0 || col_pos >= VISIBLE_COLS as i32 { continue; }
+        s.gol_grids[ch_idx][vis_row][col_pos as usize] = 1;
+    }
+}
+
+/// Toggle Game of Life mode for the current channel.
+pub fn engine_toggle_gol(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    if s.gol_active[ch] != 0 {
+        // Deactivate
+        s.gol_active[ch] = 0;
+    } else {
+        // Activate: seed from rendered notes
+        gol_seed_from_rendered(s, ch as u8);
+        s.gol_active[ch] = 1;
+    }
+}
+
 pub fn engine_core_tick(s: &mut EngineState) {
     let next_tick = s.current_tick + 1;
 
@@ -1138,6 +1233,11 @@ pub fn engine_core_tick(s: &mut EngineState) {
             snapshot_and_preview_channel(s, ch);
             s.rendered_dirty[ch as usize] = 1;
 
+            // Evolve Game of Life on loop boundary (skip the very first loop)
+            if s.gol_active[ch as usize] != 0 && next_tick > 0 {
+                gol_evolve(&mut s.gol_grids[ch as usize]);
+            }
+
             if s.queued_patterns[ch as usize] >= 0 {
                 switch_channels.push((ch, s.queued_patterns[ch as usize] as u8));
             }
@@ -1151,7 +1251,50 @@ pub fn engine_core_tick(s: &mut EngineState) {
             s.muted[ch as usize] == 0
         };
 
-        if should_play && channel_tick >= loop_data.start && channel_tick < loop_end {
+        // Game of Life playback: trigger notes for alive cells at current column
+        if s.gol_active[ch as usize] != 0 && should_play && channel_tick >= loop_data.start && channel_tick < loop_end {
+            let tpc = s.zoom;
+            let relative_tick = channel_tick - loop_data.start;
+            if tpc > 0 && (relative_tick % tpc) == 0 {
+                let col = (relative_tick / tpc) as usize;
+                if col < VISIBLE_COLS {
+                    // Compute visible row -> actual row mapping
+                    let is_drum = s.channel_types[ch as usize] == ChannelType::Drum as u8;
+                    let total_rows = if is_drum { 128i16 } else { s.scale_count as i16 };
+                    let min_row = if is_drum { 0i16 } else { -(s.scale_zero_index as i16) };
+                    let max_row_off = total_rows - VISIBLE_ROWS as i16;
+                    let start_row = if max_row_off <= 0 {
+                        min_row
+                    } else {
+                        let offset = s.row_offsets[ch as usize];
+                        let start_arr = ((1.0 - offset as f64) * max_row_off as f64 + 0.5).max(0.0).min(max_row_off as f64) as i16;
+                        start_arr + min_row
+                    };
+
+                    for vr in 0..VISIBLE_ROWS {
+                        if s.gol_grids[ch as usize][vr][col] != 0 {
+                            let flipped = VISIBLE_ROWS as i16 - 1 - vr as i16;
+                            let actual_row = start_row + flipped;
+                            let midi_note = if is_drum {
+                                actual_row.clamp(0, 127) as i8
+                            } else {
+                                let m = note_to_midi(actual_row, s);
+                                if m < 0 { continue; }
+                                m
+                            };
+                            let note_len = tpc; // note length = one column
+                            handle_active_note(s, ch, 0xFFFF, 0, vr as u8, channel_tick, note_len, midi_note);
+                            crate::platform_step_trigger(
+                                ch, midi_note as u8, channel_tick,
+                                note_len, 100, 0, 0, 0xFFFF,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if should_play && s.gol_active[ch as usize] == 0 && channel_tick >= loop_data.start && channel_tick < loop_end {
             let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
 
             (0..ec as usize).for_each(|ei| {
