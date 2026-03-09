@@ -596,19 +596,21 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let gol = s.gol_active[ch] != 0;
 
     if p_shift {
-        // Row 0: show mode with current state highlighted
-        let mode_label = if gol { "LIFE" } else { "NORMAL" };
-        draw_labeled_row(ROW_Y[0], "MODE", mode_label, OLED_RED);
-        draw_labeled_row(ROW_Y[1], "", "Arrow to switch", OLED_DIM);
+        // Row 0: show mode selector — highlight active mode
+        let row0 = [
+            Segment { text: "MODE ", color: OLED_DIM },
+            Segment { text: "NORMAL", color: if gol { OLED_DIM } else { OLED_RED } },
+            Segment { text: " ", color: OLED_DIM },
+            Segment { text: "LIFE", color: if gol { OLED_RED } else { OLED_DIM } },
+        ];
+        draw_segments(LABEL_X, ROW_Y[0], &row0);
         return;
     }
 
-    // Row 0: CH x - MODE
+    // Row 0: CH x
     let ch_str = format!("CH {}", ch + 1);
-    let mode_str = if gol { " - LIFE" } else { " - NORMAL" };
     let row0 = [
         Segment { text: &ch_str, color: OLED_CYAN },
-        Segment { text: mode_str, color: if gol { OLED_RED } else { OLED_DIM } },
     ];
     draw_segments(VALUE_X, ROW_Y[0], &row0);
 
