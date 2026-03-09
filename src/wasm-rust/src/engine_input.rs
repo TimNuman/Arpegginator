@@ -864,7 +864,38 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
             }
         }
         ACTION_ZOOM_IN => { s.zoom = zoom_cycle(s.zoom, 1); }
-        ACTION_ZOOM_OUT => { s.zoom = zoom_cycle(s.zoom, -1); }
+        ACTION_ZOOM_OUT => {
+            let new_zoom = zoom_cycle(s.zoom, -1);
+            if new_zoom != s.zoom {
+                s.zoom = new_zoom;
+                // Snap view to show loop boundaries
+                let ch = s.current_channel as usize;
+                let pat = s.current_patterns[ch] as usize;
+                let pat_len = s.patterns[ch][pat].length_ticks;
+                let total_cols = if pat_len > 0 && new_zoom > 0 {
+                    (pat_len + new_zoom - 1) / new_zoom
+                } else { 0 };
+                let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
+                if max_col_off > 0 {
+                    let lp_start = s.loops[ch][pat].start;
+                    let lp_end = lp_start + s.loops[ch][pat].length;
+                    let start_col = lp_start / new_zoom;
+                    let end_col = (lp_end + new_zoom - 1) / new_zoom;
+                    let loop_cols = end_col - start_col;
+
+                    if loop_cols <= VISIBLE_COLS as i32 {
+                        // Loop fits: center it in view
+                        let center_col = start_col + loop_cols / 2;
+                        let view_start = (center_col - VISIBLE_COLS as i32 / 2).clamp(0, max_col_off);
+                        s.col_offset = view_start as f32 / max_col_off as f32;
+                    } else {
+                        // Loop doesn't fit: show loop start
+                        let view_start = start_col.clamp(0, max_col_off);
+                        s.col_offset = view_start as f32 / max_col_off as f32;
+                    }
+                }
+            }
+        }
         ACTION_DELETE_NOTE => {
             if s.selected_event_idx >= 0 {
                 engine_remove_event(s, s.selected_event_idx as u16);
