@@ -87,7 +87,7 @@ fn rebuild_scale_c_major() {
 #[test]
 fn rebuild_scale_chromatic() {
     let mut s = init_state();
-    s.scale_id_idx = 14;
+    s.scale_id_idx = 31; // Chromatic
     s.scale_root = 0;
     engine_rebuild_scale(&mut s);
     assert_eq!(s.scale_octave_size, 12);

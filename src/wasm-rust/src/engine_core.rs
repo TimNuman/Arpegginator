@@ -545,22 +545,18 @@ pub fn note_to_midi(row: i16, s: &EngineState) -> i8 {
 
 static SCALE_PATTERNS: [[u8; 12]; NUM_SCALES] = [
     [1,0,1,0,1,1,0,1,0,1,0,1], // Major
-    [1,0,1,1,0,1,0,1,1,0,1,0], // Natural Minor
+    [1,0,1,1,0,1,0,1,1,0,1,0], // Minor
     [1,0,1,1,0,1,0,1,1,0,0,1], // Harmonic Minor
     [1,0,1,1,0,1,0,1,0,1,0,1], // Melodic Minor
+    [1,0,1,0,1,0,0,1,0,1,0,0], // Major Pentatonic
+    [1,0,0,1,0,1,0,1,0,0,1,0], // Minor Pentatonic
+    [1,0,0,1,0,1,1,1,0,0,1,0], // Blues
     [1,0,1,1,0,1,0,1,0,1,1,0], // Dorian
     [1,1,0,1,0,1,0,1,1,0,1,0], // Phrygian
     [1,0,1,0,1,0,1,1,0,1,0,1], // Lydian
     [1,0,1,0,1,1,0,1,0,1,1,0], // Mixolydian
     [1,0,1,1,0,1,0,1,1,0,1,0], // Aeolian
     [1,1,0,1,0,1,1,0,1,0,1,0], // Locrian
-    [1,0,1,0,1,0,0,1,0,1,0,0], // Major Pentatonic
-    [1,0,0,1,0,1,0,1,0,0,1,0], // Minor Pentatonic
-    [1,0,0,1,0,1,1,1,0,0,1,0], // Blues
-    [1,0,1,0,1,0,1,0,1,0,1,0], // Whole Tone
-    [1,1,1,1,1,1,1,1,1,1,1,1], // Chromatic
-    [1,0,1,1,0,1,1,0,1,1,0,1], // Diminished
-    [1,0,0,1,1,0,0,1,1,0,0,1], // Augmented
     [1,0,1,1,0,0,0,1,1,0,0,0], // Hirajoshi
     [1,1,0,0,0,1,0,1,0,0,1,0], // In Sen
     [1,1,0,0,0,1,1,0,0,0,1,0], // Iwato
@@ -576,17 +572,21 @@ static SCALE_PATTERNS: [[u8; 12]; NUM_SCALES] = [
     [1,0,1,1,0,0,1,1,1,0,1,0], // Gypsy
     [1,1,0,1,0,1,0,1,1,0,0,1], // Neapolitan Minor
     [1,1,0,1,0,1,0,1,0,1,0,1], // Neapolitan Major
+    [1,0,1,1,0,1,1,0,1,1,0,1], // Diminished
+    [1,0,0,1,1,0,0,1,1,0,0,1], // Augmented
+    [1,0,1,0,1,0,1,0,1,0,1,0], // Whole Tone
+    [1,1,1,1,1,1,1,1,1,1,1,1], // Chromatic
 ];
 
 pub static SCALE_NAMES: [&str; NUM_SCALES] = [
-    "Major", "Natural Minor", "Harmonic Minor", "Melodic Minor",
-    "Dorian", "Phrygian", "Lydian", "Mixolydian", "Aeolian", "Locrian",
+    "Major", "Minor", "Harmonic Minor", "Melodic Minor",
     "Major Pentatonic", "Minor Pentatonic", "Blues",
-    "Whole Tone", "Chromatic", "Diminished", "Augmented",
+    "Dorian", "Phrygian", "Lydian", "Mixolydian", "Aeolian", "Locrian",
     "Hirajoshi", "In Sen", "Iwato", "Kumoi", "Pelog",
     "Hijaz", "Double Harmonic", "Hungarian Minor", "Enigmatic",
     "Prometheus", "Persian", "Algerian", "Gypsy",
     "Neapolitan Minor", "Neapolitan Major",
+    "Diminished", "Augmented", "Whole Tone", "Chromatic",
 ];
 
 pub fn engine_rebuild_scale(s: &mut EngineState) {
