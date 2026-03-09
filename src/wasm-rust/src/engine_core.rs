@@ -413,7 +413,7 @@ pub struct EngineState {
     pub scrub_accumulator: f32,
     pub manual_scroll_override: u8,
 
-    pub ctrl_held: u8,
+    pub modifiers_held: u8,
     pub channel_colors: [u32; NUM_CHANNELS],
 
     pub button_values: [[u16; VISIBLE_COLS]; VISIBLE_ROWS],
@@ -501,7 +501,7 @@ impl Default for EngineState {
             strip_last_time: [0.0; 2],
             scrub_accumulator: 0.0,
             manual_scroll_override: 0,
-            ctrl_held: 0,
+            modifiers_held: 0,
             channel_colors: [0; NUM_CHANNELS],
             button_values: [[0; VISIBLE_COLS]; VISIBLE_ROWS],
             color_overrides: [[0; VISIBLE_COLS]; VISIBLE_ROWS],

@@ -569,7 +569,7 @@ fn render_loop(s: &EngineState, mods: u8) {
     draw_labeled_row(ROW_Y[0], "MODE", "LOOP", OLED_CYAN);
 
     let s_buf = tick_to_beat_display(loop_start);
-    let e_buf = tick_to_beat_display(loop_end);
+    let e_buf = tick_to_beat_display(loop_end - s.zoom);
 
     let s_full = format!("S {}", s_buf);
     let e_full = format!("  E {}", e_buf);
@@ -593,8 +593,9 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let is_drum = s.channel_types[ch] == CH_DRUM;
     let p_alt = (mods & MOD_ALT) != 0;
     let p_shift = (mods & MOD_SHIFT) != 0;
+    let p_meta = (mods & MOD_META) != 0;
 
-    if p_shift {
+    if p_shift && !p_meta {
         draw_labeled_row(ROW_Y[0], "MODE", "EXTEND", OLED_CYAN);
         draw_labeled_row(ROW_Y[1], "NOTE", "DRAG", OLED_CYAN);
         return;
@@ -635,9 +636,30 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     } else {
         let loop_data = &s.loops[ch][pat];
         let s_buf = tick_to_beat_display(loop_data.start);
-        let e_buf = tick_to_beat_display(loop_data.start + loop_data.length);
-        let loop_str = format!("{}-{}", s_buf, e_buf);
-        draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
+        let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
+
+        if p_meta {
+            // Cmd held: highlight which loop edge is being edited
+            let s_color = if p_shift { OLED_YELLOW } else { OLED_CYAN };
+            let e_color = if !p_shift { OLED_YELLOW } else { OLED_CYAN };
+
+            let s_full = format!("S {}", s_buf);
+            let e_full = format!("  E {}", e_buf);
+            let row2 = [
+                Segment { text: &s_full, color: s_color },
+                Segment { text: &e_full, color: e_color },
+            ];
+            draw_segments(VALUE_X, ROW_Y[2], &row2);
+
+            if p_shift {
+                draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Start", &s_buf, OLED_YELLOW);
+            } else {
+                draw_icon_legend(ROW_Y[3], IconType::Horizontal, "End", &e_buf, OLED_YELLOW);
+            }
+        } else {
+            let loop_str = format!("{}-{}", s_buf, e_buf);
+            draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
+        }
     }
 }
 

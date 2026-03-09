@@ -1,6 +1,7 @@
 // engine_ui.rs — Grid rendering, rendered notes, chord offsets
 
 use crate::engine_core::*;
+use crate::engine_input::{MOD_CTRL, MOD_META, MOD_SHIFT};
 
 // ============ Sub-mode render configs ============
 
@@ -686,17 +687,17 @@ fn render_modify_mode(s: &mut EngineState) {
 // ============ Ctrl Overlay ============
 
 fn apply_ctrl_overlay(s: &mut EngineState) {
-    if s.ctrl_held == 0 { return; }
+    if (s.modifiers_held & MOD_CTRL) == 0 { return; }
 
-    static MODE_COLORS: [u32; 4] = [0x33CCFF, 0x33FF66, 0xFFCC33, 0xFF6633];
-    static COL_TO_MODE: [u8; 4] = [
+    static MODE_COLORS: [u32; 3] = [0x33CCFF, 0x33FF66, 0xFF6633];
+    static COL_TO_MODE: [u8; 3] = [
         UiMode::Channel as u8, UiMode::Pattern as u8,
-        UiMode::Loop as u8, UiMode::Modify as u8,
+        UiMode::Modify as u8,
     ];
 
     (0..VISIBLE_ROWS).for_each(|r| {
         (0..VISIBLE_COLS).for_each(|c| {
-            if r == 7 && c <= 3 {
+            if r == 7 && c <= 2 {
                 let is_current = s.ui_mode == COL_TO_MODE[c];
                 s.button_values[r][c] = if is_current { BTN_COLOR_100 } else { BTN_COLOR_50 };
                 s.color_overrides[r][c] = MODE_COLORS[c];
@@ -748,7 +749,32 @@ pub fn engine_compute_grid(s: &mut EngineState) {
         UiMode::Channel => render_channel_mode(s, &notes, note_count),
         UiMode::Loop => render_loop_mode(s, &notes, note_count),
         UiMode::Modify => render_modify_mode(s),
-        UiMode::Pattern => render_pattern_mode(s, &notes, note_count),
+        UiMode::Pattern => {
+            render_pattern_mode(s, &notes, note_count);
+            // Pulse loop boundary when Cmd held in pattern mode with no selection
+            if (s.modifiers_held & MOD_META) != 0 && s.selected_event_idx < 0 {
+                let ch = s.current_channel as usize;
+                let pat = s.current_patterns[ch] as usize;
+                let lp_start = s.loops[ch][pat].start;
+                let loop_end = lp_start + s.loops[ch][pat].length;
+                let tpc = s.zoom;
+                let start_tick = get_start_tick(s);
+                let pulse_shift = (s.modifiers_held & MOD_SHIFT) != 0;
+
+                (0..VISIBLE_COLS).for_each(|vc| {
+                    let actual_tick = start_tick + vc as i32 * tpc;
+                    let col_end_tick = actual_tick + tpc;
+                    let is_start_col = actual_tick == lp_start;
+                    let is_end_col = col_end_tick >= loop_end && actual_tick < loop_end;
+
+                    if (pulse_shift && is_start_col) || (!pulse_shift && is_end_col) {
+                        (0..VISIBLE_ROWS).for_each(|vr| {
+                            s.button_values[vr][vc] |= FLAG_LOOP_BOUNDARY_PULSING;
+                        });
+                    }
+                });
+            }
+        }
     }
 
     apply_ctrl_overlay(s);

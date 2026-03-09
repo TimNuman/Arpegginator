@@ -177,8 +177,13 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
 
   // ============ Compute Grid via WASM ============
   const { buttonValues, colorOverrides } = useMemo(() => {
-    // Set modifier state before computing grid (for Ctrl overlay)
-    wasmEngine.setCtrlHeld(keyboard.ctrl);
+    // Set modifier state before computing grid (for Ctrl overlay + loop pulsing)
+    const mods =
+      (keyboard.ctrl ? 1 : 0) |
+      (keyboard.shift ? 2 : 0) |
+      (keyboard.meta ? 4 : 0) |
+      (keyboard.alt ? 8 : 0);
+    wasmEngine.setModifiersHeld(mods);
 
     // Tell WASM to compute the grid
     wasmEngine.computeGrid();
@@ -199,7 +204,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
 
     return { buttonValues: buffers.buttonValues, colorOverrides: hexColors };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasmEngine, renderVersion, keyboard.ctrl]);
+  }, [wasmEngine, renderVersion, keyboard.ctrl, keyboard.meta, keyboard.shift]);
 
   // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(

@@ -162,7 +162,7 @@ export class WasmEngine {
   private _getColOffset!: () => number;
   private _setBpm!: (bpm: number) => void;
   private _setIsPlaying!: (playing: number) => void;
-  private _setCtrlHeld!: (held: number) => void;
+  private _setModifiersHeld!: (mods: number) => void;
   private _setChannelColor!: (ch: number, rgb: number) => void;
 
   // UI state getters
@@ -318,7 +318,7 @@ export class WasmEngine {
     this._getColOffset = cw('engine_get_col_offset', 'number', []);
     this._setBpm = cw('engine_set_bpm', null, ['number']) as unknown as (b: number) => void;
     this._setIsPlaying = cw('engine_set_is_playing', null, ['number']) as unknown as (p: number) => void;
-    this._setCtrlHeld = cw('engine_set_ctrl_held', null, ['number']) as unknown as (h: number) => void;
+    this._setModifiersHeld = cw('engine_set_modifiers_held', null, ['number']) as unknown as (m: number) => void;
     this._setChannelColor = cw('engine_set_channel_color', null, ['number', 'number']) as unknown as (ch: number, rgb: number) => void;
 
     // UI state getters
@@ -626,7 +626,7 @@ export class WasmEngine {
   getColOffset(): number { return this._getColOffset(); }
   setBpm(bpm: number): void { this._setBpm(bpm); }
   setIsPlaying(playing: boolean): void { this._setIsPlaying(playing ? 1 : 0); }
-  setCtrlHeld(held: boolean): void { this._setCtrlHeld(held ? 1 : 0); }
+  setModifiersHeld(mods: number): void { this._setModifiersHeld(mods); }
   setChannelColor(ch: number, rgb: number): void { this._setChannelColor(ch, rgb); }
 
   getUiMode(): number { return this._getUiMode(); }

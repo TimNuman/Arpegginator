@@ -517,10 +517,10 @@ fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
 // ============ Main Button Press Dispatch ============
 
 pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8) {
-    if (modifiers & MOD_CTRL) != 0 && row == 7 && col <= 3 {
-        static MODE_MAP: [u8; 4] = [
+    if (modifiers & MOD_CTRL) != 0 && row == 7 && col <= 2 {
+        static MODE_MAP: [u8; 3] = [
             UiMode::Channel as u8, UiMode::Pattern as u8,
-            UiMode::Loop as u8, UiMode::Modify as u8,
+            UiMode::Modify as u8,
         ];
         s.ui_mode = MODE_MAP[col as usize];
         return;
@@ -549,6 +549,38 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 DIR_UP | DIR_DOWN => engine_cycle_scale(s, if dir == DIR_UP { 1 } else { -1 }),
                 DIR_LEFT | DIR_RIGHT => engine_cycle_scale_root(s, if dir == DIR_RIGHT { 1 } else { -1 }),
                 _ => {}
+            }
+        }
+        // No selected note + Cmd+Left/Right: adjust loop end
+        // No selected note + Cmd+Shift+Left/Right: adjust loop start
+        if (mods & MOD_META) != 0 && (dir == DIR_LEFT || dir == DIR_RIGHT) {
+            let tpc = s.zoom;
+            let ch = s.current_channel as usize;
+            let pat = s.current_patterns[ch] as usize;
+            let pat_len = s.patterns[ch][pat].length_ticks;
+            let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
+
+            if (mods & MOD_SHIFT) != 0 {
+                // Cmd+Shift: adjust loop start
+                let new_start = if dir == DIR_LEFT {
+                    (s.loops[ch][pat].start - tpc).max(0)
+                } else {
+                    (s.loops[ch][pat].start + tpc).min(loop_end - tpc)
+                };
+                if new_start != s.loops[ch][pat].start {
+                    s.loops[ch][pat].length = loop_end - new_start;
+                    s.loops[ch][pat].start = new_start;
+                }
+            } else {
+                // Cmd: adjust loop end
+                let new_end = if dir == DIR_LEFT {
+                    (loop_end - tpc).max(s.loops[ch][pat].start + tpc)
+                } else {
+                    (loop_end + tpc).min(pat_len)
+                };
+                if new_end != loop_end {
+                    s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
+                }
             }
         }
         return;

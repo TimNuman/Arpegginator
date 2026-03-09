@@ -378,7 +378,7 @@ pub extern "C" fn engine_set_is_playing(playing: u8) {
 }
 
 #[no_mangle]
-pub extern "C" fn engine_set_ctrl_held(held: u8) { state().ctrl_held = held; }
+pub extern "C" fn engine_set_modifiers_held(mods: u8) { state().modifiers_held = mods; }
 
 #[no_mangle]
 pub extern "C" fn engine_set_channel_color(ch: u8, rgb: u32) {
