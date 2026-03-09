@@ -597,11 +597,12 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
 
     // Row 0: CH x - Normal/Life (highlighted red when shift held)
     let ch_str = format!("CH {}", ch + 1);
-    let mode_str = if gol { " - Life" } else { " - Normal" };
+    let mode_name = if gol { "Life" } else { "Normal" };
     let mode_color = if p_shift { OLED_RED } else { OLED_DIM };
     let row0 = [
         Segment { text: &ch_str, color: OLED_CYAN },
-        Segment { text: mode_str, color: mode_color },
+        Segment { text: " - ", color: OLED_CYAN },
+        Segment { text: mode_name, color: mode_color },
     ];
     draw_segments(VALUE_X, ROW_Y[0], &row0);
 
