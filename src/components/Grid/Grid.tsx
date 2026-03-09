@@ -36,6 +36,7 @@ import {
   ACTION_ZOOM_IN,
   ACTION_ZOOM_OUT,
   ACTION_DELETE_NOTE,
+  ACTION_DISABLE_NOTE,
 } from "./Grid.config";
 import { noop, uint32ToHex, encodeModifiers } from "./Grid.helpers";
 
@@ -109,6 +110,13 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       // Spacebar: toggle play/stop via JS actions (JS manages transport)
       if (key === " " || code === "Space") {
         actions.togglePlay();
+        return true;
+      }
+
+      // Cmd+Backspace: disable and deselect note
+      if (key === "backspace" && state.meta) {
+        wasmEngine.keyAction(ACTION_DISABLE_NOTE);
+        markDirty();
         return true;
       }
 

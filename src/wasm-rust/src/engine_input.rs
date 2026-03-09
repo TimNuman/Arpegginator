@@ -19,6 +19,7 @@ pub const ACTION_ZOOM_IN: u8 = 2;
 pub const ACTION_ZOOM_OUT: u8 = 3;
 pub const ACTION_DELETE_NOTE: u8 = 4;
 pub const ACTION_CLEAR_PATTERN: u8 = 5;
+pub const ACTION_DISABLE_NOTE: u8 = 6;
 
 // ============ Modifier Flags ============
 
@@ -638,8 +639,13 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
         // Cmd+Left/Right: adjust repeat amount
         if dir == DIR_LEFT || dir == DIR_RIGHT {
             let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
-            let amt = s.event_pool.slots[h as usize].repeat_amount;
+            let ev = &s.event_pool.slots[h as usize];
+            let amt = ev.repeat_amount;
             let new_amt = if dir == DIR_LEFT { amt.max(2) - 1 } else { amt.min(63) + 1 };
+            // First increase (1→2): if note is longer than zoom, set repeat_space to note length
+            if amt == 1 && new_amt == 2 && ev.length > tpc {
+                engine_set_event_repeat_space(s, s.selected_event_idx as u16, ev.length);
+            }
             engine_set_event_repeat_amount(s, s.selected_event_idx as u16, new_amt);
             return;
         }
@@ -865,6 +871,16 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
             }
         }
         ACTION_CLEAR_PATTERN => { engine_clear_pattern(s); }
+        ACTION_DISABLE_NOTE => {
+            if s.selected_event_idx >= 0 {
+                let ch = s.current_channel as usize;
+                let pat_idx = s.current_patterns[ch] as usize;
+                let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
+                s.event_pool.slots[h as usize].enabled = 0;
+                s.selected_event_idx = -1;
+                engine_mark_dirty(s, ch as u8);
+            }
+        }
         _ => {}
     }
 }

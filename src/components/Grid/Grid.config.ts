@@ -58,3 +58,4 @@ export const ACTION_DESELECT = 1;
 export const ACTION_ZOOM_IN = 2;
 export const ACTION_ZOOM_OUT = 3;
 export const ACTION_DELETE_NOTE = 4;
+export const ACTION_DISABLE_NOTE = 6;
