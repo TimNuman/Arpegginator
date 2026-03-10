@@ -367,6 +367,12 @@ pub extern "C" fn engine_get_col_offset() -> f32 { state_ref().col_offset }
 pub extern "C" fn engine_set_bpm(bpm: f32) { state().bpm = bpm; }
 
 #[no_mangle]
+pub extern "C" fn engine_set_swing(swing: i32) { state().swing = swing.clamp(50, 75); }
+
+#[no_mangle]
+pub extern "C" fn engine_get_swing() -> i32 { state_ref().swing }
+
+#[no_mangle]
 pub extern "C" fn engine_set_is_playing(playing: u8) {
     let s = state();
     let was_playing = s.is_playing;

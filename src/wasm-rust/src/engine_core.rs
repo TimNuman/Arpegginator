@@ -387,6 +387,7 @@ pub struct EngineState {
     pub is_playing: u8,
     pub is_external_playback: u8,
     pub bpm: f32,
+    pub swing: i32,
 
     pub active_notes: [ActiveNote; MAX_ACTIVE_NOTES],
 
@@ -483,6 +484,7 @@ impl Default for EngineState {
             is_playing: 0,
             is_external_playback: 0,
             bpm: 120.0,
+            swing: 50,
             active_notes: [ActiveNote::default(); MAX_ACTIVE_NOTES],
             continue_counters: [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],
             counter_snapshots: [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],
@@ -1169,9 +1171,17 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
                     let velocity = resolve_sub_mode(s, &ev, 0, r, ch);
                     let chance = resolve_sub_mode(s, &ev, 1, r, ch);
-                    let timing = resolve_sub_mode(s, &ev, 2, r, ch);
+                    let timing_raw = resolve_sub_mode(s, &ev, 2, r, ch);
                     let flam_prob = resolve_sub_mode(s, &ev, 3, r, ch);
                     let mod_val = resolve_sub_mode(s, &ev, 4, r, ch);
+
+                    // Apply swing: delay odd 16th notes
+                    let swing_offset = if (ev_tick / 120) % 2 == 1 {
+                        (s.swing - 50) * 2
+                    } else {
+                        0
+                    };
+                    let timing = (timing_raw as i32 + swing_offset).clamp(-128, 127) as i16;
 
                     if chance < 100 && (engine_random(s) % 100) >= chance as u32 { return; }
 
@@ -1199,7 +1209,10 @@ pub fn engine_core_tick(s: &mut EngineState) {
                             m
                         };
 
-                        handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, channel_tick, ev.length, midi_note);
+                        // Extend active note duration by JS-side delay (lookahead + timing)
+                        // so note-off fires after the delayed note-on
+                        let delay_ticks = (70 + timing as i32).max(0) * 120 / 100;
+                        handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, channel_tick, ev.length + delay_ticks, midi_note);
                         crate::platform_step_trigger(
                             ch, midi_note as u8, channel_tick,
                             ev.length, (velocity.clamp(0, 127)) as u8,

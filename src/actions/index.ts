@@ -5,6 +5,7 @@ export {
   resetPosition,
   togglePlay,
   setBpm,
+  setSwing,
   playExternal,
   externalTick,
   stopExternal,

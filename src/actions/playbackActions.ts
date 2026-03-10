@@ -112,6 +112,13 @@ export function setBpm(bpm: number): void {
   markDirty();
 }
 
+export function setSwing(swing: number): void {
+  if (wasmReady()) {
+    wasmEngine!.setSwing(swing);
+  }
+  markDirty();
+}
+
 export function togglePlay(): void {
   if (wasmReady() && wasmEngine!.getIsPlaying()) {
     stop();

@@ -20,11 +20,13 @@ interface TransportProps {
   isPlaying: boolean;
   isExternalPlayback: boolean;
   bpm: number;
+  swing: number;
   onPlay: () => void;
   onStop: () => void;
   onReset: () => void;
   onClear: () => void;
   onBpmChange: (bpm: number) => void;
+  onSwingChange: (swing: number) => void;
   midiOutputs: Output[];
   midiInputs: Input[];
   selectedOutput: Output | null;
@@ -38,11 +40,13 @@ export const Transport = ({
   isPlaying,
   isExternalPlayback,
   bpm,
+  swing,
   onPlay,
   onStop,
   onReset,
   onClear,
   onBpmChange,
+  onSwingChange,
   midiOutputs,
   midiInputs,
   selectedOutput,
@@ -83,6 +87,30 @@ export const Transport = ({
           disabled={isExternalPlayback}
         />
         <Typography css={bpmValueStyles}>{bpm}</Typography>
+      </Box>
+
+      <Box css={controlGroupStyles}>
+        <Typography css={labelStyles}>SWG</Typography>
+        <input
+          type="number"
+          value={swing}
+          min={50}
+          max={75}
+          onChange={(e) => {
+            const v = Math.max(50, Math.min(75, Number(e.target.value)));
+            onSwingChange(v);
+          }}
+          style={{
+            width: 48,
+            background: 'transparent',
+            border: '1px solid rgba(102, 255, 204, 0.3)',
+            borderRadius: 4,
+            color: '#66ffcc',
+            fontSize: 14,
+            padding: '2px 4px',
+            textAlign: 'center',
+          }}
+        />
       </Box>
 
       <FormControl css={midiSelectStyles} size="small">

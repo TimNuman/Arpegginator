@@ -161,6 +161,8 @@ export class WasmEngine {
   private _setColOffset!: (offset: number) => void;
   private _getColOffset!: () => number;
   private _setBpm!: (bpm: number) => void;
+  private _setSwing!: (swing: number) => void;
+  private _getSwing!: () => number;
   private _setIsPlaying!: (playing: number) => void;
   private _setModifiersHeld!: (mods: number) => void;
   private _setChannelColor!: (ch: number, rgb: number) => void;
@@ -317,6 +319,8 @@ export class WasmEngine {
     this._setColOffset = cw('engine_set_col_offset', null, ['number']) as unknown as (o: number) => void;
     this._getColOffset = cw('engine_get_col_offset', 'number', []);
     this._setBpm = cw('engine_set_bpm', null, ['number']) as unknown as (b: number) => void;
+    this._setSwing = cw('engine_set_swing', null, ['number']) as unknown as (s: number) => void;
+    this._getSwing = cw('engine_get_swing', 'number', []);
     this._setIsPlaying = cw('engine_set_is_playing', null, ['number']) as unknown as (p: number) => void;
     this._setModifiersHeld = cw('engine_set_modifiers_held', null, ['number']) as unknown as (m: number) => void;
     this._setChannelColor = cw('engine_set_channel_color', null, ['number', 'number']) as unknown as (ch: number, rgb: number) => void;
@@ -625,6 +629,8 @@ export class WasmEngine {
   setColOffset(offset: number): void { this._setColOffset(offset); }
   getColOffset(): number { return this._getColOffset(); }
   setBpm(bpm: number): void { this._setBpm(bpm); }
+  setSwing(swing: number): void { this._setSwing(swing); }
+  getSwing(): number { return this._getSwing(); }
   setIsPlaying(playing: boolean): void { this._setIsPlaying(playing ? 1 : 0); }
   setModifiersHeld(mods: number): void { this._setModifiersHeld(mods); }
   setChannelColor(ch: number, rgb: number): void { this._setChannelColor(ch, rgb); }

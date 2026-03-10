@@ -189,7 +189,7 @@ function App() {
       const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
       const stepDurationMs = tickDurationMs * (TICKS_PER_QUARTER / 4);
 
-      const maxOffsetPercent = 20;
+      const maxOffsetPercent = 70;
       const lookaheadMs = (maxOffsetPercent / 100) * stepDurationMs;
       const timingOffsetMs = extras?.timingOffsetPercent
         ? (extras.timingOffsetPercent / 100) * stepDurationMs
@@ -237,6 +237,7 @@ function App() {
     ? wasmEngine.getIsExternalPlayback()
     : false;
   const bpm = wasmEngine ? wasmEngine.getBpm() : 120;
+  const [swing, setSwingLocal] = useState(50);
 
   // Keep bpmRef in sync with actual BPM
   bpmRef.current = bpm;
@@ -328,6 +329,11 @@ function App() {
     actions.setBpm(newBpm);
   }, []);
 
+  const handleSetSwing = useCallback((newSwing: number) => {
+    setSwingLocal(newSwing);
+    actions.setSwing(newSwing);
+  }, []);
+
   // Don't render anything until both WASM and MIDI are ready
   if (!wasmEngine || !isEnabled) {
     console.log(
@@ -365,11 +371,13 @@ function App() {
           isPlaying={isPlaying}
           isExternalPlayback={isExternalPlayback}
           bpm={bpm}
+          swing={swing}
           onPlay={handlePlay}
           onStop={handleStop}
           onReset={handleReset}
           onClear={handleClear}
           onBpmChange={handleSetBpm}
+          onSwingChange={handleSetSwing}
           midiOutputs={outputs}
           midiInputs={inputs}
           selectedOutput={selectedOutput}
