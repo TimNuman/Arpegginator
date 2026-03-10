@@ -147,7 +147,11 @@ pub fn engine_set_event_repeat_space(s: &mut EngineState, event_idx: u16, repeat
     let (ch, pat_idx) = get_current_pattern_indices(s);
     if event_idx >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
-    s.event_pool.slots[h as usize].repeat_space = repeat_space;
+    let ev = &mut s.event_pool.slots[h as usize];
+    ev.repeat_space = repeat_space;
+    if ev.repeat_amount == 1 {
+        ev.repeat_amount = 2;
+    }
     engine_mark_dirty(s, ch as u8);
 }
 
