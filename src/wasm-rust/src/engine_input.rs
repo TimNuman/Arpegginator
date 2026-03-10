@@ -314,42 +314,46 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         // Generate all random values up front to avoid borrow conflicts
         let r_len = ((engine_random(s) % 4) + 1) as i32 * tpc;
         let r_repeat_amt = ((engine_random(s) % 8) + 1) as u16;
-        let r_repeat_space = (engine_random(s) as usize) % steps.len().max(1);
+        let max_space = tpc * 8;
+        let space_limit = steps.iter().position(|&st| st > max_space).unwrap_or(steps.len());
+        let r_repeat_space = (engine_random(s) as usize) % space_limit.max(1);
         let r_chord_amt = ((engine_random(s) % 5) + 1) as u8;
         let r_chord_space = ((engine_random(s) % DIATONIC_OCTAVE as u32) + 1) as u8;
         let r_arp_style = (engine_random(s) % ARP_STYLE_COUNT as u32) as u8;
         let r_arp_offset = engine_random(s);
         let r_arp_voices = engine_random(s);
 
-        // Pick 1–2 sub-modes from [velocity, hit, modulate, inversion]
-        let sm_candidates: [usize; 4] = [
+        // Pick 1–2 sub-modes from [velocity, hit, modulate]
+        let sm_candidates: [usize; 3] = [
             SubModeId::Velocity as usize,
             SubModeId::Hit as usize,
             SubModeId::Modulate as usize,
-            SubModeId::Inversion as usize,
         ];
         let sm_count = ((engine_random(s) % 2) + 1) as usize; // 1 or 2
         // Shuffle-pick by swapping
-        let mut sm_pick = sm_candidates;
-        for i in 0..4 {
-            let j = (engine_random(s) as usize) % (4 - i) + i;
+        let mut sm_pick = [sm_candidates[0], sm_candidates[1], sm_candidates[2], 0];
+        for i in 0..3 {
+            let j = (engine_random(s) as usize) % (3 - i) + i;
             sm_pick.swap(i, j);
         }
         // Pre-generate sub-mode random data: [length, loop_mode, values...]
         let mut sm_data: [([i16; MAX_SUB_MODE_LEN], u8, u8); 2] = [([0; MAX_SUB_MODE_LEN], 0, 0); 2];
         for i in 0..sm_count {
             let arr_len = ((engine_random(s) % 15) + 2) as u8; // 2–16
-            let loop_mode = (engine_random(s) % 3) as u8;
+            let mut loop_mode = (engine_random(s) % 3) as u8;
+            // If array longer than repeat count, force Continue so all values get used
+            if arr_len as u16 > r_repeat_amt {
+                loop_mode = 1; // LoopMode::Continue
+            }
             let mut vals = [0i16; MAX_SUB_MODE_LEN];
             for (j, v) in vals.iter_mut().take(arr_len as usize).enumerate() {
-                *v = if j == 0 && (sm_pick[i] == 4 || sm_pick[i] == 5) {
-                    0 // modulate/inversion always start at 0
+                *v = if j == 0 && sm_pick[i] == 4 {
+                    0 // modulate always starts at 0
                 } else {
                     match sm_pick[i] {
                         0 => ((engine_random(s) % 81) + 20) as i16,  // velocity: 20–100
-                        1 => (engine_random(s) % 101) as i16,         // hit: 0–100
+                        1 => [0i16, 60, 100][(engine_random(s) % 3) as usize], // hit: 0/60/100
                         4 => (engine_random(s) % 9) as i16 - 4,      // modulate: -4..4
-                        5 => (engine_random(s) % 7) as i16 - 3,      // inversion: -3..3
                         _ => 0,
                     }
                 };

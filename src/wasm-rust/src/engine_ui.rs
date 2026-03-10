@@ -436,17 +436,43 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                     let vis_top_row = start_row + VISIBLE_ROWS as i16 - 1;
                     let end_tick = start_tick + VISIBLE_COLS as i32 * ticks_per_col;
 
-                    let off_screen = (0..note_count).any(|n| {
+                    let mut off_screen = false;
+                    let mut off_screen_playing = false;
+                    let mut off_screen_is_hit = false;
+                    (0..note_count).for_each(|n| {
                         let rn = &notes[n];
                         let ne = rn.position + rn.length;
-                        (is_top && rn.row > vis_top_row && rn.position <= actual_tick && ne > actual_tick) ||
-                        (is_bottom && rn.row < vis_bottom_row && rn.position <= actual_tick && ne > actual_tick) ||
-                        (is_right && rn.row == actual_row && rn.position >= end_tick) ||
-                        (is_left && rn.row == actual_row && ne <= start_tick)
+                        let is_off_tb =
+                            (is_top && rn.row > vis_top_row && rn.position <= actual_tick && ne > actual_tick) ||
+                            (is_bottom && rn.row < vis_bottom_row && rn.position <= actual_tick && ne > actual_tick);
+                        let is_off_lr =
+                            (is_right && rn.row == actual_row && rn.position >= end_tick) ||
+                            (is_left && rn.row == actual_row && ne <= start_tick);
+                        if is_off_tb || is_off_lr {
+                            off_screen = true;
+                            // Top/bottom: hit if note starts at this column
+                            if is_off_tb && rn.position >= actual_tick && rn.position < col_end_tick {
+                                off_screen_is_hit = true;
+                            }
+                            if looped_tick >= 0 && looped_tick >= rn.position && looped_tick < ne {
+                                let ev_id = ev_indexes[rn.source_idx as usize];
+                                if active_notes.iter().any(|an| {
+                                    an.active && an.channel == ch as u8 && an.event_index == ev_id && an.start <= looped_tick && an.end >= looped_tick
+                                }) {
+                                    off_screen_playing = true;
+                                }
+                            }
+                        }
                     });
 
                     if off_screen {
                         value = BTN_COLOR_25;
+                        if !off_screen_is_hit {
+                            value |= FLAG_CONTINUATION;
+                        }
+                        if off_screen_playing {
+                            value |= FLAG_PLAYING;
+                        }
                         color = ch_color;
                     }
                 }
