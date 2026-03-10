@@ -525,7 +525,7 @@ pub fn mod_positive(a: i32, b: i32) -> i32 {
     if r < 0 { r + b } else { r }
 }
 
-fn engine_random(s: &mut EngineState) -> u32 {
+pub fn engine_random(s: &mut EngineState) -> u32 {
     let mut x = s.rng_state;
     x ^= x << 13;
     x ^= x >> 17;

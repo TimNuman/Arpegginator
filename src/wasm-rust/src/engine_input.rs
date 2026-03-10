@@ -300,6 +300,55 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         return;
     }
 
+    // Cmd+Alt+Shift+click: create randomised note
+    if (mods & (MOD_META | MOD_ALT | MOD_SHIFT)) == (MOD_META | MOD_ALT | MOD_SHIFT) {
+        let ch = s.current_channel as usize;
+        let pat_idx = s.current_patterns[ch] as usize;
+        if s.patterns[ch][pat_idx].event_count as usize >= MAX_EVENTS { return; }
+        if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
+
+        let steps = build_step_table_with_triplets(tpc, 1920);
+        let new_idx = engine_toggle_event(s, row, tick, tpc);
+        if new_idx < 0 { return; }
+
+        // Generate all random values up front to avoid borrow conflicts
+        let r_len = ((engine_random(s) % 4) + 1) as i32 * tpc;
+        let r_repeat_amt = ((engine_random(s) % 8) + 1) as u16;
+        let r_repeat_space = (engine_random(s) as usize) % steps.len().max(1);
+        let r_chord_amt = ((engine_random(s) % 5) + 1) as u8;
+        let r_chord_space = ((engine_random(s) % DIATONIC_OCTAVE as u32) + 1) as u8;
+        let r_arp_style = (engine_random(s) % ARP_STYLE_COUNT as u32) as u8;
+        let r_arp_offset = engine_random(s);
+        let r_arp_voices = engine_random(s);
+
+        let ch = s.current_channel as usize;
+        let pat_idx = s.current_patterns[ch] as usize;
+        let h = s.patterns[ch][pat_idx].event_handles[new_idx as usize];
+        let ev = &mut s.event_pool.slots[h as usize];
+
+        ev.length = r_len;
+        ev.repeat_amount = r_repeat_amt;
+        if !steps.is_empty() { ev.repeat_space = steps[r_repeat_space]; }
+        ev.chord_amount = r_chord_amt;
+        ev.chord_space = r_chord_space;
+        ev.chord_inversion = 0;
+        ev.chord_voicing = 0;
+        ev.arp_style = r_arp_style;
+        if ev.chord_amount > 1 && ev.arp_style != ARP_CHORD {
+            ev.arp_offset = (r_arp_offset % ev.chord_amount as u32) as i8;
+            ev.arp_voices = ((r_arp_voices % (ev.chord_amount as u32 - 1)) + 1) as u8;
+        } else {
+            ev.arp_offset = 0;
+            ev.arp_voices = 1;
+        }
+
+        s.selected_event_idx = new_idx;
+        engine_mark_dirty(s, ch as u8);
+        let ev = s.event_pool.slots[h as usize].clone();
+        play_event_preview(s, &ev, tpc);
+        return;
+    }
+
     // Meta+click (no Shift): disable note
     if (mods & MOD_META) != 0 && (mods & MOD_SHIFT) == 0 {
         let (idx, _) = find_rendered_event(s, row, tick, tpc);
