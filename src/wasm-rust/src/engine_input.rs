@@ -858,7 +858,21 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
         }
         ACTION_DESELECT => {
             if s.selected_event_idx >= 0 {
+                s.last_deselected_event_idx = s.selected_event_idx;
                 s.selected_event_idx = -1;
+            } else if s.last_deselected_event_idx >= 0 {
+                let ch = s.current_channel as usize;
+                let pat_idx = s.current_patterns[ch] as usize;
+                let idx = s.last_deselected_event_idx as usize;
+                if (idx as u16) < s.patterns[ch][pat_idx].event_count {
+                    s.selected_event_idx = s.last_deselected_event_idx;
+                    let h = s.patterns[ch][pat_idx].event_handles[idx];
+                    if s.event_pool.slots[h as usize].enabled == 0 {
+                        s.event_pool.slots[h as usize].enabled = 1;
+                        engine_mark_dirty(s, ch as u8);
+                    }
+                }
+                s.last_deselected_event_idx = -1;
             } else {
                 s.current_tick = -1;
             }
@@ -908,6 +922,7 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
                 let pat_idx = s.current_patterns[ch] as usize;
                 let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
                 s.event_pool.slots[h as usize].enabled = 0;
+                s.last_deselected_event_idx = s.selected_event_idx;
                 s.selected_event_idx = -1;
                 engine_mark_dirty(s, ch as u8);
             }

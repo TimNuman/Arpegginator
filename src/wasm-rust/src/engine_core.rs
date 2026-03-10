@@ -400,6 +400,7 @@ pub struct EngineState {
     pub current_channel: u8,
     pub zoom: i32,
     pub selected_event_idx: i16,
+    pub last_deselected_event_idx: i16,
     pub row_offsets: [f32; NUM_CHANNELS],
     pub target_row_offsets: [f32; NUM_CHANNELS],
     pub col_offset: f32,
@@ -491,6 +492,7 @@ impl Default for EngineState {
             current_channel: 0,
             zoom: 120, // ZOOM_1_16
             selected_event_idx: -1,
+            last_deselected_event_idx: -1,
             row_offsets: [0.0; NUM_CHANNELS],
             target_row_offsets: [0.0; NUM_CHANNELS],
             col_offset: 0.0,

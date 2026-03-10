@@ -338,7 +338,8 @@ pub fn engine_adjust_arp_offset(s: &mut EngineState, event_idx: u16, direction: 
     let ev = &mut s.event_pool.slots[h as usize];
 
     if ev.chord_amount <= 1 || ev.arp_style == ARP_CHORD { return; }
-    ev.arp_offset += direction;
+    let cc = ev.chord_amount as i8;
+    ev.arp_offset = ((ev.arp_offset + direction) % cc + cc) % cc;
     engine_mark_dirty(s, ch as u8);
 }
 
