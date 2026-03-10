@@ -321,6 +321,38 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         let r_arp_offset = engine_random(s);
         let r_arp_voices = engine_random(s);
 
+        // Pick 1–2 sub-modes from [velocity, hit, modulate, inversion]
+        let sm_candidates: [usize; 4] = [
+            SubModeId::Velocity as usize,
+            SubModeId::Hit as usize,
+            SubModeId::Modulate as usize,
+            SubModeId::Inversion as usize,
+        ];
+        let sm_count = ((engine_random(s) % 2) + 1) as usize; // 1 or 2
+        // Shuffle-pick by swapping
+        let mut sm_pick = sm_candidates;
+        for i in 0..4 {
+            let j = (engine_random(s) as usize) % (4 - i) + i;
+            sm_pick.swap(i, j);
+        }
+        // Pre-generate sub-mode random data: [length, loop_mode, values...]
+        let mut sm_data: [([i16; MAX_SUB_MODE_LEN], u8, u8); 2] = [([0; MAX_SUB_MODE_LEN], 0, 0); 2];
+        for i in 0..sm_count {
+            let arr_len = ((engine_random(s) % 15) + 2) as u8; // 2–16
+            let loop_mode = (engine_random(s) % 3) as u8;
+            let mut vals = [0i16; MAX_SUB_MODE_LEN];
+            for v in vals.iter_mut().take(arr_len as usize) {
+                *v = match sm_pick[i] {
+                    0 => ((engine_random(s) % 81) + 20) as i16,  // velocity: 20–100
+                    1 => (engine_random(s) % 101) as i16,         // hit: 0–100
+                    4 => (engine_random(s) % 9) as i16 - 4,      // modulate: -4..4
+                    5 => (engine_random(s) % 7) as i16 - 3,      // inversion: -3..3
+                    _ => 0,
+                };
+            }
+            sm_data[i] = (vals, arr_len, loop_mode);
+        }
+
         let ch = s.current_channel as usize;
         let pat_idx = s.current_patterns[ch] as usize;
         let h = s.patterns[ch][pat_idx].event_handles[new_idx as usize];
@@ -340,6 +372,17 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         } else {
             ev.arp_offset = 0;
             ev.arp_voices = 1;
+        }
+
+        // Apply sub-mode arrays
+        for i in 0..sm_count {
+            let sm = sm_pick[i];
+            let (ref vals, arr_len, loop_mode) = sm_data[i];
+            let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
+            let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sm);
+            arr.length = arr_len;
+            arr.loop_mode = loop_mode;
+            arr.values[..arr_len as usize].copy_from_slice(&vals[..arr_len as usize]);
         }
 
         s.selected_event_idx = new_idx;
