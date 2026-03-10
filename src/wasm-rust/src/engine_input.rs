@@ -341,13 +341,17 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
             let arr_len = ((engine_random(s) % 15) + 2) as u8; // 2–16
             let loop_mode = (engine_random(s) % 3) as u8;
             let mut vals = [0i16; MAX_SUB_MODE_LEN];
-            for v in vals.iter_mut().take(arr_len as usize) {
-                *v = match sm_pick[i] {
-                    0 => ((engine_random(s) % 81) + 20) as i16,  // velocity: 20–100
-                    1 => (engine_random(s) % 101) as i16,         // hit: 0–100
-                    4 => (engine_random(s) % 9) as i16 - 4,      // modulate: -4..4
-                    5 => (engine_random(s) % 7) as i16 - 3,      // inversion: -3..3
-                    _ => 0,
+            for (j, v) in vals.iter_mut().take(arr_len as usize).enumerate() {
+                *v = if j == 0 && (sm_pick[i] == 4 || sm_pick[i] == 5) {
+                    0 // modulate/inversion always start at 0
+                } else {
+                    match sm_pick[i] {
+                        0 => ((engine_random(s) % 81) + 20) as i16,  // velocity: 20–100
+                        1 => (engine_random(s) % 101) as i16,         // hit: 0–100
+                        4 => (engine_random(s) % 9) as i16 - 4,      // modulate: -4..4
+                        5 => (engine_random(s) % 7) as i16 - 3,      // inversion: -3..3
+                        _ => 0,
+                    }
                 };
             }
             sm_data[i] = (vals, arr_len, loop_mode);
@@ -408,13 +412,31 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         return;
     }
 
-    // Cmd+Shift+click: set repeat amount to fill until this tick
-    if (mods & MOD_META) != 0 && (mods & MOD_SHIFT) != 0 && s.selected_event_idx >= 0 {
+    // Cmd+Shift+click: reset note if clicking its origin, otherwise fill repeat
+    if (mods & MOD_META) != 0 && (mods & MOD_SHIFT) != 0 && (mods & MOD_ALT) == 0 && s.selected_event_idx >= 0 {
         let ch = s.current_channel as usize;
         let pat_idx = s.current_patterns[ch] as usize;
         let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
         let sel = &s.event_pool.slots[h as usize];
+        if sel.row == row && tick == sel.position {
+            // Click on the main note — reset to plain single note
+            let ev = &mut s.event_pool.slots[h as usize];
+            ev.length = tpc;
+            ev.repeat_amount = 1;
+            ev.repeat_space = tpc;
+            ev.chord_amount = 1;
+            ev.chord_space = 2;
+            ev.chord_inversion = 0;
+            ev.chord_voicing = 0;
+            ev.arp_style = ARP_CHORD;
+            ev.arp_offset = 0;
+            ev.arp_voices = 1;
+            pool_free_event_handles(&mut s.sub_mode_pool, &mut ev.sub_mode_handles);
+            engine_mark_dirty(s, ch as u8);
+            return;
+        }
         if sel.row == row && tick > sel.position {
+            // Click further right — fill repeat amount
             let span = tick - sel.position;
             let space = if sel.repeat_space < 1 { tpc } else { sel.repeat_space };
             let amt = ((span / space) + 1).clamp(1, 64) as u16;
@@ -423,18 +445,21 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         }
     }
 
-    // Shift+click (no Cmd): resize selected note
+    // Shift+click (no Cmd): resize selected note, length measured from last repeat
     if (mods & MOD_SHIFT) != 0 && (mods & MOD_META) == 0 && s.selected_event_idx >= 0 {
         let ch = s.current_channel as usize;
         let pat_idx = s.current_patterns[ch] as usize;
         let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
         let sel = &s.event_pool.slots[h as usize];
         if sel.row == row {
-            let start = sel.position.min(tick);
-            let end = sel.position.max(tick);
-            let new_len = end - start + tpc;
+            let space = if sel.repeat_space < 1 { tpc } else { sel.repeat_space };
+            let last_repeat_pos = sel.position + (sel.repeat_amount as i32 - 1) * space;
+            let new_len = if tick >= last_repeat_pos {
+                tick - last_repeat_pos + tpc
+            } else {
+                tpc
+            };
             let ev = &mut s.event_pool.slots[h as usize];
-            if start != ev.position { ev.position = start; }
             ev.length = new_len;
             engine_mark_dirty(s, ch as u8);
             let ev = s.event_pool.slots[h as usize].clone();
