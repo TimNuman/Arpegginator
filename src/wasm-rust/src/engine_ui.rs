@@ -341,7 +341,6 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
     let selected_idx = s.selected_event_idx;
     let active_notes = s.active_notes;
-    let is_playing = s.is_playing;
     let scale_zero_index = s.scale_zero_index;
     let scale_count = s.scale_count;
     let scale_root = s.scale_root;
@@ -761,6 +760,20 @@ pub fn engine_compute_grid(s: &mut EngineState) {
         }
     }
 
+    // Ease col offset toward target
+    {
+        let cur = s.col_offset;
+        let tgt = s.target_col_offset;
+        if cur != tgt {
+            let diff = tgt - cur;
+            if diff.abs() < EASE_SNAP {
+                s.col_offset = tgt;
+            } else {
+                s.col_offset = cur + diff * EASE_FACTOR;
+            }
+        }
+    }
+
     // Clear buffers
     s.button_values = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
     s.color_overrides = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
@@ -814,6 +827,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
 pub fn engine_is_animating(s: &EngineState) -> bool {
     s.row_offsets.iter().zip(s.target_row_offsets.iter())
         .any(|(cur, tgt)| (tgt - cur).abs() > EASE_SNAP)
+    || (s.col_offset - s.target_col_offset).abs() > EASE_SNAP
     // Only count strip velocity when not actively dragging (inertia is a no-op during drag)
     || (s.strip_dragging[0] == 0 && s.strip_velocity[0].abs() > 0.0001)
     || (s.strip_dragging[1] == 0 && s.strip_velocity[1].abs() > 0.0001)

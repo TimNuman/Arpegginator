@@ -119,6 +119,7 @@ pub fn engine_strip_move(s: &mut EngineState, strip: u8, pos: i32, time_ms: f32)
             s.manual_scroll_override = 1;
         }
         s.col_offset = next;
+        s.target_col_offset = next;
     }
 }
 
@@ -166,6 +167,7 @@ pub fn engine_strip_inertia_tick(s: &mut EngineState, strip: u8) -> u8 {
     } else {
         let next = (s.col_offset + v).max(0.0).min(1.0);
         s.col_offset = next;
+        s.target_col_offset = next;
     }
 
     1
@@ -241,5 +243,6 @@ pub fn engine_playhead_follow(s: &mut EngineState) {
 
     if (new_col_offset - s.col_offset).abs() > 0.001 {
         s.col_offset = new_col_offset;
+        s.target_col_offset = new_col_offset;
     }
 }

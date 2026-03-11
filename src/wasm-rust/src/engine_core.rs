@@ -402,9 +402,11 @@ pub struct EngineState {
     pub zoom: i32,
     pub selected_event_idx: i16,
     pub last_deselected_event_idx: i16,
+    pub loop_edit_target: u8, // 0 = end, 1 = start
     pub row_offsets: [f32; NUM_CHANNELS],
     pub target_row_offsets: [f32; NUM_CHANNELS],
     pub col_offset: f32,
+    pub target_col_offset: f32,
 
     // Touchstrip state (0=vertical/row, 1=horizontal/col)
     pub strip_dragging: [u8; 2],
@@ -495,9 +497,11 @@ impl Default for EngineState {
             zoom: 120, // ZOOM_1_16
             selected_event_idx: -1,
             last_deselected_event_idx: -1,
+            loop_edit_target: 0,
             row_offsets: [0.0; NUM_CHANNELS],
             target_row_offsets: [0.0; NUM_CHANNELS],
             col_offset: 0.0,
+            target_col_offset: 0.0,
             strip_dragging: [0; 2],
             strip_shift_dragging: 0,
             strip_velocity: [0.0; 2],
@@ -1064,6 +1068,7 @@ pub fn engine_core_init(s: &mut EngineState) {
     s.zoom = 120;
     s.selected_event_idx = -1;
     s.col_offset = 0.0;
+    s.target_col_offset = 0.0;
     s.row_offsets = [0.0; NUM_CHANNELS];
     s.target_row_offsets = [0.0; NUM_CHANNELS];
 

@@ -639,26 +639,24 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
 
         if p_meta {
-            // Cmd held: highlight which loop edge is being edited
-            let s_color = if p_shift { OLED_YELLOW } else { OLED_CYAN };
-            let e_color = if !p_shift { OLED_YELLOW } else { OLED_CYAN };
-
-            let s_full = format!("S {}", s_buf);
-            let e_full = format!("  E {}", e_buf);
+            // Cmd held: color-code S (red=up/down) and E (yellow=left/right)
             let row2 = [
-                Segment { text: &s_full, color: s_color },
-                Segment { text: &e_full, color: e_color },
+                Segment { text: "S ", color: OLED_RED },
+                Segment { text: &s_buf, color: OLED_RED },
+                Segment { text: "  E ", color: OLED_YELLOW },
+                Segment { text: &e_buf, color: OLED_YELLOW },
             ];
             draw_segments(VALUE_X, ROW_Y[2], &row2);
-
-            if p_shift {
-                draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Start", &s_buf, OLED_YELLOW);
-            } else {
-                draw_icon_legend(ROW_Y[3], IconType::Horizontal, "End", &e_buf, OLED_YELLOW);
-            }
         } else {
             let loop_str = format!("{}-{}", s_buf, e_buf);
             draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
+        }
+
+        if p_meta || (s.ui_mode == UiMode::Loop as u8) {
+            // Row 3+4: arrow icons with +/- step amounts
+            let step_str = if p_shift { "+/- 1" } else { "+/- 0.1" };
+            draw_icon_legend(ROW_Y[3], IconType::Vertical, "Start", step_str, OLED_RED);
+            draw_icon_legend(ROW_Y[4], IconType::Horizontal, "End", step_str, OLED_YELLOW);
         }
     }
 }

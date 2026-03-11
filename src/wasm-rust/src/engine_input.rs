@@ -222,6 +222,54 @@ fn set_row_target_index(s: &mut EngineState, desired_start: i16) {
     set_row_target(s, start_index_to_offset(desired_start, max_row_off));
 }
 
+fn scroll_to_tick(s: &mut EngineState, tick: i32) {
+    let tpc = s.zoom;
+    let ch = s.current_channel as usize;
+    let pat = s.current_patterns[ch] as usize;
+    let pat_len = s.patterns[ch][pat].length_ticks;
+    let total_cols = (pat_len + tpc - 1) / tpc;
+    let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
+
+    if max_col_off > 0 {
+        let col = tick / tpc;
+        let start_col = (s.target_col_offset * max_col_off as f32 + 0.5) as i32;
+        if col < start_col {
+            s.target_col_offset = (col as f32 / max_col_off as f32).max(0.0);
+        } else if col > start_col + VISIBLE_COLS as i32 - 1 {
+            s.target_col_offset = ((col - VISIBLE_COLS as i32 + 1) as f32 / max_col_off as f32).min(1.0);
+        }
+    }
+}
+
+/// Scroll to keep edited loop edge visible, fitting both edges on screen if possible.
+fn scroll_to_loop_edge(s: &mut EngineState, edited_tick: i32) {
+    let tpc = s.zoom;
+    let ch = s.current_channel as usize;
+    let pat = s.current_patterns[ch] as usize;
+    let pat_len = s.patterns[ch][pat].length_ticks;
+    let total_cols = (pat_len + tpc - 1) / tpc;
+    let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
+    if max_col_off <= 0 { return; }
+
+    let loop_start_col = s.loops[ch][pat].start / tpc;
+    let loop_end_col = (s.loops[ch][pat].start + s.loops[ch][pat].length - 1) / tpc;
+    let loop_cols = loop_end_col - loop_start_col + 1;
+
+    if loop_cols <= VISIBLE_COLS as i32 {
+        // Both edges can fit: scroll to show entire loop
+        let start_col = (s.target_col_offset * max_col_off as f32 + 0.5) as i32;
+        let end_visible = start_col + VISIBLE_COLS as i32 - 1;
+        if loop_start_col < start_col {
+            s.target_col_offset = (loop_start_col as f32 / max_col_off as f32).max(0.0);
+        } else if loop_end_col > end_visible {
+            s.target_col_offset = ((loop_end_col - VISIBLE_COLS as i32 + 1) as f32 / max_col_off as f32).min(1.0);
+        }
+    } else {
+        // Loop too wide: just follow the edited edge
+        scroll_to_tick(s, edited_tick);
+    }
+}
+
 fn follow_note(s: &mut EngineState, row: i16, tick: i32) {
     let min_row = get_min_row(s);
     let total = get_total_rows(s);
@@ -247,11 +295,11 @@ fn follow_note(s: &mut EngineState, row: i16, tick: i32) {
 
     if max_col_off > 0 {
         let col = tick / tpc;
-        let start_col = (s.col_offset * max_col_off as f32 + 0.5) as i32;
+        let start_col = (s.target_col_offset * max_col_off as f32 + 0.5) as i32;
         if col < start_col {
-            s.col_offset = (col as f32 / max_col_off as f32).max(0.0);
+            s.target_col_offset = (col as f32 / max_col_off as f32).max(0.0);
         } else if col > start_col + VISIBLE_COLS as i32 - 1 {
-            s.col_offset = ((col - VISIBLE_COLS as i32 + 1) as f32 / max_col_off as f32).min(1.0);
+            s.target_col_offset = ((col - VISIBLE_COLS as i32 + 1) as f32 / max_col_off as f32).min(1.0);
         }
     }
 }
@@ -673,35 +721,41 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 _ => {}
             }
         }
-        // No selected note + Cmd+Left/Right: adjust loop end
-        // No selected note + Cmd+Shift+Left/Right: adjust loop start
-        if (mods & MOD_META) != 0 && (dir == DIR_LEFT || dir == DIR_RIGHT) {
+        // Cmd+Left/Right: adjust loop end (1x zoom), Shift+Cmd+Left/Right: (4x zoom)
+        // Cmd+Up/Down: adjust loop start (1x zoom), Shift+Cmd+Up/Down: (4x zoom)
+        if (mods & MOD_META) != 0 {
             let tpc = s.zoom;
+            let step = if (mods & MOD_SHIFT) != 0 { tpc * 4 } else { tpc };
             let ch = s.current_channel as usize;
             let pat = s.current_patterns[ch] as usize;
             let pat_len = s.patterns[ch][pat].length_ticks;
             let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
 
-            if (mods & MOD_SHIFT) != 0 {
-                // Cmd+Shift: adjust loop start
-                let new_start = if dir == DIR_LEFT {
-                    (s.loops[ch][pat].start - tpc).max(0)
+            if dir == DIR_LEFT || dir == DIR_RIGHT {
+                // Adjust loop end
+                s.loop_edit_target = 0;
+                let new_end = if dir == DIR_LEFT {
+                    (loop_end - step).max(s.loops[ch][pat].start + tpc)
                 } else {
-                    (s.loops[ch][pat].start + tpc).min(loop_end - tpc)
+                    (loop_end + step).min(pat_len)
+                };
+                if new_end != loop_end {
+                    s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
+                    // Follow the end edge (last column of loop = new_end - tpc)
+                    scroll_to_loop_edge(s, new_end - tpc);
+                }
+            } else if dir == DIR_UP || dir == DIR_DOWN {
+                // Adjust loop start (up = shrink/right, down = expand/left)
+                s.loop_edit_target = 1;
+                let new_start = if dir == DIR_DOWN {
+                    (s.loops[ch][pat].start - step).max(0)
+                } else {
+                    (s.loops[ch][pat].start + step).min(loop_end - tpc)
                 };
                 if new_start != s.loops[ch][pat].start {
                     s.loops[ch][pat].length = loop_end - new_start;
                     s.loops[ch][pat].start = new_start;
-                }
-            } else {
-                // Cmd: adjust loop end
-                let new_end = if dir == DIR_LEFT {
-                    (loop_end - tpc).max(s.loops[ch][pat].start + tpc)
-                } else {
-                    (loop_end + tpc).min(pat_len)
-                };
-                if new_end != loop_end {
-                    s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
+                    scroll_to_loop_edge(s, new_start);
                 }
             }
         }
@@ -890,33 +944,38 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
 }
 
 fn handle_arrow_loop(s: &mut EngineState, dir: u8, mods: u8) {
-    if mods != 0 && mods != MOD_SHIFT { return; }
-    if dir != DIR_LEFT && dir != DIR_RIGHT { return; }
-
+    // Same scheme as pattern mode:
+    // Left/Right: adjust loop end (1x zoom), Shift: (4x zoom)
+    // Up/Down: adjust loop start (1x zoom), Shift: (4x zoom)
     let tpc = s.zoom;
+    let step = if (mods & MOD_SHIFT) != 0 { tpc * 4 } else { tpc };
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let pat_len = s.patterns[ch][pat].length_ticks;
     let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
 
-    if (mods & MOD_SHIFT) != 0 {
-        let new_start = if dir == DIR_LEFT {
-            (s.loops[ch][pat].start - tpc).max(0)
+    if dir == DIR_LEFT || dir == DIR_RIGHT {
+        s.loop_edit_target = 0;
+        let new_end = if dir == DIR_LEFT {
+            (loop_end - step).max(s.loops[ch][pat].start + tpc)
         } else {
-            (s.loops[ch][pat].start + tpc).min(loop_end - tpc)
+            (loop_end + step).min(pat_len)
+        };
+        if new_end != loop_end {
+            s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
+            scroll_to_loop_edge(s, new_end - tpc);
+        }
+    } else if dir == DIR_UP || dir == DIR_DOWN {
+        s.loop_edit_target = 1;
+        let new_start = if dir == DIR_DOWN {
+            (s.loops[ch][pat].start - step).max(0)
+        } else {
+            (s.loops[ch][pat].start + step).min(loop_end - tpc)
         };
         if new_start != s.loops[ch][pat].start {
             s.loops[ch][pat].length = loop_end - new_start;
             s.loops[ch][pat].start = new_start;
-        }
-    } else {
-        let new_end = if dir == DIR_LEFT {
-            (loop_end - tpc).max(s.loops[ch][pat].start + tpc)
-        } else {
-            (loop_end + tpc).min(pat_len)
-        };
-        if new_end != loop_end {
-            s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
+            scroll_to_loop_edge(s, new_start);
         }
     }
 }
@@ -1022,11 +1081,11 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
                         // Loop fits: center it in view
                         let center_col = start_col + loop_cols / 2;
                         let view_start = (center_col - VISIBLE_COLS as i32 / 2).clamp(0, max_col_off);
-                        s.col_offset = view_start as f32 / max_col_off as f32;
+                        s.target_col_offset = view_start as f32 / max_col_off as f32;
                     } else {
                         // Loop doesn't fit: show loop start
                         let view_start = start_col.clamp(0, max_col_off);
-                        s.col_offset = view_start as f32 / max_col_off as f32;
+                        s.target_col_offset = view_start as f32 / max_col_off as f32;
                     }
                 }
             }
