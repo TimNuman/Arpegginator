@@ -713,41 +713,28 @@ static MODIFY_SUB_MODE_ORDER: [u8; 6] = [
 
 fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
     if s.selected_event_idx < 0 {
-        // No selected note + Alt: cycle scale
-        if (mods & MOD_ALT) != 0 && (mods & (MOD_META | MOD_CTRL | MOD_SHIFT)) == 0 {
+        // No selected note + Cmd (no Alt): cycle key/scale
+        if (mods & MOD_META) != 0 && (mods & (MOD_ALT | MOD_CTRL | MOD_SHIFT)) == 0 {
             match dir {
                 DIR_UP | DIR_DOWN => engine_cycle_scale(s, if dir == DIR_UP { 1 } else { -1 }),
                 DIR_LEFT | DIR_RIGHT => engine_cycle_scale_root(s, if dir == DIR_RIGHT { 1 } else { -1 }),
                 _ => {}
             }
         }
-        // Cmd+Left/Right: adjust loop end (1x zoom), Shift+Cmd+Left/Right: (4x zoom)
-        // Cmd+Up/Down: adjust loop start (1x zoom), Shift+Cmd+Up/Down: (4x zoom)
-        if (mods & MOD_META) != 0 {
+        // Opt+L/R: loop end ±1 (4×zoom), Opt+Shift+L/R: loop end ±0.1 (1×zoom)
+        // Cmd+Opt+L/R: loop start ±1, Cmd+Opt+Shift+L/R: loop start ±0.1
+        if (mods & MOD_ALT) != 0 && (dir == DIR_LEFT || dir == DIR_RIGHT) {
             let tpc = s.zoom;
-            let step = if (mods & MOD_SHIFT) != 0 { tpc * 4 } else { tpc };
+            let step = if (mods & MOD_SHIFT) != 0 { tpc } else { tpc * 4 };
             let ch = s.current_channel as usize;
             let pat = s.current_patterns[ch] as usize;
             let pat_len = s.patterns[ch][pat].length_ticks;
             let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
 
-            if dir == DIR_LEFT || dir == DIR_RIGHT {
-                // Adjust loop end
-                s.loop_edit_target = 0;
-                let new_end = if dir == DIR_LEFT {
-                    (loop_end - step).max(s.loops[ch][pat].start + tpc)
-                } else {
-                    (loop_end + step).min(pat_len)
-                };
-                if new_end != loop_end {
-                    s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
-                    // Follow the end edge (last column of loop = new_end - tpc)
-                    scroll_to_loop_edge(s, new_end - tpc);
-                }
-            } else if dir == DIR_UP || dir == DIR_DOWN {
-                // Adjust loop start (up = shrink/right, down = expand/left)
+            if (mods & MOD_META) != 0 {
+                // Cmd+Opt: adjust loop start
                 s.loop_edit_target = 1;
-                let new_start = if dir == DIR_DOWN {
+                let new_start = if dir == DIR_LEFT {
                     (s.loops[ch][pat].start - step).max(0)
                 } else {
                     (s.loops[ch][pat].start + step).min(loop_end - tpc)
@@ -756,6 +743,18 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                     s.loops[ch][pat].length = loop_end - new_start;
                     s.loops[ch][pat].start = new_start;
                     scroll_to_loop_edge(s, new_start);
+                }
+            } else {
+                // Opt only: adjust loop end
+                s.loop_edit_target = 0;
+                let new_end = if dir == DIR_LEFT {
+                    (loop_end - step).max(s.loops[ch][pat].start + tpc)
+                } else {
+                    (loop_end + step).min(pat_len)
+                };
+                if new_end != loop_end {
+                    s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
+                    scroll_to_loop_edge(s, new_end - tpc);
                 }
             }
         }
@@ -944,17 +943,33 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
 }
 
 fn handle_arrow_loop(s: &mut EngineState, dir: u8, mods: u8) {
-    // Same scheme as pattern mode:
-    // Left/Right: adjust loop end (1x zoom), Shift: (4x zoom)
-    // Up/Down: adjust loop start (1x zoom), Shift: (4x zoom)
+    // Loop mode: L/R = end, Cmd+L/R = start, Shift = fine step
+    // L/R: end ±1 (4×zoom), Shift+L/R: end ±0.1 (1×zoom)
+    // Cmd+L/R: start ±1, Cmd+Shift+L/R: start ±0.1
+    if dir != DIR_LEFT && dir != DIR_RIGHT { return; }
+
     let tpc = s.zoom;
-    let step = if (mods & MOD_SHIFT) != 0 { tpc * 4 } else { tpc };
+    let step = if (mods & MOD_SHIFT) != 0 { tpc } else { tpc * 4 };
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let pat_len = s.patterns[ch][pat].length_ticks;
     let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
 
-    if dir == DIR_LEFT || dir == DIR_RIGHT {
+    if (mods & MOD_META) != 0 {
+        // Cmd: adjust loop start
+        s.loop_edit_target = 1;
+        let new_start = if dir == DIR_LEFT {
+            (s.loops[ch][pat].start - step).max(0)
+        } else {
+            (s.loops[ch][pat].start + step).min(loop_end - tpc)
+        };
+        if new_start != s.loops[ch][pat].start {
+            s.loops[ch][pat].length = loop_end - new_start;
+            s.loops[ch][pat].start = new_start;
+            scroll_to_loop_edge(s, new_start);
+        }
+    } else {
+        // No cmd: adjust loop end
         s.loop_edit_target = 0;
         let new_end = if dir == DIR_LEFT {
             (loop_end - step).max(s.loops[ch][pat].start + tpc)
@@ -964,18 +979,6 @@ fn handle_arrow_loop(s: &mut EngineState, dir: u8, mods: u8) {
         if new_end != loop_end {
             s.loops[ch][pat].length = new_end - s.loops[ch][pat].start;
             scroll_to_loop_edge(s, new_end - tpc);
-        }
-    } else if dir == DIR_UP || dir == DIR_DOWN {
-        s.loop_edit_target = 1;
-        let new_start = if dir == DIR_DOWN {
-            (s.loops[ch][pat].start - step).max(0)
-        } else {
-            (s.loops[ch][pat].start + step).min(loop_end - tpc)
-        };
-        if new_start != s.loops[ch][pat].start {
-            s.loops[ch][pat].length = loop_end - new_start;
-            s.loops[ch][pat].start = new_start;
-            scroll_to_loop_edge(s, new_start);
         }
     }
 }

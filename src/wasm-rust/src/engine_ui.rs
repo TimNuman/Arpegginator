@@ -1,7 +1,7 @@
 // engine_ui.rs — Grid rendering, rendered notes, chord offsets
 
 use crate::engine_core::*;
-use crate::engine_input::{MOD_CTRL, MOD_META, MOD_SHIFT};
+use crate::engine_input::{MOD_ALT, MOD_CTRL, MOD_META};
 
 // ============ Sub-mode render configs ============
 
@@ -790,15 +790,16 @@ pub fn engine_compute_grid(s: &mut EngineState) {
         UiMode::Modify => render_modify_mode(s),
         UiMode::Pattern => {
             render_pattern_mode(s, &notes, note_count);
-            // Pulse loop boundary when Cmd held in pattern mode with no selection
-            if (s.modifiers_held & MOD_META) != 0 && s.selected_event_idx < 0 {
+            // Pulse loop boundary when Opt held in pattern mode with no selection
+            if (s.modifiers_held & MOD_ALT) != 0 && s.selected_event_idx < 0 {
                 let ch = s.current_channel as usize;
                 let pat = s.current_patterns[ch] as usize;
                 let lp_start = s.loops[ch][pat].start;
                 let loop_end = lp_start + s.loops[ch][pat].length;
                 let tpc = s.zoom;
                 let start_tick = get_start_tick(s);
-                let pulse_shift = (s.modifiers_held & MOD_SHIFT) != 0;
+                // Cmd+Opt = start, Opt only = end
+                let pulse_start = (s.modifiers_held & MOD_META) != 0;
 
                 (0..VISIBLE_COLS).for_each(|vc| {
                     let actual_tick = start_tick + vc as i32 * tpc;
@@ -806,7 +807,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
                     let is_start_col = actual_tick == lp_start;
                     let is_end_col = col_end_tick >= loop_end && actual_tick < loop_end;
 
-                    if (pulse_shift && is_start_col) || (!pulse_shift && is_end_col) {
+                    if (pulse_start && is_start_col) || (!pulse_start && is_end_col) {
                         (0..VISIBLE_ROWS).for_each(|vr| {
                             s.button_values[vr][vc] |= FLAG_LOOP_BOUNDARY_PULSING;
                         });

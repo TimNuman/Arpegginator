@@ -565,25 +565,28 @@ fn render_loop(s: &EngineState, mods: u8) {
     let loop_start = loop_data.start;
     let loop_end = loop_data.start + loop_data.length;
     let l_shift = (mods & MOD_SHIFT) != 0;
+    let l_meta = (mods & MOD_META) != 0;
 
     draw_labeled_row(ROW_Y[0], "MODE", "LOOP", OLED_CYAN);
 
     let s_buf = tick_to_beat_display(loop_start);
     let e_buf = tick_to_beat_display(loop_end - s.zoom);
 
-    let s_full = format!("S {}", s_buf);
-    let e_full = format!("  E {}", e_buf);
-
+    // Highlight the value being edited: cmd = start, else = end
+    let editing_start = l_meta;
     let row1 = [
-        Segment { text: &s_full, color: if l_shift { OLED_YELLOW } else { OLED_CYAN } },
-        Segment { text: &e_full, color: if !l_shift { OLED_YELLOW } else { OLED_CYAN } },
+        Segment { text: "LOOP ", color: OLED_CYAN },
+        Segment { text: &s_buf, color: if editing_start { OLED_YELLOW } else { OLED_CYAN } },
+        Segment { text: "-", color: OLED_CYAN },
+        Segment { text: &e_buf, color: if !editing_start { OLED_YELLOW } else { OLED_CYAN } },
     ];
     draw_segments(VALUE_X, ROW_Y[1], &row1);
 
-    if l_shift {
-        draw_icon_legend(ROW_Y[2], IconType::Horizontal, "Start", &s_buf, OLED_YELLOW);
+    let step_str = if l_shift { "+/- 0.1" } else { "+/- 1" };
+    if editing_start {
+        draw_icon_legend(ROW_Y[2], IconType::Horizontal, "Start", step_str, OLED_YELLOW);
     } else {
-        draw_icon_legend(ROW_Y[2], IconType::Horizontal, "End", &e_buf, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[2], IconType::Horizontal, "End", step_str, OLED_YELLOW);
     }
 }
 
@@ -595,7 +598,7 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let p_shift = (mods & MOD_SHIFT) != 0;
     let p_meta = (mods & MOD_META) != 0;
 
-    if p_shift && !p_meta {
+    if p_shift && !p_meta && !p_alt {
         draw_labeled_row(ROW_Y[0], "MODE", "EXTEND", OLED_CYAN);
         draw_labeled_row(ROW_Y[1], "NOTE", "DRAG", OLED_CYAN);
         return;
@@ -620,43 +623,46 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         let lx = LABEL_X;
         gfx_text(lx, ROW_Y[1], "KEY", color_lookup(OLED_DIM), &FONT_SMALL);
         let kx = lx + gfx_text_width("KEY ", &FONT_SMALL);
-        gfx_text(kx, ROW_Y[1], scale_root_name, color_lookup(if p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
+        gfx_text(kx, ROW_Y[1], scale_root_name, color_lookup(if p_meta && !p_alt { OLED_YELLOW } else { OLED_CYAN }), &FONT_MAIN);
 
         let root_sp = format!("{} ", scale_root_name);
         let cx2 = kx + gfx_text_width(&root_sp, &FONT_MAIN);
-        gfx_text(cx2, ROW_Y[1], scale_name, color_lookup(if p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
+        gfx_text(cx2, ROW_Y[1], scale_name, color_lookup(if p_meta && !p_alt { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);
     }
 
-    // Row 2+
-    if p_alt && !is_drum {
-        let scale_name = engine_get_scale_name_str(s);
-        let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        draw_icon_legend(ROW_Y[2], IconType::Vertical, "Scale", scale_name, OLED_RED);
-        draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Root", scale_root_name, OLED_YELLOW);
-    } else {
-        let loop_data = &s.loops[ch][pat];
-        let s_buf = tick_to_beat_display(loop_data.start);
-        let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
+    // Row 2: loop display (always present)
+    let loop_data = &s.loops[ch][pat];
+    let s_buf = tick_to_beat_display(loop_data.start);
+    let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
 
-        if p_meta {
-            // Cmd held: color-code S (red=up/down) and E (yellow=left/right)
-            let row2 = [
-                Segment { text: "S ", color: OLED_RED },
-                Segment { text: &s_buf, color: OLED_RED },
-                Segment { text: "  E ", color: OLED_YELLOW },
-                Segment { text: &e_buf, color: OLED_YELLOW },
-            ];
-            draw_segments(VALUE_X, ROW_Y[2], &row2);
+    if p_alt {
+        // Opt held: highlight the value being edited
+        let editing_start = p_meta; // cmd+opt = start, opt = end
+        let row2 = [
+            Segment { text: "LOOP ", color: OLED_CYAN },
+            Segment { text: &s_buf, color: if editing_start { OLED_YELLOW } else { OLED_CYAN } },
+            Segment { text: "-", color: OLED_CYAN },
+            Segment { text: &e_buf, color: if !editing_start { OLED_YELLOW } else { OLED_CYAN } },
+        ];
+        draw_segments(VALUE_X, ROW_Y[2], &row2);
+
+        // Legend for current combo
+        let step_str = if p_shift { "+/- 0.1" } else { "+/- 1" };
+        if editing_start {
+            draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Start", step_str, OLED_YELLOW);
         } else {
-            let loop_str = format!("{}-{}", s_buf, e_buf);
-            draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
+            draw_icon_legend(ROW_Y[3], IconType::Horizontal, "End", step_str, OLED_YELLOW);
         }
+    } else {
+        let loop_str = format!("{}-{}", s_buf, e_buf);
+        draw_labeled_row(ROW_Y[2], "LOOP", &loop_str, OLED_CYAN);
 
-        if p_meta || (s.ui_mode == UiMode::Loop as u8) {
-            // Row 3+4: arrow icons with +/- step amounts
-            let step_str = if p_shift { "+/- 1" } else { "+/- 0.1" };
-            draw_icon_legend(ROW_Y[3], IconType::Vertical, "Start", step_str, OLED_RED);
-            draw_icon_legend(ROW_Y[4], IconType::Horizontal, "End", step_str, OLED_YELLOW);
+        if p_meta && !is_drum {
+            // Cmd only: key/scale editing legends
+            let scale_name = engine_get_scale_name_str(s);
+            let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
+            draw_icon_legend(ROW_Y[3], IconType::Vertical, "Scale", scale_name, OLED_RED);
+            draw_icon_legend(ROW_Y[4], IconType::Horizontal, "Root", scale_root_name, OLED_YELLOW);
         }
     }
 }
