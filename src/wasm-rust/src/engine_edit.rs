@@ -139,7 +139,12 @@ pub fn engine_set_event_repeat_amount(s: &mut EngineState, event_idx: u16, repea
     let (ch, pat_idx) = get_current_pattern_indices(s);
     if event_idx >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
-    s.event_pool.slots[h as usize].repeat_amount = repeat_amount;
+    let ev = &mut s.event_pool.slots[h as usize];
+    ev.repeat_amount = repeat_amount;
+    // Setting repeat to 1 on a non-chord arp with a chord: auto-set to chord style
+    if repeat_amount == 1 && ev.arp_style != ARP_CHORD && ev.chord_amount > 1 {
+        ev.arp_style = ARP_CHORD;
+    }
     engine_mark_dirty(s, ch as u8);
 }
 
@@ -314,8 +319,13 @@ pub fn engine_cycle_arp_style(s: &mut EngineState, event_idx: u16, direction: i8
     let ev = &mut s.event_pool.slots[h as usize];
 
     if ev.chord_amount <= 1 { return; }
+    let old_style = ev.arp_style;
     let new_style = ((ev.arp_style as i8 + direction) % ARP_STYLE_COUNT as i8 + ARP_STYLE_COUNT as i8) % ARP_STYLE_COUNT as i8;
     ev.arp_style = new_style as u8;
+    // Switching from chord to non-chord with repeat=1: auto-set repeat to chord amount
+    if old_style == ARP_CHORD && new_style as u8 != ARP_CHORD && ev.repeat_amount == 1 {
+        ev.repeat_amount = ev.chord_amount as u16;
+    }
     engine_mark_dirty(s, ch as u8);
 }
 
