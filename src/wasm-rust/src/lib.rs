@@ -13,6 +13,7 @@ pub mod oled_fonts;
 pub mod oled_display;
 pub mod oled_screen;
 pub mod engine_strip;
+pub mod engine_drums;
 
 use engine_core::*;
 

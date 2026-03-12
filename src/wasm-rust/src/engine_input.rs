@@ -1,6 +1,7 @@
 // engine_input.rs — Button press, arrow press, key actions, camera follow
 
 use crate::engine_core::*;
+use crate::engine_drums::get_drum_pattern;
 use crate::engine_edit::*;
 use crate::engine_ui::*;
 
@@ -355,11 +356,73 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         if s.patterns[ch][pat_idx].event_count as usize >= MAX_EVENTS { return; }
         if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
 
-        let steps = build_step_table_with_triplets(tpc, 1920);
         let new_idx = engine_toggle_event(s, row, tick, tpc);
         if new_idx < 0 { return; }
+        let is_drum = s.channel_types[ch] == ChannelType::Drum as u8;
 
-        // Generate all random values up front to avoid borrow conflicts
+        if is_drum {
+            // ---- Drum: pick curated pattern from library ----
+            let pat = get_drum_pattern(row as i16, engine_random(s));
+            let amt = pat.amount;
+
+            // Speed randomization: 70% original, 15% half, 15% double
+            let speed_roll = engine_random(s) % 100;
+            let space = if speed_roll < 15 && pat.space_mul >= 2 {
+                (pat.space_mul / 2) as i32
+            } else if speed_roll >= 85 {
+                (pat.space_mul * 2) as i32
+            } else {
+                pat.space_mul as i32
+            };
+
+            // Pre-generate jittered velocity array
+            let mut vel_vals = [0i16; MAX_SUB_MODE_LEN];
+            let mut hit_vals = [0i16; MAX_SUB_MODE_LEN];
+            for i in 0..amt as usize {
+                let v = pat.vel[i] as i32;
+                if v > 0 {
+                    let jitter = (engine_random(s) % 31) as i32 - 15; // ±15
+                    vel_vals[i] = (v + jitter).clamp(20, 100) as i16;
+                }
+                hit_vals[i] = pat.hit[i] as i16;
+            }
+
+            // Apply to event
+            let ch = s.current_channel as usize;
+            let pat_idx = s.current_patterns[ch] as usize;
+            let h = s.patterns[ch][pat_idx].event_handles[new_idx as usize];
+            let ev = &mut s.event_pool.slots[h as usize];
+            ev.length = tpc;
+            ev.repeat_amount = amt as u16;
+            ev.repeat_space = space * tpc;
+            ev.chord_amount = 1;
+            ev.arp_style = ARP_CHORD;
+            ev.arp_offset = 0;
+            ev.arp_voices = 1;
+
+            // Velocity sub-mode
+            let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
+            let vel_arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Velocity as usize);
+            vel_arr.length = amt;
+            vel_arr.loop_mode = 0; // Reset
+            vel_arr.values[..amt as usize].copy_from_slice(&vel_vals[..amt as usize]);
+
+            // Hit sub-mode
+            let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
+            let hit_arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Hit as usize);
+            hit_arr.length = amt;
+            hit_arr.loop_mode = 0; // Reset
+            hit_arr.values[..amt as usize].copy_from_slice(&hit_vals[..amt as usize]);
+
+            s.selected_event_idx = new_idx;
+            engine_mark_dirty(s, ch as u8);
+            let ev = s.event_pool.slots[h as usize].clone();
+            play_event_preview(s, &ev, tpc);
+            return;
+        }
+
+        // ---- Melodic: full random (existing logic) ----
+        let steps = build_step_table_with_triplets(tpc, 1920);
         let r_len = ((engine_random(s) % 4) + 1) as i32 * tpc;
         let r_repeat_amt = ((engine_random(s) % 8) + 1) as u16;
         let max_space = tpc * 8;
@@ -372,36 +435,27 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
         let r_arp_voices = engine_random(s);
 
         // Pick 1–2 sub-modes from [velocity, hit, modulate]
-        let sm_candidates: [usize; 3] = [
-            SubModeId::Velocity as usize,
-            SubModeId::Hit as usize,
-            SubModeId::Modulate as usize,
-        ];
+        let mut sm_pick = [SubModeId::Velocity as usize, SubModeId::Hit as usize, SubModeId::Modulate as usize, 0];
         let sm_count = ((engine_random(s) % 2) + 1) as usize; // 1 or 2
-        // Shuffle-pick by swapping
-        let mut sm_pick = [sm_candidates[0], sm_candidates[1], sm_candidates[2], 0];
-        for i in 0..3 {
+        for i in 0..3usize {
             let j = (engine_random(s) as usize) % (3 - i) + i;
             sm_pick.swap(i, j);
         }
-        // Pre-generate sub-mode random data: [length, loop_mode, values...]
+        // Pre-generate sub-mode random data
         let mut sm_data: [([i16; MAX_SUB_MODE_LEN], u8, u8); 2] = [([0; MAX_SUB_MODE_LEN], 0, 0); 2];
         for i in 0..sm_count {
             let arr_len = ((engine_random(s) % 15) + 2) as u8; // 2–16
             let mut loop_mode = (engine_random(s) % 3) as u8;
-            // If array longer than repeat count, force Continue so all values get used
-            if arr_len as u16 > r_repeat_amt {
-                loop_mode = 1; // LoopMode::Continue
-            }
+            if arr_len as u16 > r_repeat_amt { loop_mode = 1; }
             let mut vals = [0i16; MAX_SUB_MODE_LEN];
             for (j, v) in vals.iter_mut().take(arr_len as usize).enumerate() {
                 *v = if j == 0 && sm_pick[i] == 4 {
-                    0 // modulate always starts at 0
+                    0
                 } else {
                     match sm_pick[i] {
-                        0 => ((engine_random(s) % 81) + 20) as i16,  // velocity: 20–100
-                        1 => [0i16, 60, 100][(engine_random(s) % 3) as usize], // hit: 0/60/100
-                        4 => (engine_random(s) % 9) as i16 - 4,      // modulate: -4..4
+                        0 => ((engine_random(s) % 81) + 20) as i16,
+                        1 => [0i16, 60, 100][(engine_random(s) % 3) as usize],
+                        4 => (engine_random(s) % 9) as i16 - 4,
                         _ => 0,
                     }
                 };
@@ -430,7 +484,6 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
             ev.arp_voices = 1;
         }
 
-        // Apply sub-mode arrays
         for i in 0..sm_count {
             let sm = sm_pick[i];
             let (ref vals, arr_len, loop_mode) = sm_data[i];
