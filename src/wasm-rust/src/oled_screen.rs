@@ -165,7 +165,7 @@ fn get_drum_name(midi: i8) -> alloc::string::String {
 
 static SUB_MODE_LABELS: [&str; 6] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV"];
 static LOOP_MODE_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
-static ARP_STYLE_NAMES: [&str; 9] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U"];
+static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
 static INTERVAL_NAMES: [&str; 12] = [
     "unison", "min 2nd", "2nd", "min 3rd", "3rd", "4th",
     "tritone", "5th", "min 6th", "6th", "min 7th", "7th",

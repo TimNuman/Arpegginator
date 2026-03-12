@@ -113,7 +113,13 @@ pub const ARP_CHORD_UP: u8 = 5;
 pub const ARP_CHORD_DOWN: u8 = 6;
 pub const ARP_CHORD_UP_DOWN: u8 = 7;
 pub const ARP_CHORD_DOWN_UP: u8 = 8;
-pub const ARP_STYLE_COUNT: u8 = 9;
+pub const ARP_E1M1: u8 = 9;
+pub const ARP_ZIG_UP: u8 = 10;
+pub const ARP_ZIG_DOWN: u8 = 11;
+pub const ARP_ZIG_UP_DOWN: u8 = 12;
+pub const ARP_ZIG_DOWN_UP: u8 = 13;
+pub const ARP_RANDOM: u8 = 14;
+pub const ARP_STYLE_COUNT: u8 = 15;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
@@ -908,6 +914,12 @@ pub fn get_voicing_offsets(amount: u8, distance: u8, idx: u8, out: &mut [i8]) ->
 
 // ============ Arpeggio ============
 
+static mut ARP_RANDOM_SEED: u32 = 0;
+
+pub fn engine_reseed_random_arp() {
+    unsafe { ARP_RANDOM_SEED = ARP_RANDOM_SEED.wrapping_add(1); }
+}
+
 pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: i8) -> u8 {
     if style == ARP_CHORD || chord_count <= 1 { return 255; }
 
@@ -936,7 +948,98 @@ pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: 
             let idx = if eff < cc { eff } else { cycle_len - eff };
             if style == ARP_DOWN_UP { (cc - 1 - idx) as u8 } else { idx as u8 }
         }
+        ARP_E1M1 => {
+            // Pattern: [0,0,N-1], [0,0,N-2], ..., [0,0,1], [0,0,1,2]
+            // Cycle = 3*(N-1) + 4
+            let cycle_len = 3 * (cc - 1) + 4;
+            let pos = ((effective_raw % cycle_len) + cycle_len) % cycle_len;
+            let triplet_end = 3 * (cc - 1);
+            if pos < triplet_end {
+                if pos % 3 < 2 { 0 }
+                else { (cc - 1 - pos / 3) as u8 }
+            } else {
+                match pos - triplet_end {
+                    0 | 1 => 0,
+                    2 => 1u8.min((cc - 1) as u8),
+                    _ => 2u8.min((cc - 1) as u8),
+                }
+            }
+        }
+        ARP_ZIG_UP | ARP_ZIG_DOWN => {
+            // Zigzag up: 0,1,0,2,1,3,2,4  Cycle = 2*(N-1)
+            let cycle_len = 2 * (cc - 1);
+            let pos = ((effective_raw % cycle_len) + cycle_len) % cycle_len;
+            let val = zig_up_value(pos, cc);
+            if style == ARP_ZIG_DOWN { (cc - 1 - val as i32) as u8 } else { val }
+        }
+        ARP_ZIG_UP_DOWN | ARP_ZIG_DOWN_UP => {
+            // Zigzag up then zigzag down, skip shared endpoints
+            // Cycle = 4*(N-1) - 2  (or 2*(N-1) when N<=2)
+            let half = 2 * (cc - 1);
+            let cycle_len = if cc > 2 { 4 * (cc - 1) - 2 } else { half };
+            let pos = ((effective_raw % cycle_len) + cycle_len) % cycle_len;
+            let val = if pos < half {
+                zig_up_value(pos, cc)
+            } else {
+                let q = pos - half + 1;
+                (cc - 1 - zig_up_value(q, cc) as i32) as u8
+            };
+            if style == ARP_ZIG_DOWN_UP { (cc - 1) as u8 - val } else { val }
+        }
+        ARP_RANDOM => {
+            // Shuffle-bag: each epoch of N notes is a full permutation.
+            // Deterministic per epoch via hash-seeded Fisher-Yates.
+            let epoch = if effective_raw >= 0 {
+                effective_raw / cc
+            } else {
+                (effective_raw - cc + 1) / cc
+            };
+            let pos = ((effective_raw % cc) + cc) % cc;
+
+            let mut perm = [0u8; 8];
+            for i in 0..cc as usize { perm[i] = i as u8; }
+
+            // Hash epoch + global seed, then Fisher-Yates
+            let seed = unsafe { ARP_RANDOM_SEED };
+            let mut h = (epoch as u32).wrapping_mul(2654435761).wrapping_add(seed.wrapping_mul(374761393));
+            for i in (1..cc as usize).rev() {
+                h ^= h >> 15;
+                h = h.wrapping_mul(2246822519);
+                h ^= h >> 13;
+                let j = (h as usize) % (i + 1);
+                perm.swap(i, j);
+            }
+
+            perm[pos as usize]
+        }
         _ => 255,
+    }
+}
+
+/// Zigzag ascending value: pairs (back-one, forward-one) climbing up
+/// 0,1,0,2,1,3,2,4,...  pos must be non-negative.
+fn zig_up_value(pos: i32, cc: i32) -> u8 {
+    let pair = pos / 2;
+    if pos % 2 == 0 {
+        (pair - 1).max(0) as u8
+    } else {
+        (pair + 1).min(cc - 1) as u8
+    }
+}
+
+/// Returns the natural cycle length for an arp style.
+pub fn get_arp_cycle_length(style: u8, chord_count: u8) -> u16 {
+    if chord_count <= 1 { return 1; }
+    let cc = chord_count as u16;
+    match style {
+        ARP_CHORD => 1,
+        ARP_UP | ARP_DOWN | ARP_CHORD_UP | ARP_CHORD_DOWN => cc,
+        ARP_UP_DOWN | ARP_DOWN_UP | ARP_CHORD_UP_DOWN | ARP_CHORD_DOWN_UP => 2 * (cc - 1),
+        ARP_E1M1 => 3 * (cc - 1) + 4,
+        ARP_ZIG_UP | ARP_ZIG_DOWN => 2 * (cc - 1),
+        ARP_ZIG_UP_DOWN | ARP_ZIG_DOWN_UP => if cc > 2 { 4 * (cc - 1) - 2 } else { 2 * (cc - 1) },
+        ARP_RANDOM => cc,
+        _ => cc,
     }
 }
 

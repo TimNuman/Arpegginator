@@ -322,9 +322,13 @@ pub fn engine_cycle_arp_style(s: &mut EngineState, event_idx: u16, direction: i8
     let old_style = ev.arp_style;
     let new_style = ((ev.arp_style as i8 + direction) % ARP_STYLE_COUNT as i8 + ARP_STYLE_COUNT as i8) % ARP_STYLE_COUNT as i8;
     ev.arp_style = new_style as u8;
-    // Switching from chord to non-chord with repeat=1: auto-set repeat to chord amount
+    // Re-seed random arp each time we land on it
+    if new_style as u8 == ARP_RANDOM {
+        engine_reseed_random_arp();
+    }
+    // Switching from chord to non-chord with repeat=1: auto-set repeat to natural cycle length
     if old_style == ARP_CHORD && new_style as u8 != ARP_CHORD && ev.repeat_amount == 1 {
-        ev.repeat_amount = ev.chord_amount as u16;
+        ev.repeat_amount = get_arp_cycle_length(new_style as u8, ev.chord_amount);
     }
     engine_mark_dirty(s, ch as u8);
 }
