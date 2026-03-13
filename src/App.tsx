@@ -77,10 +77,8 @@ function App() {
           "#33cc66",
           "#3399ff",
           "#9966ff",
-          "#ff6699",
-          "#66cccc",
         ];
-        for (let ch = 0; ch < 8; ch++) {
+        for (let ch = 0; ch < 6; ch++) {
           const hex = CHANNEL_COLORS[ch];
           const r = parseInt(hex.slice(1, 3), 16);
           const g = parseInt(hex.slice(3, 5), 16);
@@ -88,8 +86,8 @@ function App() {
           engine.setChannelColor(ch, (r << 16) | (g << 8) | b);
         }
 
-        // Set channel types: channels 0-5 melodic, 6-7 drum
-        engine.writeChannelTypes([0, 0, 0, 0, 0, 0, 1, 1]);
+        // Set channel types: channels 0-3 melodic, 4-5 drum
+        engine.writeChannelTypes([0, 0, 0, 0, 1, 1]);
 
         // Set initial zoom (1/16 = 120 ticks per col)
         engine.setZoom(120);
@@ -111,8 +109,8 @@ function App() {
           const drumMaxRowOffset = Math.max(0, 128 - visibleRows);
           const drumOffset =
             drumMaxRowOffset > 0 ? 1 - 36 / drumMaxRowOffset : 0.5;
-          for (let ch = 0; ch < 8; ch++) {
-            engine.setRowOffset(ch, ch >= 6 ? drumOffset : melodicOffset);
+          for (let ch = 0; ch < 6; ch++) {
+            engine.setRowOffset(ch, ch >= 4 ? drumOffset : melodicOffset);
           }
         }
 

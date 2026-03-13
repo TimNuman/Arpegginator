@@ -786,28 +786,81 @@ fn compute_ghost_notes(s: &mut EngineState) {
 fn apply_ctrl_overlay(s: &mut EngineState) {
     if (s.modifiers_held & MOD_CTRL) == 0 { return; }
 
-    static MODE_COLORS: [u32; 3] = [0x33CCFF, 0x33FF66, 0xFF6633];
-    static COL_TO_MODE: [u8; 3] = [
-        UiMode::Channel as u8, UiMode::Pattern as u8,
-        UiMode::Modify as u8,
-    ];
+    let any_soloed = s.soloed.iter().any(|&v| v != 0);
+
+    // Rows 0..NUM_CHANNELS: channel/pattern grid
+    (0..NUM_CHANNELS).for_each(|ch_idx| {
+        let ch_color = s.channel_colors[ch_idx];
+        let cur_pat = s.current_patterns[ch_idx];
+        let is_muted = s.muted[ch_idx] != 0;
+        let is_soloed = s.soloed[ch_idx] != 0;
+        let is_eff_muted = is_muted || (any_soloed && !is_soloed);
+
+        (0..VISIBLE_COLS).for_each(|vc| {
+            if vc == 0 {
+                // Mute/Solo button
+                let is_playing_now = s.channels_playing_now[ch_idx] != 0;
+                let val = if is_soloed { BTN_WHITE_25 }
+                    else if is_eff_muted { BTN_COLOR_25 }
+                    else { BTN_COLOR_100 };
+                s.button_values[ch_idx][vc] = val | if is_playing_now { FLAG_PLAYHEAD } else { 0 };
+                s.color_overrides[ch_idx][vc] = ch_color;
+                return;
+            }
+
+            let pat_idx = vc - 1;
+            if pat_idx >= NUM_PATTERNS {
+                s.button_values[ch_idx][vc] = FLAG_DIMMED;
+                return;
+            }
+
+            let has_notes = s.patterns_have_notes[ch_idx][pat_idx] != 0;
+            let is_selected = ch_idx == s.current_channel as usize && pat_idx == cur_pat as usize;
+            let is_active = pat_idx == cur_pat as usize;
+            let is_queued = s.queued_patterns[ch_idx] == pat_idx as i8;
+            let is_playing_now = is_active && s.channels_playing_now[ch_idx] != 0;
+            let is_empty = !has_notes && !is_queued;
+
+            if !is_empty {
+                let mut val = if is_selected { BTN_COLOR_100 } else { BTN_COLOR_50 };
+                if is_eff_muted { val = BTN_COLOR_25; }
+                else if is_soloed && !is_selected { val = BTN_WHITE_25; }
+                if is_playing_now || is_queued { val |= FLAG_PLAYHEAD; }
+                s.button_values[ch_idx][vc] = val;
+                s.color_overrides[ch_idx][vc] = ch_color;
+            } else {
+                s.button_values[ch_idx][vc] = FLAG_DIMMED;
+            }
+        });
+    });
+
+    // Rows NUM_CHANNELS..VISIBLE_ROWS-1: dimmed separator
+    (NUM_CHANNELS..VISIBLE_ROWS - 1).for_each(|r| {
+        (0..VISIBLE_COLS).for_each(|c| {
+            s.button_values[r][c] = FLAG_DIMMED;
+            s.color_overrides[r][c] = 0;
+        });
+    });
+
+    // Row 7: mode buttons + ghost
+    static MODE_COLORS: [u32; 2] = [0x33FF66, 0xFF6633];
+    static COL_TO_MODE: [u8; 2] = [UiMode::Pattern as u8, UiMode::Modify as u8];
 
     let ghost_on = s.ghost_enabled != 0;
     const GHOST_BUTTON_COLOR: u32 = 0x4488CC;
 
-    (0..VISIBLE_ROWS).for_each(|r| {
-        (0..VISIBLE_COLS).for_each(|c| {
-            if r == 7 && c <= 2 {
-                let is_current = s.ui_mode == COL_TO_MODE[c];
-                s.button_values[r][c] = if is_current { BTN_COLOR_100 } else { BTN_COLOR_50 };
-                s.color_overrides[r][c] = MODE_COLORS[c];
-            } else if r == 7 && c == 15 {
-                s.button_values[r][c] = if ghost_on { BTN_COLOR_100 } else { BTN_COLOR_25 };
-                s.color_overrides[r][c] = GHOST_BUTTON_COLOR;
-            } else {
-                s.button_values[r][c] |= FLAG_DIMMED;
-            }
-        });
+    (0..VISIBLE_COLS).for_each(|c| {
+        if c <= 1 {
+            let is_current = s.ui_mode == COL_TO_MODE[c];
+            s.button_values[VISIBLE_ROWS - 1][c] = if is_current { BTN_COLOR_100 } else { BTN_COLOR_50 };
+            s.color_overrides[VISIBLE_ROWS - 1][c] = MODE_COLORS[c];
+        } else if c == 15 {
+            s.button_values[VISIBLE_ROWS - 1][c] = if ghost_on { BTN_COLOR_100 } else { BTN_COLOR_25 };
+            s.color_overrides[VISIBLE_ROWS - 1][c] = GHOST_BUTTON_COLOR;
+        } else {
+            s.button_values[VISIBLE_ROWS - 1][c] = FLAG_DIMMED;
+            s.color_overrides[VISIBLE_ROWS - 1][c] = 0;
+        }
     });
 }
 

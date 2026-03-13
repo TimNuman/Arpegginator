@@ -740,17 +740,45 @@ fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
 // ============ Main Button Press Dispatch ============
 
 pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8) {
-    if (modifiers & MOD_CTRL) != 0 && row == 7 && col <= 2 {
-        static MODE_MAP: [u8; 3] = [
-            UiMode::Channel as u8, UiMode::Pattern as u8,
-            UiMode::Modify as u8,
-        ];
-        s.ui_mode = MODE_MAP[col as usize];
-        return;
-    }
+    if (modifiers & MOD_CTRL) != 0 {
+        // Row 7: mode buttons + ghost toggle
+        if row == 7 {
+            if col <= 1 {
+                static MODE_MAP: [u8; 2] = [UiMode::Pattern as u8, UiMode::Modify as u8];
+                s.ui_mode = MODE_MAP[col as usize];
+            } else if col == 15 {
+                s.ghost_enabled = if s.ghost_enabled != 0 { 0 } else { 1 };
+            }
+            return;
+        }
 
-    if (modifiers & MOD_CTRL) != 0 && row == 7 && col == 15 {
-        s.ghost_enabled = if s.ghost_enabled != 0 { 0 } else { 1 };
+        // Rows 0..NUM_CHANNELS: channel/pattern selection
+        let ch_idx = row as usize;
+        if ch_idx < NUM_CHANNELS {
+            if col == 0 {
+                // Mute/Solo toggle
+                if (modifiers & MOD_ALT) != 0 {
+                    s.soloed[ch_idx] ^= 1;
+                } else {
+                    s.muted[ch_idx] ^= 1;
+                }
+            } else {
+                let pat_idx = col as usize - 1;
+                if pat_idx < NUM_PATTERNS {
+                    if (modifiers & MOD_ALT) != 0 && ch_idx == s.current_channel as usize {
+                        if s.patterns_have_notes[ch_idx][pat_idx] == 0 {
+                            engine_copy_pattern(s, pat_idx as u8);
+                        }
+                    }
+                    s.current_channel = ch_idx as u8;
+                    s.current_patterns[ch_idx] = pat_idx as u8;
+                    s.selected_event_idx = -1;
+                    engine_mark_dirty(s, ch_idx as u8);
+                }
+            }
+            return;
+        }
+
         return;
     }
 

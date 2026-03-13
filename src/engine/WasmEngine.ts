@@ -406,7 +406,7 @@ export class WasmEngine {
     }
 
     // Init event index maps
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       this.eventIndexMaps[ch] = [];
       this.eventIndexToId[ch] = [];
       for (let pat = 0; pat < 8; pat++) {
@@ -484,7 +484,7 @@ export class WasmEngine {
     const mod = this.module!;
     const mutedPtr = this._getMutedBuffer();
     const soloedPtr = this._getSoloedBuffer();
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       mod.HEAPU8[mutedPtr + ch] = muted[ch] ? 1 : 0;
       mod.HEAPU8[soloedPtr + ch] = soloed[ch] ? 1 : 0;
     }
@@ -497,7 +497,7 @@ export class WasmEngine {
     const soloedPtr = this._getSoloedBuffer();
     const muted: boolean[] = [];
     const soloed: boolean[] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       muted.push(mod.HEAPU8[mutedPtr + ch] !== 0);
       soloed.push(mod.HEAPU8[soloedPtr + ch] !== 0);
     }
@@ -568,7 +568,7 @@ export class WasmEngine {
     const mod = this.module!;
     const ptr = this._getPatternsHaveNotesBuffer();
     const result: boolean[][] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       const row: boolean[] = [];
       for (let pat = 0; pat < 8; pat++) {
         row.push(mod.HEAPU8[ptr + ch * 8 + pat] !== 0);
@@ -583,7 +583,7 @@ export class WasmEngine {
     const mod = this.module!;
     const ptr = this._getChannelsPlayingNowBuffer();
     const result: boolean[] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       result.push(mod.HEAPU8[ptr + ch] !== 0);
     }
     return result;
@@ -703,7 +703,7 @@ export class WasmEngine {
   writeChannelTypes(types: number[]): void {
     const mod = this.module!;
     const ptr = this._getChannelTypesBuffer();
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       mod.HEAPU8[ptr + ch] = types[ch] ?? 0;
     }
   }
@@ -713,7 +713,7 @@ export class WasmEngine {
     const mod = this.module!;
     const ptr = this._getCurrentPatternsBuffer();
     const patterns: number[] = [];
-    for (let ch = 0; ch < 8; ch++) {
+    for (let ch = 0; ch < 6; ch++) {
       patterns.push(mod.HEAPU8[ptr + ch]);
     }
     return patterns;

@@ -4,7 +4,7 @@ extern crate alloc;
 
 // ============ Constants ============
 
-pub const NUM_CHANNELS: usize = 8;
+pub const NUM_CHANNELS: usize = 6;
 pub const NUM_PATTERNS: usize = 8;
 pub const MAX_EVENTS: usize = 128;
 pub const MAX_SUB_MODE_LEN: usize = 32;

@@ -6,6 +6,4 @@ export const CHANNEL_COLORS = [
   "#33ff66", // Green
   "#33ccff", // Cyan
   "#3366ff", // Blue
-  "#9933ff", // Purples
-  "#ff33cc", // Magenta
 ];
