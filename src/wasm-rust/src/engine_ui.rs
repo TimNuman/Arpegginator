@@ -613,14 +613,18 @@ fn render_loop_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: usi
 
 // ============ Modify Mode Rendering ============
 
-fn render_modify_mode(s: &mut EngineState) {
+fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: usize) {
     if s.selected_event_idx < 0 {
-        (0..VISIBLE_ROWS).for_each(|r| {
-            (0..VISIBLE_COLS).for_each(|c| {
-                s.button_values[r][c] = BTN_OFF | FLAG_DIMMED;
-                s.color_overrides[r][c] = 0;
-            });
-        });
+        let ch = s.current_channel as usize;
+        let pat = s.current_patterns[ch] as usize;
+        if s.patterns[ch][pat].event_count == 0 {
+            // No notes in pattern — fall back to pattern mode
+            s.ui_mode = UiMode::Pattern as u8;
+            render_pattern_mode(s, notes, note_count);
+        } else {
+            // Notes exist but none selected — show pattern view for selection
+            render_pattern_mode(s, notes, note_count);
+        }
         return;
     }
 
@@ -842,21 +846,26 @@ fn apply_ctrl_overlay(s: &mut EngineState) {
         });
     });
 
-    // Row 7: mode buttons + ghost
-    static MODE_COLORS: [u32; 2] = [0x33FF66, 0xFF6633];
+    // Row 7: mode buttons + ghost — all blue, bright when active
     static COL_TO_MODE: [u8; 2] = [UiMode::Pattern as u8, UiMode::Modify as u8];
 
     let ghost_on = s.ghost_enabled != 0;
-    const GHOST_BUTTON_COLOR: u32 = 0x4488CC;
+    let ch = s.current_channel as usize;
+    let pat = s.current_patterns[ch] as usize;
+    let has_notes = s.patterns[ch][pat].event_count > 0;
+    const BUTTON_COLOR: u32 = 0x4488CC;
 
     (0..VISIBLE_COLS).for_each(|c| {
         if c <= 1 {
-            let is_current = s.ui_mode == COL_TO_MODE[c];
-            s.button_values[VISIBLE_ROWS - 1][c] = if is_current { BTN_COLOR_100 } else { BTN_COLOR_50 };
-            s.color_overrides[VISIBLE_ROWS - 1][c] = MODE_COLORS[c];
+            let mode = COL_TO_MODE[c];
+            let is_current = s.ui_mode == mode;
+            let disabled = mode == UiMode::Modify as u8 && !has_notes;
+            s.button_values[VISIBLE_ROWS - 1][c] = if disabled { FLAG_DIMMED }
+                else if is_current { BTN_COLOR_100 } else { BTN_COLOR_25 };
+            s.color_overrides[VISIBLE_ROWS - 1][c] = BUTTON_COLOR;
         } else if c == 15 {
             s.button_values[VISIBLE_ROWS - 1][c] = if ghost_on { BTN_COLOR_100 } else { BTN_COLOR_25 };
-            s.color_overrides[VISIBLE_ROWS - 1][c] = GHOST_BUTTON_COLOR;
+            s.color_overrides[VISIBLE_ROWS - 1][c] = BUTTON_COLOR;
         } else {
             s.button_values[VISIBLE_ROWS - 1][c] = FLAG_DIMMED;
             s.color_overrides[VISIBLE_ROWS - 1][c] = 0;
@@ -919,7 +928,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     match UiMode::from_u8(s.ui_mode) {
         UiMode::Channel => render_channel_mode(s, &notes, note_count),
         UiMode::Loop => render_loop_mode(s, &notes, note_count),
-        UiMode::Modify => render_modify_mode(s),
+        UiMode::Modify => render_modify_mode(s, &notes, note_count),
         UiMode::Pattern => {
             render_pattern_mode(s, &notes, note_count);
             // Pulse loop boundary when Opt held in pattern mode with no selection

@@ -704,10 +704,19 @@ fn handle_loop_press(s: &mut EngineState, _vis_row: u8, vis_col: u8, mods: u8) {
 
 fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) {
     if s.selected_event_idx < 0 {
+        // No note selected — pattern view shown, only allow selection
         let row = engine_visible_to_actual_row(s, vis_row);
         let tick = engine_visible_to_tick(s, vis_col);
-        let (idx, _) = find_rendered_event(s, row, tick, s.zoom);
-        if idx >= 0 { s.selected_event_idx = idx; }
+        let tpc = s.zoom;
+        let (idx, _) = find_rendered_event(s, row, tick, tpc);
+        if idx >= 0 {
+            s.selected_event_idx = idx;
+            let ch = s.current_channel as usize;
+            let pat_idx = s.current_patterns[ch] as usize;
+            let h = s.patterns[ch][pat_idx].event_handles[idx as usize];
+            let ev = s.event_pool.slots[h as usize].clone();
+            play_event_preview(s, &ev, tpc);
+        }
         return;
     }
 
@@ -745,7 +754,14 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
         if row == 7 {
             if col <= 1 {
                 static MODE_MAP: [u8; 2] = [UiMode::Pattern as u8, UiMode::Modify as u8];
-                s.ui_mode = MODE_MAP[col as usize];
+                let mode = MODE_MAP[col as usize];
+                // Block Modify mode when current pattern has no notes
+                if mode == UiMode::Modify as u8 {
+                    let ch = s.current_channel as usize;
+                    let pat = s.current_patterns[ch] as usize;
+                    if s.patterns[ch][pat].event_count == 0 { return; }
+                }
+                s.ui_mode = mode;
             } else if col == 15 {
                 s.ghost_enabled = if s.ghost_enabled != 0 { 0 } else { 1 };
             }
