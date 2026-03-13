@@ -58,6 +58,8 @@ const isCurrentlyPlaying = (value: number): boolean => (value & 1024) !== 0;
 const isLoopBoundaryPulsing = (value: number): boolean => (value & 2048) !== 0;
 const isDimmed = (value: number): boolean => (value & 4096) !== 0;
 const isInScale = (value: number): boolean => (value & 8192) !== 0;
+const isGhost = (value: number): boolean => (value & 16384) !== 0;
+const isOffscreen = (value: number): boolean => (value & 32768) !== 0;
 
 // Parse hex color to RGB
 const parseHex = (hex: string): { r: number; g: number; b: number } => {
@@ -91,6 +93,28 @@ const getBackgroundColor = (value: number, channelColor: string): string => {
 
   // Off state
   if (level === 0) {
+    // Ghost / offscreen note overlay
+    if (isGhost(value)) {
+      const opacity = continuation ? 0.10 : 0.16;
+      if (isOffscreen(value)) {
+        const { r, g, b } = parseHex(channelColor);
+        // Offscreen: channel color tint over grey background
+        const base = baseBrightness + opacity;
+        const tint = 0.15;
+        const wr = Math.round(255 * base + r * tint);
+        const wg = Math.round(255 * base + g * tint);
+        const wb = Math.round(255 * base + b * tint);
+        if (playing) {
+          // Playing: add 50% white to the offscreen color
+          const pr = Math.min(Math.round(wr + (255 - wr) * 0.5), 255);
+          const pg = Math.min(Math.round(wg + (255 - wg) * 0.5), 255);
+          const pb = Math.min(Math.round(wb + (255 - wb) * 0.5), 255);
+          return `rgb(${pr}, ${pg}, ${pb})`;
+        }
+        return `rgb(${Math.min(wr, 255)}, ${Math.min(wg, 255)}, ${Math.min(wb, 255)})`;
+      }
+      return `rgba(255, 255, 255, ${baseBrightness + opacity})`;
+    }
     if (playhead) return "rgba(255, 255, 255, 0.3)";
     if (baseBrightness > 0) return `rgba(255, 255, 255, ${baseBrightness})`;
     return "rgba(30, 30, 30, 0.9)";
@@ -317,3 +341,5 @@ export const FLAG_PLAYING = 1024;
 export const FLAG_LOOP_BOUNDARY_PULSING = 2048;
 export const FLAG_DIMMED = 4096;
 export const FLAG_IN_SCALE = 8192;
+export const FLAG_GHOST = 16384;
+export const FLAG_OFFSCREEN = 32768;

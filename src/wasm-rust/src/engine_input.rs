@@ -749,6 +749,11 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
         return;
     }
 
+    if (modifiers & MOD_CTRL) != 0 && row == 7 && col == 15 {
+        s.ghost_enabled = if s.ghost_enabled != 0 { 0 } else { 1 };
+        return;
+    }
+
     match UiMode::from_u8(s.ui_mode) {
         UiMode::Pattern => handle_pattern_press(s, row, col, modifiers),
         UiMode::Channel => handle_channel_press(s, row, col, modifiers),

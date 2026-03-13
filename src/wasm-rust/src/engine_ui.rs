@@ -465,14 +465,42 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                     });
 
                     if off_screen {
-                        value = BTN_COLOR_25;
+                        value |= FLAG_GHOST | FLAG_OFFSCREEN;
                         if !off_screen_is_hit {
                             value |= FLAG_CONTINUATION;
                         }
                         if off_screen_playing {
                             value |= FLAG_PLAYING;
                         }
-                        color = ch_color;
+                    }
+                }
+
+                // Ghost note overlay for melodic channels
+                if !is_drum && (value & 0xF) == 0 {
+                    let midi_idx = scale_zero_index as i32 + actual_row as i32;
+                    if midi_idx >= 0 && midi_idx < scale_count as i32 {
+                        let midi = s.scale_notes[midi_idx as usize];
+                        let row_pc = midi % 12;
+                        let ghost_count = s.ghost_count as usize;
+
+                        let mut has_ghost = false;
+                        let mut ghost_starts = false;
+                        for g in 0..ghost_count {
+                            let gn = s.ghost_notes[g];
+                            if gn.pitch_class == row_pc && gn.position < col_end_tick && (gn.position + gn.length) > actual_tick {
+                                has_ghost = true;
+                                if gn.position >= actual_tick && gn.position < col_end_tick {
+                                    ghost_starts = true;
+                                }
+                            }
+                        }
+
+                        if has_ghost {
+                            value |= FLAG_GHOST;
+                            if !ghost_starts {
+                                value |= FLAG_CONTINUATION;
+                            }
+                        }
                     }
                 }
 
@@ -709,6 +737,50 @@ fn render_modify_mode(s: &mut EngineState) {
     });
 }
 
+// ============ Ghost Notes ============
+
+fn compute_ghost_notes(s: &mut EngineState) {
+    if s.ghost_enabled == 0 {
+        s.ghost_count = 0;
+        return;
+    }
+    let current_ch = s.current_channel as usize;
+    if s.channel_types[current_ch] == ChannelType::Drum as u8 {
+        s.ghost_count = 0;
+        return;
+    }
+
+    let scale_zero = s.scale_zero_index;
+    let scale_cnt = s.scale_count;
+    let mut count = 0usize;
+    let mut temp_buf = alloc::vec![RenderedNote::default(); MAX_RENDERED_NOTES];
+
+    for ch in 0..NUM_CHANNELS {
+        if s.channel_types[ch] == ChannelType::Drum as u8 { continue; }
+
+        let pat = s.current_patterns[ch];
+        let cnt = engine_render_events(s, ch as u8, pat, &mut temp_buf, MAX_RENDERED_NOTES);
+
+        for i in 0..cnt as usize {
+            if count >= MAX_GHOST_NOTES { break; }
+            let rn = temp_buf[i];
+            let midi_idx = scale_zero as i32 + rn.row as i32;
+            if midi_idx < 0 || midi_idx >= scale_cnt as i32 { continue; }
+            let midi = s.scale_notes[midi_idx as usize];
+            let pitch_class = midi % 12;
+
+            s.ghost_notes[count] = GhostNote {
+                position: rn.position,
+                length: rn.length,
+                pitch_class,
+            };
+            count += 1;
+        }
+    }
+
+    s.ghost_count = count as u16;
+}
+
 // ============ Ctrl Overlay ============
 
 fn apply_ctrl_overlay(s: &mut EngineState) {
@@ -720,12 +792,18 @@ fn apply_ctrl_overlay(s: &mut EngineState) {
         UiMode::Modify as u8,
     ];
 
+    let ghost_on = s.ghost_enabled != 0;
+    const GHOST_BUTTON_COLOR: u32 = 0x4488CC;
+
     (0..VISIBLE_ROWS).for_each(|r| {
         (0..VISIBLE_COLS).for_each(|c| {
             if r == 7 && c <= 2 {
                 let is_current = s.ui_mode == COL_TO_MODE[c];
                 s.button_values[r][c] = if is_current { BTN_COLOR_100 } else { BTN_COLOR_50 };
                 s.color_overrides[r][c] = MODE_COLORS[c];
+            } else if r == 7 && c == 15 {
+                s.button_values[r][c] = if ghost_on { BTN_COLOR_100 } else { BTN_COLOR_25 };
+                s.color_overrides[r][c] = GHOST_BUTTON_COLOR;
             } else {
                 s.button_values[r][c] |= FLAG_DIMMED;
             }
@@ -779,6 +857,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     s.color_overrides = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
 
     engine_ensure_rendered(s, ch as u8);
+    compute_ghost_notes(s);
 
     // Copy rendered notes to avoid borrow conflict
     let notes: Vec<RenderedNote> = s.rendered_notes[..s.rendered_count as usize].to_vec();

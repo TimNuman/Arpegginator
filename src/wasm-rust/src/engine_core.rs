@@ -48,6 +48,10 @@ pub const FLAG_PLAYING: u16 = 1024;
 pub const FLAG_LOOP_BOUNDARY_PULSING: u16 = 2048;
 pub const FLAG_DIMMED: u16 = 4096;
 pub const FLAG_IN_SCALE: u16 = 8192;
+pub const FLAG_GHOST: u16 = 16384;
+pub const FLAG_OFFSCREEN: u16 = 32768;
+
+pub const MAX_GHOST_NOTES: usize = 2048;
 
 // ============ Enums ============
 
@@ -366,6 +370,13 @@ pub struct RenderedNote {
     pub chord_offset: i8,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct GhostNote {
+    pub position: i32,
+    pub length: i32,
+    pub pitch_class: u8,
+}
+
 // ============ Engine State ============
 
 pub struct EngineState {
@@ -438,6 +449,10 @@ pub struct EngineState {
     pub rendered_count: u16,
     pub rendered_for_channel: u8,
     pub rendered_dirty: [u8; NUM_CHANNELS],
+
+    pub ghost_notes: [GhostNote; MAX_GHOST_NOTES],
+    pub ghost_count: u16,
+    pub ghost_enabled: u8,
 }
 
 impl Default for EngineState {
@@ -526,6 +541,9 @@ impl Default for EngineState {
             rendered_count: 0,
             rendered_for_channel: 0xFF,
             rendered_dirty: [1; NUM_CHANNELS],
+            ghost_notes: [GhostNote::default(); MAX_GHOST_NOTES],
+            ghost_count: 0,
+            ghost_enabled: 0,
         }
     }
 }
