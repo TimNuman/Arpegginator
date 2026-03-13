@@ -1086,24 +1086,24 @@ fn handle_arrow_loop(s: &mut EngineState, dir: u8, mods: u8) {
 }
 
 fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
-    if (mods & MOD_META) != 0 && (mods & (MOD_ALT | MOD_CTRL | MOD_SHIFT)) == 0 {
-        if dir == DIR_UP || dir == DIR_DOWN {
-            let idx = MODIFY_SUB_MODE_ORDER.iter()
-                .position(|&m| m == s.modify_sub_mode)
-                .unwrap_or(0);
-            let new_idx = if dir == DIR_DOWN {
-                (idx + 1) % MODIFY_SUB_MODE_ORDER.len()
-            } else {
-                (idx + MODIFY_SUB_MODE_ORDER.len() - 1) % MODIFY_SUB_MODE_ORDER.len()
-            };
-            s.modify_sub_mode = MODIFY_SUB_MODE_ORDER[new_idx];
-            return;
-        }
+    // Bare up/down: cycle mode
+    if mods == 0 && (dir == DIR_UP || dir == DIR_DOWN) {
+        let idx = MODIFY_SUB_MODE_ORDER.iter()
+            .position(|&m| m == s.modify_sub_mode)
+            .unwrap_or(0);
+        let new_idx = if dir == DIR_DOWN {
+            (idx + 1) % MODIFY_SUB_MODE_ORDER.len()
+        } else {
+            (idx + MODIFY_SUB_MODE_ORDER.len() - 1) % MODIFY_SUB_MODE_ORDER.len()
+        };
+        s.modify_sub_mode = MODIFY_SUB_MODE_ORDER[new_idx];
+        return;
     }
 
     if s.selected_event_idx < 0 { return; }
 
-    if mods == 0 && (dir == DIR_UP || dir == DIR_DOWN) {
+    // Cmd+up/down: cycle loop mode
+    if (mods & MOD_META) != 0 && (mods & (MOD_ALT | MOD_CTRL | MOD_SHIFT)) == 0 && (dir == DIR_UP || dir == DIR_DOWN) {
         engine_toggle_sub_mode_loop_mode(s, s.selected_event_idx as u16, s.modify_sub_mode);
         return;
     }

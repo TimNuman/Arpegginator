@@ -162,7 +162,7 @@ impl Default for SubModeArray {
         Self {
             values: [0; MAX_SUB_MODE_LEN],
             length: 1,
-            loop_mode: LoopMode::Reset as u8,
+            loop_mode: LoopMode::Continue as u8,
         }
     }
 }
@@ -218,7 +218,7 @@ pub fn pool_free_event_handles(pool: &mut SubModePool, handles: &mut [u16; NUM_S
 }
 
 const fn make_sm_default(val: i16) -> SubModeArray {
-    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 0 };
+    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 1 }; // Continue
     a.values[0] = val;
     a
 }
