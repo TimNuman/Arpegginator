@@ -155,6 +155,7 @@ pub struct SubModeArray {
     pub values: [i16; MAX_SUB_MODE_LEN],
     pub length: u8,
     pub loop_mode: u8, // LoopMode as u8
+    pub stay: u8,      // Stay mode: repeat each value this many times
 }
 
 impl Default for SubModeArray {
@@ -163,6 +164,7 @@ impl Default for SubModeArray {
             values: [0; MAX_SUB_MODE_LEN],
             length: 1,
             loop_mode: LoopMode::Continue as u8,
+            stay: 1,
         }
     }
 }
@@ -218,7 +220,7 @@ pub fn pool_free_event_handles(pool: &mut SubModePool, handles: &mut [u16; NUM_S
 }
 
 const fn make_sm_default(val: i16) -> SubModeArray {
-    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 1 }; // Continue
+    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 1, stay: 1 }; // Continue
     a.values[0] = val;
     a
 }
@@ -715,20 +717,21 @@ fn resolve_sub_mode(
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let len = arr.length as u16;
+    let stay = (arr.stay as u16).max(1);
     match arr.mode() {
         LoopMode::Continue => {
             let idx = (ev.event_index as usize) % MAX_EVENTS;
             let count = s.continue_counters[sm][channel as usize][idx];
-            let val = arr.values[(count % len) as usize];
+            let val = arr.values[((count / stay) % len) as usize];
             s.continue_counters[sm][channel as usize][idx] = count + 1;
             val
         }
         LoopMode::Fill => {
-            let idx = repeat_index.min(len - 1);
+            let idx = (repeat_index / stay).min(len - 1);
             arr.values[idx as usize]
         }
         LoopMode::Reset => {
-            arr.values[(repeat_index % len) as usize]
+            arr.values[((repeat_index / stay) % len) as usize]
         }
     }
 }
@@ -742,17 +745,18 @@ pub fn resolve_sub_mode_preview(
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let len = arr.length as u16;
+    let stay = (arr.stay as u16).max(1);
     match arr.mode() {
         LoopMode::Continue => {
             let snapshot = s.counter_snapshots[sm][channel as usize][(ev.event_index as usize) % MAX_EVENTS];
-            arr.values[((snapshot + repeat_index) % len) as usize]
+            arr.values[(((snapshot + repeat_index) / stay) % len) as usize]
         }
         LoopMode::Fill => {
-            let idx = repeat_index.min(len - 1);
+            let idx = (repeat_index / stay).min(len - 1);
             arr.values[idx as usize]
         }
         LoopMode::Reset => {
-            arr.values[(repeat_index % len) as usize]
+            arr.values[((repeat_index / stay) % len) as usize]
         }
     }
 }

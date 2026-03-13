@@ -65,16 +65,17 @@ fn resolve_render_sub_mode(s: &EngineState, ev: &NoteEvent, sm: usize, repeat_id
 /// Variant that works with a pre-extracted SubModeArray and counter snapshot, avoiding borrow conflicts
 fn resolve_render_sub_mode_inline(arr: &SubModeArray, repeat_idx: u16, snapshot: u16) -> i16 {
     if arr.length == 0 { return arr.values[0]; }
+    let stay = (arr.stay as u16).max(1);
     match arr.mode() {
         LoopMode::Fill => {
-            let idx = repeat_idx.min(arr.length as u16 - 1);
+            let idx = (repeat_idx / stay).min(arr.length as u16 - 1);
             arr.values[idx as usize]
         },
         LoopMode::Continue => {
-            arr.values[((snapshot + repeat_idx) % arr.length as u16) as usize]
+            arr.values[(((snapshot + repeat_idx) / stay) % arr.length as u16) as usize]
         },
         LoopMode::Reset => {
-            arr.values[(repeat_idx % arr.length as u16) as usize]
+            arr.values[((repeat_idx / stay) % arr.length as u16) as usize]
         },
     }
 }
@@ -683,9 +684,11 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
                 if loop_mode == LoopMode::Continue as u8 {
                     let counter = s.continue_counters[sm][ch][(ev_event_index as usize) % MAX_EVENTS];
                     let last_used = if counter > 0 { counter - 1 } else { 0 };
-                    Some((last_used % array_length as u16) as i16)
+                    let stay = (sm_arr.stay as u16).max(1);
+                    Some(((last_used / stay) % array_length as u16) as i16)
                 } else {
-                    Some(r as i16)
+                    let stay = (sm_arr.stay as u16).max(1);
+                    Some(((r as u16 / stay) % array_length as u16) as i16)
                 }
             } else { None }
         }).unwrap_or(-1)

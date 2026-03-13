@@ -514,6 +514,7 @@ fn render_modify(s: &EngineState, mods: u8) {
         let loop_mode_val = sm_arr.loop_mode;
         let loop_label = LOOP_MODE_LABELS.get(loop_mode_val as usize).unwrap_or(&"RST");
         let arr_len = sm_arr.length;
+        let stay_val = sm_arr.stay;
 
         // Row 0: note + mode
         let sub_buf = format!(" {}", sub_label);
@@ -523,19 +524,21 @@ fn render_modify(s: &EngineState, mods: u8) {
         ];
         draw_segments(VALUE_X, ROW_Y[0], &row0);
 
-        // Row 1: loop mode + length
+        // Row 1: loop mode + length + stay
+        let len_buf = format!(" L{}", arr_len);
+        let stay_buf = format!(" S{}", stay_val);
         if m_meta {
-            let len_buf = format!(" L{}", arr_len);
             let row1 = [
                 Segment { text: loop_label, color: OLED_RED },
                 Segment { text: &len_buf, color: OLED_CYAN },
+                Segment { text: &stay_buf, color: OLED_YELLOW },
             ];
             draw_segments(VALUE_X, ROW_Y[1], &row1);
         } else {
-            let len_buf = format!(" L{}", arr_len);
             let row1 = [
                 Segment { text: loop_label, color: OLED_CYAN },
                 Segment { text: &len_buf, color: OLED_YELLOW },
+                Segment { text: &stay_buf, color: OLED_CYAN },
             ];
             draw_segments(VALUE_X, ROW_Y[1], &row1);
         }
@@ -546,6 +549,8 @@ fn render_modify(s: &EngineState, mods: u8) {
             draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Length", &len_str, OLED_YELLOW);
         } else {
             draw_icon_legend(ROW_Y[2], IconType::Vertical, "Loop mode", loop_label, OLED_RED);
+            let stay_str = format!("{}", stay_val);
+            draw_icon_legend(ROW_Y[3], IconType::Horizontal, "Stay", &stay_str, OLED_YELLOW);
         }
     } else {
         gfx_text(VALUE_X, ROW_Y[0], sub_label, color_lookup(if !m_meta { OLED_RED } else { OLED_CYAN }), &FONT_MAIN);

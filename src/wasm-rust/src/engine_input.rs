@@ -1117,6 +1117,19 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
         if new_len != cur_len {
             engine_set_sub_mode_length(s, s.selected_event_idx as u16, s.modify_sub_mode, new_len);
         }
+        return;
+    }
+
+    // Cmd+left/right: adjust stay count
+    if (mods & MOD_META) != 0 && (mods & (MOD_ALT | MOD_CTRL | MOD_SHIFT)) == 0 && (dir == DIR_LEFT || dir == DIR_RIGHT) {
+        let ch = s.current_channel as usize;
+        let pat = s.current_patterns[ch] as usize;
+        let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+        let cur_stay = get_sub_mode(&s.sub_mode_pool, &s.event_pool.slots[h as usize].sub_mode_handles, s.modify_sub_mode as usize).stay;
+        let new_stay = if dir == DIR_RIGHT { cur_stay + 1 } else { cur_stay.max(2) - 1 };
+        if new_stay != cur_stay {
+            engine_set_sub_mode_stay(s, s.selected_event_idx as u16, s.modify_sub_mode, new_stay);
+        }
     }
 }
 
