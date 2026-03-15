@@ -674,6 +674,8 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
         });
     }
 
+    let stay = (sm_arr.stay as u16).max(1);
+
     // Determine playing column
     let looped_tick = get_looped_tick(s);
     let playing_col: i16 = if looped_tick >= 0 {
@@ -684,11 +686,9 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
                 if loop_mode == LoopMode::Continue as u8 {
                     let counter = s.continue_counters[sm][ch][(ev_event_index as usize) % MAX_EVENTS];
                     let last_used = if counter > 0 { counter - 1 } else { 0 };
-                    let stay = (sm_arr.stay as u16).max(1);
                     Some(((last_used / stay) % array_length as u16) as i16)
                 } else {
-                    let stay = (sm_arr.stay as u16).max(1);
-                    Some(((r as u16 / stay) % array_length as u16) as i16)
+                    Some(r as i16)
                 }
             } else { None }
         }).unwrap_or(-1)
@@ -703,6 +703,19 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
         }
     };
 
+    // For Continue mode: determine which array indices are active in the current loop
+    let mut cnt_active = [false; VISIBLE_COLS];
+    if loop_mode == LoopMode::Continue as u8 && array_length > 0 {
+        let counter = s.continue_counters[sm][ch][(ev_event_index as usize) % MAX_EVENTS];
+        let counter_at_start = counter - (counter % repeat_amount);
+        for i in 0..repeat_amount {
+            let idx = ((counter_at_start + i) / stay) % array_length as u16;
+            if (idx as usize) < VISIBLE_COLS {
+                cnt_active[idx as usize] = true;
+            }
+        }
+    }
+
     (0..VISIBLE_ROWS).for_each(|vr| {
         let threshold = visible_levels[vr];
 
@@ -710,6 +723,10 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
             let is_playing_col = vc as i16 == playing_col;
             let is_explicit = (vc as u8) < array_length;
             let is_in_repeat = (vc as u16) < repeat_amount;
+            let is_unreachable = (is_explicit && !is_in_repeat
+                && loop_mode != LoopMode::Continue as u8)
+                || (loop_mode == LoopMode::Continue as u8
+                    && is_explicit && !cnt_active[vc]);
 
             if !is_explicit && !is_in_repeat {
                 s.button_values[vr][vc] = if is_playing_col { FLAG_PLAYHEAD } else { BTN_OFF };
@@ -723,7 +740,9 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
                 // Offset mode
                 let match_row = (0..VISIBLE_ROWS as u8).find(|&i| visible_levels[i as usize] == val);
                 if match_row == Some(vr as u8) {
-                    let intensity = if is_explicit { BTN_COLOR_100 } else { BTN_COLOR_50 };
+                    let intensity = if is_unreachable { BTN_COLOR_25 }
+                        else if is_explicit { BTN_COLOR_100 }
+                        else { BTN_COLOR_50 };
                     s.button_values[vr][vc] = intensity | if is_playing_col { FLAG_PLAYING } else { 0 };
                 } else if center_rows[vr] {
                     s.button_values[vr][vc] = BTN_COLOR_25 | if is_playing_col { FLAG_PLAYING } else { 0 };
@@ -733,7 +752,9 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
             } else {
                 // Bar mode
                 if val >= threshold {
-                    let intensity = if is_explicit { BTN_COLOR_100 } else { BTN_COLOR_50 };
+                    let intensity = if is_unreachable { BTN_COLOR_25 }
+                        else if is_explicit { BTN_COLOR_100 }
+                        else { BTN_COLOR_50 };
                     s.button_values[vr][vc] = intensity | if is_playing_col { FLAG_PLAYING } else { 0 };
                 } else {
                     s.button_values[vr][vc] = if is_playing_col { FLAG_PLAYHEAD } else { BTN_OFF };

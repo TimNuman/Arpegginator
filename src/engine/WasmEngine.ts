@@ -119,9 +119,13 @@ export class WasmEngine {
   private noteEventSize = 0;
   private fieldOffsets: number[] = [];
   private subModeArraySize = 0;
-  private poolBasePtr = 0;
-  private eventPoolBasePtr = 0;
-  private poolHandleNone = 0xFFFF;
+  // Stored for potential future use / debugging
+  // @ts-expect-error assigned but not yet read
+  private _poolBasePtr = 0;
+  // @ts-expect-error assigned but not yet read
+  private _eventPoolBasePtr = 0;
+  // @ts-expect-error assigned but not yet read
+  private _poolHandleNone = 0xFFFF;
 
   // Core functions
   private _engineInit!: () => void;
@@ -135,6 +139,7 @@ export class WasmEngine {
 
   // Buffer accessors
   private _getEventPoolBasePtr!: () => number;
+  // @ts-expect-error assigned but not yet read
   private _getEventHandlesBuffer!: (ch: number, pat: number) => number;
   private _getLoopsBuffer!: () => number;
   private _getMutedBuffer!: () => number;
@@ -147,7 +152,9 @@ export class WasmEngine {
   private _getSubModeArraySize!: () => number;
   private _getPoolBasePtr!: () => number;
   private _getContinueCounter!: (subMode: number, channel: number, eventIndex: number) => number;
+  // @ts-expect-error assigned but not yet read
   private _getEventCount!: (ch: number, pat: number) => number;
+  // @ts-expect-error assigned but not yet read
   private _getPatternLength!: (ch: number, pat: number) => number;
 
   // UI state setters
@@ -400,7 +407,7 @@ export class WasmEngine {
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
-    this.poolHandleNone = _getPoolHandleNone();
+    this._poolHandleNone = _getPoolHandleNone();
     for (let i = 0; i <= 14; i++) {
       this.fieldOffsets[i] = this._getFieldOffset(i);
     }
@@ -439,8 +446,8 @@ export class WasmEngine {
   /** Full init — resets everything including UI state. Call once on load. */
   fullInit(): void {
     this._engineInit();
-    this.poolBasePtr = this._getPoolBasePtr();
-    this.eventPoolBasePtr = this._getEventPoolBasePtr();
+    this._poolBasePtr = this._getPoolBasePtr();
+    this._eventPoolBasePtr = this._getEventPoolBasePtr();
   }
 
   /** Playback init — resets only playback state (active notes, counters, tick). */
