@@ -343,7 +343,7 @@ function App() {
         <Global styles={globalStyles} />
         <Box css={appContainerStyles}>
           <Box component="h1" css={titleStyles}>
-            ARP3
+            ARPEGGINATOR
           </Box>
         </Box>
       </ThemeProvider>
@@ -363,7 +363,7 @@ function App() {
       <Global styles={globalStyles} />
       <Box css={appContainerStyles}>
         <Box component="h1" css={titleStyles}>
-          ARP3
+          ARPEGGINATOR
         </Box>
         <Transport
           isPlaying={isPlaying}

@@ -16,8 +16,8 @@ const TEMPO_SAMPLE_SIZE = 96; // Average over 4 quarter notes for stability
 const TEMPO_HYSTERESIS = 2; // BPM must change by more than this to update
 
 // localStorage keys for persisting MIDI device selections
-const STORAGE_KEY_OUTPUT = 'arp3-midi-output';
-const STORAGE_KEY_INPUT = 'arp3-midi-input';
+const STORAGE_KEY_OUTPUT = 'arpegginator-midi-output';
+const STORAGE_KEY_INPUT = 'arpegginator-midi-input';
 
 export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   const [isEnabled, setIsEnabled] = useState(false);
