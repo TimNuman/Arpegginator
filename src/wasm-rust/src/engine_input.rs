@@ -860,6 +860,76 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 }
             }
         }
+
+        // Shift (no Cmd/Opt): scroll camera by octave (up/down) or beat (left/right)
+        if (mods & MOD_SHIFT) != 0 && (mods & (MOD_META | MOD_ALT | MOD_CTRL)) == 0 {
+            let ch = s.current_channel as usize;
+            match dir {
+                DIR_UP | DIR_DOWN => {
+                    let octave = if s.channel_types[ch] == ChannelType::Drum as u8 {
+                        VISIBLE_ROWS as i16
+                    } else {
+                        s.scale_octave_size as i16
+                    };
+                    let start_idx = get_start_array_index(s);
+                    let new_start = if dir == DIR_UP {
+                        start_idx + octave
+                    } else {
+                        start_idx - octave
+                    };
+                    set_row_target_index(s, new_start);
+                }
+                DIR_LEFT | DIR_RIGHT => {
+                    let tpc = s.zoom;
+                    let pat = s.current_patterns[ch] as usize;
+                    let pat_len = s.patterns[ch][pat].length_ticks;
+                    let total_cols = (pat_len + tpc - 1) / tpc;
+                    let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
+                    if max_col_off > 0 {
+                        let beat_cols = TICKS_PER_QUARTER / tpc;
+                        let step = beat_cols.max(1);
+                        let start_col = (s.target_col_offset * max_col_off as f32 + 0.5) as i32;
+                        let new_col = if dir == DIR_RIGHT {
+                            (start_col + step).min(max_col_off)
+                        } else {
+                            (start_col - step).max(0)
+                        };
+                        s.target_col_offset = new_col as f32 / max_col_off as f32;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Bare arrows: scroll camera by 1 row or 1 column
+        if mods == 0 {
+            let ch = s.current_channel as usize;
+            match dir {
+                DIR_UP | DIR_DOWN => {
+                    let start_idx = get_start_array_index(s);
+                    let new_start = if dir == DIR_UP { start_idx + 1 } else { start_idx - 1 };
+                    set_row_target_index(s, new_start);
+                }
+                DIR_LEFT | DIR_RIGHT => {
+                    let tpc = s.zoom;
+                    let pat = s.current_patterns[ch] as usize;
+                    let pat_len = s.patterns[ch][pat].length_ticks;
+                    let total_cols = (pat_len + tpc - 1) / tpc;
+                    let max_col_off = (total_cols - VISIBLE_COLS as i32).max(0);
+                    if max_col_off > 0 {
+                        let start_col = (s.target_col_offset * max_col_off as f32 + 0.5) as i32;
+                        let new_col = if dir == DIR_RIGHT {
+                            (start_col + 1).min(max_col_off)
+                        } else {
+                            (start_col - 1).max(0)
+                        };
+                        s.target_col_offset = new_col as f32 / max_col_off as f32;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         return;
     }
 
