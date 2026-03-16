@@ -147,6 +147,79 @@ impl UiMode {
     }
 }
 
+// ============ Edit Groups (pattern mode, selected note) ============
+
+/// Identifies which pair of parameters the current modifier combo edits.
+/// Used by both OLED renderer (for highlight colors) and input handler (for dispatch).
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EditGroup {
+    Move      = 0, // bare:       U/D = move note,     L/R = move note
+    Inversion = 1, // Shift:      U/D = inversion,     L/R = length
+    Stack     = 2, // Cmd:        U/D = stack amount,   L/R = repeat amount
+    Spacing   = 3, // Cmd+Shift:  U/D = stack space,    L/R = repeat space
+    Arp       = 4, // Alt:        U/D = arp style,      L/R = arp offset
+    Voicing   = 5, // Alt+Shift:  U/D = voicing,        L/R = arp voices
+    None      = 6, // Cmd+Alt / Cmd+Alt+Shift: no arrow editing
+}
+
+impl EditGroup {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => Self::Move,
+            1 => Self::Inversion,
+            2 => Self::Stack,
+            3 => Self::Spacing,
+            4 => Self::Arp,
+            5 => Self::Voicing,
+            _ => Self::None,
+        }
+    }
+
+    /// Derive edit group from modifier flags. Pass booleans, not raw bitmask,
+    /// since OLED and input use different encodings.
+    pub fn from_mods(meta: bool, alt: bool, shift: bool) -> Self {
+        match (meta, alt, shift) {
+            (false, false, false) => Self::Move,
+            (false, false, true)  => Self::Inversion,
+            (true,  false, false) => Self::Stack,
+            (true,  false, true)  => Self::Spacing,
+            (false, true,  false) => Self::Arp,
+            (false, true,  true)  => Self::Voicing,
+            _                     => Self::None,
+        }
+    }
+}
+
+/// Static metadata for each edit group — labels and highlight info.
+pub struct EditMeta {
+    pub ud_label: &'static str,
+    pub lr_label: &'static str,
+    pub grid_label: &'static str,
+    /// Bitmask: which of the 5 OLED rows get yellow highlight (bit 0 = row 0)
+    pub ud_rows: u8,
+    /// Bitmask: which of the 5 OLED rows get red highlight
+    pub lr_rows: u8,
+}
+
+/// Metadata for pattern mode with a note selected, indexed by EditGroup.
+pub static EDIT_META: [EditMeta; 7] = [
+    // Move (bare)
+    EditMeta { ud_label: "MOVE",    lr_label: "MOVE",    grid_label: "DESELECT", ud_rows: 0b00010, lr_rows: 0 },
+    // Inversion (Shift)
+    EditMeta { ud_label: "INVERT",  lr_label: "LENGTH",  grid_label: "LENGTH",   ud_rows: 0b00001, lr_rows: 0b00010 },
+    // Stack (Cmd)
+    EditMeta { ud_label: "STACK",   lr_label: "REPEAT",  grid_label: "DISABLE",  ud_rows: 0b01000, lr_rows: 0b00100 },
+    // Spacing (Cmd+Shift)
+    EditMeta { ud_label: "SPACING", lr_label: "SPACING", grid_label: "RST/RPT",  ud_rows: 0b01000, lr_rows: 0b00100 },
+    // Arp (Alt)
+    EditMeta { ud_label: "ARP",     lr_label: "OFFSET",  grid_label: "COPY",     ud_rows: 0b10000, lr_rows: 0b10000 },
+    // Voicing (Alt+Shift)
+    EditMeta { ud_label: "VOICING", lr_label: "VOICES",  grid_label: "",         ud_rows: 0b00001, lr_rows: 0b10000 },
+    // None (Cmd+Alt combos)
+    EditMeta { ud_label: "",        lr_label: "",        grid_label: "RANDOM",    ud_rows: 0, lr_rows: 0 },
+];
+
 // ============ Data Structures ============
 
 #[derive(Clone, Copy)]
