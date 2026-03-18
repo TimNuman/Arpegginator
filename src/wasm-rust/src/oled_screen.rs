@@ -856,7 +856,6 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
 
 fn render_modify(s: &EngineState, mods: u8) {
     let sub_mode = s.modify_sub_mode as usize;
-    let sub_label = SUB_MODE_LABELS.get(sub_mode).unwrap_or(&"?");
     let has_sel = s.selected_event_idx >= 0;
     let m_meta = (mods & MOD_META) != 0;
 
@@ -870,54 +869,126 @@ fn render_modify(s: &EngineState, mods: u8) {
         let ev = &s.event_pool.slots[h as usize];
         let is_drum = s.channel_types[ch] == CH_DRUM;
 
-        let note_name = get_note_display(ev.row, is_drum, s);
-
         let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sub_mode);
         let loop_mode_val = sm_arr.loop_mode;
-        let loop_label = LOOP_MODE_LABELS.get(loop_mode_val as usize).unwrap_or(&"RST");
         let arr_len = sm_arr.length;
         let stay_val = sm_arr.stay;
 
-        // Row 0: note + mode
-        gfx_aa_text(PAD_X, ROW_Y[0], &note_name, GFX_VALUE, &FONT_AA_SMALL_BOLD);
-        let nx = PAD_X + gfx_aa_text_width(&note_name, &FONT_AA_SMALL_BOLD) + 6;
-        let sub_color = if !m_meta { GFX_RED } else { GFX_VALUE };
-        gfx_aa_text(nx, ROW_Y[0], sub_label, sub_color, &FONT_AA_SMALL);
-
-        // Row 1: loop mode + length + stay
-        let len_buf = format!(" L{}", arr_len);
-        let stay_buf = format!(" S{}", stay_val);
-        if m_meta {
-            let row1 = [
-                Segment { text: loop_label, color: OLED_RED },
-                Segment { text: &len_buf, color: OLED_CYAN },
-                Segment { text: &stay_buf, color: OLED_YELLOW },
-            ];
-            draw_segments(PAD_X, ROW_Y[1], &row1);
+        // ---- Row 0: note name + extended name ----
+        let note_name = get_note_display(ev.row, is_drum, s);
+        let extended = if is_drum {
+            if ev.chord_amount > 1 {
+                let mut offsets = [0i8; MAX_CHORD_SIZE];
+                let count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
+                let mut names = alloc::string::String::new();
+                for i in 0..count {
+                    if i > 0 { names.push_str(", "); }
+                    let row = ev.row + offsets[i] as i16;
+                    let midi = row.clamp(0, 127) as i8;
+                    names.push_str(&get_drum_name(midi));
+                }
+                names
+            } else {
+                get_drum_name(ev.row.clamp(0, 127) as i8)
+            }
+        } else if ev.chord_amount > 1 {
+            let chord_name = get_chord_name_str(s, ev);
+            if !chord_name.is_empty() { to_upper(&chord_name) }
+            else { alloc::string::String::new() }
         } else {
-            let row1 = [
-                Segment { text: loop_label, color: OLED_CYAN },
-                Segment { text: &len_buf, color: OLED_YELLOW },
-                Segment { text: &stay_buf, color: OLED_CYAN },
-            ];
-            draw_segments(PAD_X, ROW_Y[1], &row1);
+            alloc::string::String::from("SINGLE NOTE")
+        };
+        let display_str = format!("{} {}", note_name, extended);
+        let text_w = gfx_aa_text_width(&display_str, &FONT_AA_SMALL_BOLD);
+        let avail = CONTENT_RIGHT - PAD_X;
+        if text_w <= avail {
+            gfx_aa_text(PAD_X, ROW_Y5[0], &display_str, GFX_VALUE, &FONT_AA_SMALL_BOLD);
+        } else {
+            let wrap_dist = text_w + TICKER_WRAP_GAP;
+            let offset = ticker_offset(0, &display_str, wrap_dist);
+            let x1 = PAD_X - offset;
+            gfx_aa_text_clipped(x1, ROW_Y5[0], &display_str, GFX_VALUE, &FONT_AA_SMALL_BOLD, PAD_X, CONTENT_RIGHT);
+            let x2 = x1 + wrap_dist;
+            if x2 < CONTENT_RIGHT {
+                gfx_aa_text_clipped(x2, ROW_Y5[0], &display_str, GFX_VALUE, &FONT_AA_SMALL_BOLD, PAD_X, CONTENT_RIGHT);
+            }
         }
 
-        if !m_meta {
-            draw_icon_legend(ROW_Y[2], IconType::Vertical, "MODE", sub_label, OLED_RED);
-            let len_str = format!("{}", arr_len);
-            draw_icon_legend(ROW_Y[3], IconType::Horizontal, "LENGTH", &len_str, OLED_YELLOW);
+        // ---- Row 1: MODE label + all sub-mode labels in cycle order ----
+        // Cycle order: VEL(0), MOD(4), INV(5), HIT(1), FLAM(3), TIME(2)
+        {
+            static MODE_DISPLAY_ORDER: [usize; 6] = [0, 4, 5, 1, 3, 2];
+            gfx_aa_text(PAD_X, ROW_Y5[1], "MODE", GFX_LABEL, &FONT_AA_SMALL);
+            let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
+            for &i in MODE_DISPLAY_ORDER.iter() {
+                let label = SUB_MODE_LABELS.get(i).unwrap_or(&"?");
+                let has_data = ev.sub_mode_handles[i] != POOL_HANDLE_NONE;
+                let font = if has_data { &FONT_AA_SMALL_BOLD } else { &FONT_AA_SMALL };
+                let color = if i == sub_mode {
+                    if !m_meta { GFX_YELLOW } else { GFX_VALUE }
+                } else {
+                    GFX_DIM
+                };
+                gfx_aa_text(x, ROW_Y5[1], label, color, font);
+                x += gfx_aa_text_width(label, font) + 4;
+            }
+        }
+
+        // ---- Row 2: LOOP [RST/CNT/FIL] — all modes shown, current highlighted ----
+        {
+            static LOOP_DISPLAY_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
+            gfx_aa_text(PAD_X, ROW_Y5[2], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
+            let mut x = PAD_X + gfx_aa_text_width("LOOP ", &FONT_AA_SMALL);
+            for (i, &label) in LOOP_DISPLAY_LABELS.iter().enumerate() {
+                let color = if i == loop_mode_val as usize {
+                    if m_meta { GFX_YELLOW } else { GFX_VALUE }
+                } else {
+                    GFX_DIM
+                };
+                gfx_aa_text(x, ROW_Y5[2], label, color, &FONT_AA_SMALL_BOLD);
+                x += gfx_aa_text_width(label, &FONT_AA_SMALL_BOLD) + 4;
+            }
+        }
+
+        // ---- Row 3: LEN [n]  STAY [n] ----
+        let len_str = format!("{}", arr_len);
+        let len_color = if !m_meta { GFX_RED } else { GFX_VALUE };
+        let stay_str = format!("{}", stay_val);
+        let stay_color = if m_meta { GFX_RED } else { GFX_VALUE };
+        draw_row_two_col(ROW_Y5[3], "LEN", &len_str, len_color, "STAY", &stay_str, stay_color);
+
+        // Legend
+        if m_meta {
+            draw_legend_item(0, 0, "", GFX_DIM);
+            draw_legend_item(1, 1, "LOOP", GFX_YELLOW);
+            draw_legend_item(2, 2, "STAY", GFX_RED);
         } else {
-            draw_icon_legend(ROW_Y[2], IconType::Vertical, "LOOP MODE", loop_label, OLED_RED);
-            let stay_str = format!("{}", stay_val);
-            draw_icon_legend(ROW_Y[3], IconType::Horizontal, "STAY", &stay_str, OLED_YELLOW);
+            draw_legend_item(0, 0, "", GFX_DIM);
+            draw_legend_item(1, 1, "MODE", GFX_YELLOW);
+            draw_legend_item(2, 2, "LENGTH", GFX_RED);
         }
     } else {
-        gfx_aa_text(PAD_X, ROW_Y[0], sub_label, if !m_meta { GFX_RED } else { GFX_VALUE }, &FONT_AA_SMALL_BOLD);
-        gfx_aa_text(PAD_X, ROW_Y[1], "SELECT A NOTE", GFX_VALUE, &FONT_AA_SMALL);
-        if !m_meta {
-            draw_icon_legend(ROW_Y[2], IconType::Vertical, "MODE", sub_label, OLED_RED);
+        // No note selected — show MODE label + sub-mode labels in cycle order
+        {
+            static MODE_DISPLAY_ORDER: [usize; 6] = [0, 4, 5, 1, 3, 2];
+            gfx_aa_text(PAD_X, ROW_Y5[0], "MODE", GFX_LABEL, &FONT_AA_SMALL);
+            let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
+            for &i in MODE_DISPLAY_ORDER.iter() {
+                let label = SUB_MODE_LABELS.get(i).unwrap_or(&"?");
+                let color = if i == sub_mode {
+                    if !m_meta { GFX_YELLOW } else { GFX_VALUE }
+                } else {
+                    GFX_DIM
+                };
+                gfx_aa_text(x, ROW_Y5[0], label, color, &FONT_AA_SMALL);
+                x += gfx_aa_text_width(label, &FONT_AA_SMALL) + 4;
+            }
         }
+        gfx_aa_text(PAD_X, ROW_Y5[1], "SELECT A NOTE", GFX_DIM, &FONT_AA_SMALL);
+
+        draw_legend_item(0, 0, "", GFX_DIM);
+        draw_legend_item(1, 1, if !m_meta { "MODE" } else { "" }, if !m_meta { GFX_YELLOW } else { GFX_DIM });
+        draw_legend_item(2, 2, "", GFX_DIM);
     }
 }
 
