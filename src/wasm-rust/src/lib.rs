@@ -10,6 +10,7 @@ pub mod engine_ui;
 pub mod engine_input;
 pub mod oled_gfx;
 pub mod oled_fonts;
+pub mod oled_fonts_aa;
 pub mod oled_display;
 pub mod oled_screen;
 pub mod engine_strip;
@@ -465,7 +466,7 @@ pub extern "C" fn engine_compute_grid_export() {
 
 #[no_mangle]
 pub extern "C" fn engine_is_animating_export() -> u8 {
-    if engine_ui::engine_is_animating(state_ref()) { 1 } else { 0 }
+    if engine_ui::engine_is_animating(state_ref()) || oled_screen::oled_is_animating() { 1 } else { 0 }
 }
 
 // ============ Pattern Data Getters ============

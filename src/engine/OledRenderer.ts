@@ -11,8 +11,8 @@ export const OLED_DIM = 4;
 export const OLED_FONT_MAIN = 0;
 export const OLED_FONT_SMALL = 1;
 
-// Display dimensions (must match oled_gfx.h)
-export const OLED_WIDTH = 160;
+// Display dimensions (must match oled_gfx.rs)
+export const OLED_WIDTH = 256;
 export const OLED_HEIGHT = 128;
 
 interface WasmModule {

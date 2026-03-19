@@ -79,8 +79,8 @@ export const oledColumnStyles = css`
 `;
 
 export const oledScreenStyles = css`
-  width: calc(4 * 44px - 4px);
-  height: calc(3 * 44px - 4px);
+  width: 256px;
+  height: 128px;
   background: #000;
   border-radius: 4px;
   border: 2px solid #1a1a1a;

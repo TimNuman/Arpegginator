@@ -3,6 +3,7 @@
 
 use crate::oled_gfx::*;
 use crate::oled_fonts::*;
+use crate::oled_fonts_aa::*;
 
 // ============ Color indices (passed from JS) ============
 
@@ -11,20 +12,31 @@ pub const OLED_YELLOW: u8 = 1;
 pub const OLED_RED: u8 = 2;
 pub const OLED_WHITE: u8 = 3;
 pub const OLED_DIM: u8 = 4;
+pub const OLED_PINK: u8 = 5;
+pub const OLED_BLUE: u8 = 6;
 
 // ============ Font indices (passed from JS) ============
 
 pub const OLED_FONT_MAIN: u8 = 0;
 pub const OLED_FONT_SMALL: u8 = 1;
 
+// ============ AA Font indices ============
+
+pub const OLED_AA_SMALL: u8 = 0;
+pub const OLED_AA_MEDIUM: u8 = 1;
+pub const OLED_AA_LARGE: u8 = 2;
+pub const OLED_AA_XLARGE: u8 = 3;
+
 // ============ Color lookup ============
 
-static COLOR_TABLE: [u16; 5] = [
+static COLOR_TABLE: [u16; 7] = [
     GFX_CYAN,   // 0: OLED_CYAN
     GFX_YELLOW, // 1: OLED_YELLOW
     GFX_RED,    // 2: OLED_RED
     GFX_WHITE,  // 3: OLED_WHITE
     GFX_DIM,    // 4: OLED_DIM
+    GFX_PINK,   // 5: OLED_PINK
+    GFX_BLUE,   // 6: OLED_BLUE
 ];
 
 pub fn color_lookup(idx: u8) -> u16 {
@@ -43,6 +55,15 @@ pub fn font_lookup(idx: u8) -> &'static GFXfont {
     }
 }
 
+pub fn aa_font_lookup(idx: u8) -> &'static AAFont {
+    match idx {
+        OLED_AA_MEDIUM => &FONT_AA_MEDIUM,
+        OLED_AA_LARGE => &FONT_AA_LARGE,
+        OLED_AA_XLARGE => &FONT_AA_XLARGE,
+        _ => &FONT_AA_SMALL,
+    }
+}
+
 // ============ API ============
 
 pub fn oled_init() {
@@ -55,6 +76,10 @@ pub fn oled_clear() {
 
 pub fn oled_draw_text(x: i16, y: i16, text: &str, color_idx: u8, font_idx: u8) {
     gfx_text(x, y, text, color_lookup(color_idx), font_lookup(font_idx));
+}
+
+pub fn oled_draw_aa_text(x: i16, y: i16, text: &str, color_idx: u8, font_idx: u8) {
+    gfx_aa_text(x, y, text, color_lookup(color_idx), aa_font_lookup(font_idx));
 }
 
 pub fn oled_draw_hline(x: i16, y: i16, w: i16, color_idx: u8) {
