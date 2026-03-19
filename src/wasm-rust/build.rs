@@ -12,6 +12,7 @@ const SIZES: &[(u8, &str, &str)] = &[
     (11, "SMALL_BOLD", "Bold"),    // values at same size, bold weight
     (14, "MEDIUM", "Bold"),        // larger values
     (18, "LARGE", "Bold"),         // emphasized values
+    (24, "COF", "Bold"),           // circle of fifths key letter
     (40, "XLARGE", "Bold"),        // dial note letter
 ];
 

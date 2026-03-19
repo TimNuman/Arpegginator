@@ -11,7 +11,7 @@ pub const MAX_SUB_MODE_LEN: usize = 32;
 pub const NUM_SUB_MODES: usize = 6;
 pub const MAX_CHORD_SIZE: usize = 8;
 pub const MAX_SCALE_NOTES: usize = 128;
-pub const NUM_SCALES: usize = 32;
+pub const NUM_SCALES: usize = 31;
 pub const MAX_ACTIVE_NOTES: usize = 256;
 pub const DIATONIC_OCTAVE: u8 = 7;
 pub const VISIBLE_ROWS: usize = 8;
@@ -669,8 +669,7 @@ pub static SCALE_PATTERNS: [[u8; 12]; NUM_SCALES] = [
     [1,1,0,0,0,1,1,0,0,0,1,0], // Iwato
     [1,0,1,1,0,0,0,1,0,1,0,0], // Kumoi
     [1,1,0,1,0,0,0,1,1,0,0,0], // Pelog
-    [1,1,0,0,1,1,0,1,1,0,0,1], // Hijaz
-    [1,1,0,0,1,1,0,1,1,0,0,1], // Double Harmonic
+    [1,1,0,0,1,1,0,1,1,0,0,1], // Double Harmonic / Hijaz
     [1,0,1,1,0,0,1,1,1,0,0,1], // Hungarian Minor
     [1,1,0,0,1,0,1,0,1,0,1,1], // Enigmatic
     [1,0,1,0,1,0,1,0,0,1,1,0], // Prometheus
@@ -690,7 +689,7 @@ pub static SCALE_NAMES: [&str; NUM_SCALES] = [
     "Major Pentatonic", "Minor Pentatonic", "Blues",
     "Dorian", "Phrygian", "Lydian", "Mixolydian", "Aeolian", "Locrian",
     "Hirajoshi", "In Sen", "Iwato", "Kumoi", "Pelog",
-    "Hijaz", "Double Harmonic", "Hungarian Minor", "Enigmatic",
+    "Double Harmonic / Hijaz", "Hungarian Minor", "Enigmatic",
     "Prometheus", "Persian", "Algerian", "Gypsy",
     "Neapolitan Minor", "Neapolitan Major",
     "Diminished", "Augmented", "Whole Tone", "Chromatic",

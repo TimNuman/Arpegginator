@@ -5,7 +5,7 @@ extern crate alloc;
 use alloc::format;
 
 use crate::oled_gfx::*;
-use crate::oled_fonts::{FONT_MAIN, FONT_SMALL};
+use crate::oled_fonts::FONT_MAIN;
 use crate::oled_fonts_aa::*;
 use crate::oled_display::*;
 use crate::engine_core::*;
@@ -258,7 +258,6 @@ fn to_upper(s: &str) -> alloc::string::String {
 // ============ Sub-mode / loop mode labels ============
 
 static SUB_MODE_LABELS: [&str; 6] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV"];
-static LOOP_MODE_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
 static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
 static INTERVAL_NAMES: [&str; 12] = [
     "UNISON", "MIN 2ND", "2ND", "MIN 3RD", "3RD", "4TH",
@@ -395,6 +394,87 @@ fn draw_scale_dots(s: &EngineState) {
     });
 }
 
+// ============ Circle of fifths visualization ============
+
+/// Circle of fifths: maps semitone index (0=C) to position on circle (0=top/C, clockwise)
+static COF_ORDER: [u8; 12] = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
+
+/// Draw circle of fifths indicator in the right panel area
+fn draw_circle_of_fifths(s: &EngineState, active: bool) {
+    // Center of the right panel area (154..256), shifted right to balance padding
+    let cx: i16 = (CONTENT_RIGHT + DISPLAY_W) / 2 + 2;
+    let cy: i16 = 54; // vertically centered accounting for legend bar
+    let r_outer: i16 = 38;
+    let r_inner: i16 = 24;
+    let thickness: i16 = 2;
+
+    let circle_color = if active { GFX_LABEL } else { gfx_rgb565(0x30, 0x3A, 0x58) };
+    let text_color = if active { GFX_RED } else { gfx_rgb565(0x40, 0x4A, 0x68) };
+
+    // Draw outer ring: filled outer disc, then punch out inner disc with background
+    let bg = GFX_BLACK;
+    gfx_fill_circle(cx, cy, r_outer, circle_color);
+    gfx_fill_circle(cx, cy, r_outer - thickness, bg);
+    // Draw inner ring: filled disc then punch out center
+    gfx_fill_circle(cx, cy, r_inner, circle_color);
+    gfx_fill_circle(cx, cy, r_inner - thickness, bg);
+
+    // Find this key's position on the circle of fifths
+    let root = (s.scale_root % 12) as usize;
+    let cof_pos = COF_ORDER[root];
+
+    // Draw tick mark at the key's position (from outer to inner circle)
+    // 0 = top (270° in math coords), going clockwise
+    let angle_deg = cof_pos as f32 * 30.0 - 90.0;
+    let angle_rad = angle_deg * core::f32::consts::PI / 180.0;
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+
+    // Tick from outer circle inward
+    let tick_outer = r_outer as f32;
+    let tick_inner = r_inner as f32;
+    let x0 = cx + (cos_a * tick_inner) as i16;
+    let y0 = cy + (sin_a * tick_inner) as i16;
+    let x1 = cx + (cos_a * tick_outer) as i16;
+    let y1 = cy + (sin_a * tick_outer) as i16;
+
+    let tick_color = if active { GFX_RED } else { gfx_rgb565(0x40, 0x4A, 0x68) };
+
+    // Draw thick tick (3px wide perpendicular to radius)
+    // Use both perpendicular and axis-aligned offsets to ensure consistent width at all angles
+    let perp_x = -sin_a;
+    let perp_y = cos_a;
+    // Collect unique (ox, oy) pairs from offsets -1..=1 along perpendicular
+    let mut offsets: [(i16, i16); 9] = [(0, 0); 9];
+    let mut n = 0usize;
+    (-1i16..=1).for_each(|dx| {
+        (-1i16..=1).for_each(|dy| {
+            let dist_sq = (dx as f32 * cos_a + dy as f32 * sin_a).powi(2);
+            // Keep points within ~1.2px of the line (perpendicular distance)
+            if dist_sq <= 1.5 {
+                offsets[n] = (dx, dy);
+                n += 1;
+            }
+        });
+    });
+    (0..n).for_each(|i| {
+        let (ox, oy) = offsets[i];
+        gfx_line(x0 + ox, y0 + oy, x1 + ox, y1 + oy, tick_color);
+    });
+
+    // Draw key name centered in the inner circle
+    let root_name = NOTE_NAMES[root];
+    let font = &FONT_AA_COF;
+    // Get the first char's actual glyph metrics for precise vertical centering
+    let ch = root_name.as_bytes()[0];
+    let gi = (ch as u16 - font.first) as usize;
+    let glyph = &font.glyphs[gi];
+    let glyph_top = glyph.y_offset as i16;
+    let glyph_bot = glyph_top + glyph.height as i16;
+    let text_y = cy - (glyph_top + glyph_bot) / 2;
+    gfx_aa_text_center(cx, text_y, root_name, text_color, font);
+}
+
 // ============ Bottom bar icons (10x10px) ============
 
 /// Square icon (represents grid button press)
@@ -492,53 +572,8 @@ fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
     }
 }
 
-// Legacy helpers kept for other renderers
-struct Segment<'a> {
-    text: &'a str,
-    color: u8,
-}
 
-fn draw_segments(x: i16, y: i16, segs: &[Segment]) -> i16 {
-    segs.iter().fold(x, |cx, seg| {
-        gfx_text(cx, y, seg.text, color_lookup(seg.color), &FONT_MAIN);
-        cx + gfx_text_width(seg.text, &FONT_MAIN)
-    })
-}
-
-#[allow(dead_code)]
-fn draw_labeled_row(y: i16, label: &str, value: &str, val_color: u8) {
-    if !label.is_empty() {
-        gfx_text(PAD_X, y, label, color_lookup(OLED_DIM), &FONT_SMALL);
-        let lbl_sp = format!("{} ", label);
-        let lw = gfx_text_width(&lbl_sp, &FONT_SMALL);
-        gfx_text(PAD_X + lw, y, value, color_lookup(val_color), &FONT_MAIN);
-    } else {
-        gfx_text(PAD_X, y, value, color_lookup(val_color), &FONT_MAIN);
-    }
-}
-
-// Legacy icon drawing kept for modify/loop/selected renderers
-#[derive(Clone, Copy)]
-enum IconType {
-    Vertical,
-    Horizontal,
-}
-
-fn draw_icon_vertical_legacy(x: i16, y: i16, color: u16) {
-    let cy = y - 5;
-    let mx = x + 6;
-    gfx_pixel(mx, cy - 5, color);
-    gfx_hline(mx - 1, cy - 4, 3, color);
-    gfx_hline(mx - 2, cy - 3, 5, color);
-    gfx_hline(mx - 3, cy - 2, 7, color);
-    gfx_vline(mx, cy - 2, 5, color);
-    gfx_hline(mx - 3, cy + 2, 7, color);
-    gfx_hline(mx - 2, cy + 3, 5, color);
-    gfx_hline(mx - 1, cy + 4, 3, color);
-    gfx_pixel(mx, cy + 5, color);
-}
-
-fn draw_icon_horizontal_legacy(x: i16, y: i16, color: u16) {
+fn draw_icon_horizontal(x: i16, y: i16, color: u16) {
     let cy = y - 5;
     let mx = x + 6;
     gfx_pixel(mx - 6, cy, color);
@@ -552,15 +587,8 @@ fn draw_icon_horizontal_legacy(x: i16, y: i16, color: u16) {
     gfx_pixel(mx + 6, cy, color);
 }
 
-fn draw_icon_legacy(icon: IconType, x: i16, y: i16, color: u16) {
-    match icon {
-        IconType::Vertical => draw_icon_vertical_legacy(x, y, color),
-        IconType::Horizontal => draw_icon_horizontal_legacy(x, y, color),
-    }
-}
-
-fn draw_icon_legend(y: i16, icon: IconType, label: &str, value: &str, legend_color: u8) {
-    draw_icon_legacy(icon, PAD_X, y, color_lookup(legend_color));
+fn draw_icon_legend(y: i16, label: &str, value: &str, legend_color: u8) {
+    draw_icon_horizontal(PAD_X, y, color_lookup(legend_color));
     let tx = PAD_X + 13 + 4;
     let prefix = format!("{}: ", label);
     gfx_text(tx, y, &prefix, color_lookup(legend_color), &FONT_MAIN);
@@ -621,6 +649,11 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
 
     // ---- Scale interval visualization ----
     draw_scale_dots(s);
+
+    // ---- Circle of fifths (right panel) ----
+    if !is_drum {
+        draw_circle_of_fifths(s, cmd_only);
+    }
 
     // ---- Bottom legend bar ----
     // Priority: Cmd+Alt+Shift > Cmd+Alt > Cmd only > Alt+Shift > Alt only > Shift only > bare
@@ -1023,9 +1056,9 @@ fn render_loop(s: &EngineState, mods: u8) {
 
     let step_str = if l_shift { "+/- 0.1" } else { "+/- 1" };
     if editing_start {
-        draw_icon_legend(ROW_Y[2], IconType::Horizontal, "START", step_str, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[2], "START", step_str, OLED_YELLOW);
     } else {
-        draw_icon_legend(ROW_Y[2], IconType::Horizontal, "END", step_str, OLED_YELLOW);
+        draw_icon_legend(ROW_Y[2], "END", step_str, OLED_YELLOW);
     }
 }
 
