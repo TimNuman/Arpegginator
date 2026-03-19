@@ -79,12 +79,12 @@ pub const NUM_SUB_MODES: usize = 6;
 pub const MAX_CHORD_SIZE: usize = 8;
 pub const MAX_SCALE_NOTES: usize = 128;
 pub const NUM_SCALES: usize = 31;
-pub const MAX_ACTIVE_NOTES: usize = 256;
+pub const MAX_ACTIVE_NOTES: usize = 64;
 pub const DIATONIC_OCTAVE: u8 = 7;
 pub const VISIBLE_ROWS: usize = 8;
 pub const VISIBLE_COLS: usize = 16;
 pub const TICKS_PER_QUARTER: i32 = 480;
-pub const MAX_RENDERED_NOTES: usize = 1024;
+pub const MAX_RENDERED_NOTES: usize = 512;
 
 pub const POOL_CAPACITY: usize = 512;
 pub const EVENT_POOL_CAPACITY: usize = 512;
@@ -118,7 +118,7 @@ pub const FLAG_IN_SCALE: u16 = 8192;
 pub const FLAG_GHOST: u16 = 16384;
 pub const FLAG_OFFSCREEN: u16 = 32768;
 
-pub const MAX_GHOST_NOTES: usize = 2048;
+pub const MAX_GHOST_NOTES: usize = 512;
 
 // ============ Enums ============
 
