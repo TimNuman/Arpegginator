@@ -200,18 +200,26 @@ pub fn engine_render_events(
         });
     });
 
-    // Cap note lengths so they don't overlap the next note on the same row
-    (0..count).for_each(|i| {
-        let rn_pos = out[i].position;
-        let rn_row = out[i].row;
-        let rn_len = out[i].length;
-        let nearest_next = (0..count)
-            .filter(|&j| j != i && out[j].row == rn_row && out[j].position > rn_pos && out[j].position < rn_pos + rn_len)
-            .map(|j| out[j].position)
-            .min()
-            .unwrap_or(rn_pos + rn_len);
-        out[i].length = nearest_next - rn_pos;
-    });
+    // Cap note lengths so they don't overlap the next note on the same row.
+    // Sort by (row, position) then single forward pass — O(n log n) instead of O(n^2).
+    out[..count].sort_unstable_by(|a, b| a.row.cmp(&b.row).then(a.position.cmp(&b.position)));
+    {
+        let mut i = 0;
+        while i < count {
+            let row = out[i].row;
+            let mut j = i + 1;
+            while j < count && out[j].row == row {
+                let gap = out[j].position - out[i].position;
+                if gap > 0 && gap < out[i].length {
+                    out[i].length = gap;
+                }
+                // Only cap against the immediate next note on same row
+                i = j;
+                j += 1;
+            }
+            i = j;
+        }
+    }
 
     count as u16
 }
