@@ -380,30 +380,18 @@ fn draw_segs_row_tickered(y: i16, label: &str, segs: &[TextSeg], font: &AAFont, 
     draw_segs_tickered(y, segs, font, val_x, CONTENT_RIGHT, ticker_slot);
 }
 
-/// Draw pattern indicator dots
-fn draw_pattern_dots(s: &EngineState) {
-    let ch = s.current_channel as usize;
-    let total_w = NUM_PATTERNS as i16 * DOT_SIZE + (NUM_PATTERNS as i16 - 1) * DOT_GAP;
-    let start_x = (DISPLAY_W - total_w) / 2;
+/// Draw scale interval visualization (12 squares for chromatic notes)
+fn draw_scale_dots(s: &EngineState) {
+    let n: i16 = 12;
+    let total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
+    let start_x = CONTENT_RIGHT - total_w;
+    let idx = (s.scale_id_idx as usize).min(NUM_SCALES - 1);
+    let pattern = &SCALE_PATTERNS[idx];
 
-    (0..NUM_PATTERNS).for_each(|p| {
-        let x = start_x + p as i16 * (DOT_SIZE + DOT_GAP);
-        let has_notes = s.patterns_have_notes[ch][p] != 0;
-        let is_current = p == s.current_patterns[ch] as usize;
-
-        let color = if is_current {
-            GFX_VALUE
-        } else if has_notes {
-            GFX_DIM
-        } else {
-            gfx_rgb565(0x20, 0x2E, 0x50) // very dim
-        };
-
-        if has_notes || is_current {
-            gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, color);
-        } else {
-            gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, color);
-        }
+    (0..12).for_each(|i| {
+        let x = start_x + i as i16 * (DOT_SIZE + DOT_GAP);
+        let color = if pattern[i] != 0 { GFX_VALUE } else { gfx_rgb565(0x20, 0x2E, 0x50) };
+        gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, color);
     });
 }
 
@@ -631,8 +619,8 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         draw_row_tickered(ROW_Y[3], "SCALE", &scale_name, scale_color, 3);
     }
 
-    // ---- Pattern indicator dots ----
-    draw_pattern_dots(s);
+    // ---- Scale interval visualization ----
+    draw_scale_dots(s);
 
     // ---- Bottom legend bar ----
     // Priority: Cmd+Alt+Shift > Cmd+Alt > Cmd only > Alt+Shift > Alt only > Shift only > bare

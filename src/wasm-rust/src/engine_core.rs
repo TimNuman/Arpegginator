@@ -650,7 +650,7 @@ pub fn note_to_midi(row: i16, s: &EngineState) -> i8 {
 
 // ============ Scale Definitions ============
 
-static SCALE_PATTERNS: [[u8; 12]; NUM_SCALES] = [
+pub static SCALE_PATTERNS: [[u8; 12]; NUM_SCALES] = [
     [1,0,1,0,1,1,0,1,0,1,0,1], // Major
     [1,0,1,1,0,1,0,1,1,0,1,0], // Minor
     [1,0,1,1,0,1,0,1,1,0,0,1], // Harmonic Minor
