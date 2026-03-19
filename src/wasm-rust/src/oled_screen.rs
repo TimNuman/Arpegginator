@@ -1,9 +1,8 @@
 // oled_screen.rs — OLED screen content rendering
 // Full-width layout with 256×128 display, IBM Plex Mono fonts
 
-extern crate alloc;
-use alloc::format;
-
+use core::fmt::Write;
+use crate::engine_core::FmtBuf;
 use crate::oled_gfx::*;
 use crate::oled_fonts::FONT_MAIN;
 use crate::oled_fonts_aa::*;
@@ -122,24 +121,29 @@ static NOTE_NAMES: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
 
-fn midi_note_to_name(note: i8) -> alloc::string::String {
+fn midi_note_to_name(note: i8) -> FmtBuf<8> {
+    let mut buf = FmtBuf::<8>::new();
     if note < 0 {
-        return alloc::string::String::from("??");
+        buf.push_str("??");
+    } else {
+        let octave = (note as i32 / 12) - 1;
+        let idx = (note as usize) % 12;
+        let _ = write!(buf, "{}{}", NOTE_NAMES[idx], octave);
     }
-    let octave = (note as i32 / 12) - 1;
-    let idx = (note as usize) % 12;
-    format!("{}{}", NOTE_NAMES[idx], octave)
+    buf
 }
 
-fn tick_to_beat_display(tick: i32) -> alloc::string::String {
+fn tick_to_beat_display(tick: i32) -> FmtBuf<8> {
+    let mut buf = FmtBuf::<8>::new();
     let beat = (tick / TICKS_PER_QUARTER) + 1;
     let sub = tick % TICKS_PER_QUARTER;
     if sub == 0 {
-        format!("{}", beat)
+        let _ = write!(buf, "{}", beat);
     } else {
         let sixteenth = (sub / (TICKS_PER_QUARTER / 4)) + 1;
-        format!("{}.{}", beat, sixteenth)
+        let _ = write!(buf, "{}.{}", beat, sixteenth);
     }
+    buf
 }
 
 // Musical name lookup tables
@@ -190,42 +194,45 @@ fn lookup_musical(ticks: i32) -> Option<&'static str> {
     MUSICAL_NAMES.iter().find(|m| m.ticks == ticks).map(|m| m.name)
 }
 
-fn ticks_to_musical_name(ticks: i32, zoom: i32) -> alloc::string::String {
+fn ticks_to_musical_name(ticks: i32, zoom: i32) -> FmtBuf<16> {
+    let mut buf = FmtBuf::<16>::new();
     if let Some(trip) = lookup_triplet(ticks) {
-        return alloc::string::String::from(trip);
-    }
-    if ticks > 0 && zoom > 0 && (ticks % zoom == 0) {
+        buf.push_str(trip);
+    } else if ticks > 0 && zoom > 0 && (ticks % zoom == 0) {
         let n = ticks / zoom;
         let denom = 1920 / zoom;
-        return format!("{}/{}", n, denom);
+        let _ = write!(buf, "{}/{}", n, denom);
+    } else if let Some(mus) = lookup_musical(ticks) {
+        buf.push_str(mus);
+    } else {
+        let _ = write!(buf, "{}t", ticks);
     }
-    if let Some(mus) = lookup_musical(ticks) {
-        return alloc::string::String::from(mus);
-    }
-    format!("{}t", ticks)
+    buf
 }
 
-fn ticks_to_canonical_name(ticks: i32) -> alloc::string::String {
+fn ticks_to_canonical_name(ticks: i32) -> FmtBuf<16> {
+    let mut buf = FmtBuf::<16>::new();
     if let Some(trip) = lookup_triplet(ticks) {
-        return alloc::string::String::from(trip);
-    }
-    if let Some(mus) = lookup_musical(ticks) {
-        return alloc::string::String::from(mus);
-    }
-    if ticks > 0 && (ticks % 1920 == 0) {
-        return format!("{}", ticks / 1920);
-    }
-    MUSICAL_NAMES.iter()
-        .find(|m| m.ticks > 0 && (ticks % m.ticks == 0) && m.name.starts_with("1/"))
-        .map(|m| {
-            let denom: i32 = m.name[2..].parse().unwrap_or(0);
+        buf.push_str(trip);
+    } else if let Some(mus) = lookup_musical(ticks) {
+        buf.push_str(mus);
+    } else if ticks > 0 && (ticks % 1920 == 0) {
+        let _ = write!(buf, "{}", ticks / 1920);
+    } else {
+        let found = MUSICAL_NAMES.iter()
+            .find(|m| m.ticks > 0 && (ticks % m.ticks == 0) && m.name.starts_with("1/"));
+        if let Some(m) = found {
+            let denom: i32 = parse_i32(&m.name[2..]);
             if denom > 0 {
-                format!("{}/{}", ticks / m.ticks, denom)
+                let _ = write!(buf, "{}/{}", ticks / m.ticks, denom);
             } else {
-                format!("{}t", ticks)
+                let _ = write!(buf, "{}t", ticks);
             }
-        })
-        .unwrap_or_else(|| format!("{}t", ticks))
+        } else {
+            let _ = write!(buf, "{}t", ticks);
+        }
+    }
+    buf
 }
 
 // GM Drum names (MIDI 35-81)
@@ -242,17 +249,37 @@ static GM_DRUM_NAMES: &[&str] = &[
 const GM_DRUM_MIN: i8 = 35;
 const GM_DRUM_MAX: i8 = 81;
 
-fn get_drum_name(midi: i8) -> alloc::string::String {
+fn get_drum_name(midi: i8) -> FmtBuf<8> {
+    let mut buf = FmtBuf::<8>::new();
     if midi >= GM_DRUM_MIN && midi <= GM_DRUM_MAX {
-        alloc::string::String::from(GM_DRUM_NAMES[(midi - GM_DRUM_MIN) as usize])
+        buf.push_str(GM_DRUM_NAMES[(midi - GM_DRUM_MIN) as usize]);
     } else {
-        format!("D{}", midi)
+        let _ = write!(buf, "D{}", midi);
     }
+    buf
+}
+
+/// Parse a decimal integer from a string (no_std replacement for .parse())
+fn parse_i32(s: &str) -> i32 {
+    let mut result: i32 = 0;
+    for &b in s.as_bytes() {
+        if b >= b'0' && b <= b'9' {
+            result = result * 10 + (b - b'0') as i32;
+        } else {
+            break;
+        }
+    }
+    result
 }
 
 /// Uppercase an ASCII string (for display purposes)
-fn to_upper(s: &str) -> alloc::string::String {
-    s.chars().map(|c| if c.is_ascii_lowercase() { (c as u8 - 32) as char } else { c }).collect()
+fn to_upper(s: &str) -> FmtBuf<32> {
+    let mut buf = FmtBuf::<32>::new();
+    for c in s.chars() {
+        if c.is_ascii_lowercase() { buf.push((c as u8 - 32) as char); }
+        else { buf.push(c); }
+    }
+    buf
 }
 
 // ============ Sub-mode / loop mode labels ============
@@ -266,13 +293,11 @@ static INTERVAL_NAMES: [&str; 12] = [
 
 // ============ Note display helper ============
 
-fn get_note_display(row: i16, is_drum: bool, s: &EngineState) -> alloc::string::String {
+fn get_note_display(row: i16, is_drum: bool, s: &EngineState) -> FmtBuf<8> {
     if is_drum {
-        let midi = row.clamp(0, 127) as i8;
-        get_drum_name(midi)
+        get_drum_name(row.clamp(0, 127) as i8)
     } else {
-        let midi = note_to_midi(row, s);
-        if midi >= 0 { midi_note_to_name(midi) } else { alloc::string::String::from("??") }
+        midi_note_to_name(note_to_midi(row, s))
     }
 }
 
@@ -588,7 +613,8 @@ fn draw_icon_horizontal(x: i16, y: i16, color: u16) {
 fn draw_icon_legend(y: i16, label: &str, value: &str, legend_color: u8) {
     draw_icon_horizontal(PAD_X, y, color_lookup(legend_color));
     let tx = PAD_X + 13 + 4;
-    let prefix = format!("{}: ", label);
+    let mut prefix = FmtBuf::<16>::new();
+    let _ = write!(prefix, "{}: ", label);
     gfx_text(tx, y, &prefix, color_lookup(legend_color), &FONT_MAIN);
     if !value.is_empty() {
         let w = gfx_text_width(&prefix, &FONT_MAIN);
@@ -607,8 +633,10 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let p_shift = (mods & MOD_SHIFT) != 0;
 
     // ---- Row 0: CH xx | PAT yy (two columns at 50%) ----
-    let ch_str = format!("{:02}", ch + 1);
-    let pat_str = format!("{:02}", pat + 1);
+    let mut ch_str = FmtBuf::<4>::new();
+    let _ = write!(ch_str, "{:02}", ch + 1);
+    let mut pat_str = FmtBuf::<4>::new();
+    let _ = write!(pat_str, "{:02}", pat + 1);
     draw_row_two_col(ROW_Y[0], "CH", &ch_str, GFX_VALUE, "PAT", &pat_str, GFX_VALUE);
 
     // ---- Row 1: LOOP x.x-y.y ----
@@ -619,7 +647,8 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     gfx_aa_text(PAD_X, ROW_Y[1], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
     let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
     let e_color = if p_alt && !p_meta { GFX_RED } else { GFX_VALUE };
-    let loop_val = format!("{}-", s_buf);
+    let mut loop_val = FmtBuf::<12>::new();
+    let _ = write!(loop_val, "{}-", s_buf.as_str());
     draw_segs_right(CONTENT_RIGHT, ROW_Y[1], &[
         TextSeg { text: &loop_val, color: s_color },
         TextSeg { text: &e_buf, color: e_color },
@@ -673,7 +702,8 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     } else if p_alt {
         // Alt(+Shift): loop end editing
         let fine = if p_shift { " +/-0.1" } else { "" };
-        let label = format!("LOOP END{}", fine);
+        let mut label = FmtBuf::<24>::new();
+        let _ = write!(label, "LOOP END{}", fine);
         draw_legend_item(0, 0, "", GFX_DIM);
         draw_legend_item(1, 1, "", GFX_DIM);
         draw_legend_item(2, 2, &label, GFX_RED);
@@ -710,66 +740,53 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
 
     // ---- Row 0: [extended name] (stack name) — ticker for long text ----
     {
-        // Build extended name
-        let extended = if is_drum && ev.chord_amount > 1 {
-            // For drums: list all drum note names
+        // Build display string: extended name + optional stack name
+        let mut display_str = FmtBuf::<128>::new();
+        if is_drum && ev.chord_amount > 1 {
             let mut offsets = [0i8; MAX_CHORD_SIZE];
             let count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
-            let mut names = alloc::string::String::new();
             for i in 0..count {
-                if i > 0 { names.push_str(", "); }
+                if i > 0 { display_str.push_str(", "); }
                 let row = ev.row + offsets[i] as i16;
-                let midi = row.clamp(0, 127) as i8;
-                names.push_str(&get_drum_name(midi));
+                let dn = get_drum_name(row.clamp(0, 127) as i8);
+                display_str.push_str(dn.as_str());
             }
-            names
         } else if ev.chord_amount == 2 {
-            let second_row = ev.row + ev.chord_space as i16;
             let midi1 = note_to_midi(ev.row, s);
-            let midi2 = note_to_midi(second_row, s);
+            let midi2 = note_to_midi(ev.row + ev.chord_space as i16, s);
             let semitones = ((midi2 as i32) - (midi1 as i32)).unsigned_abs() as u8;
             if semitones == 12 {
-                alloc::string::String::from("OCTAVE")
+                display_str.push_str("OCTAVE");
             } else if semitones > 12 {
-                format!("{} +OCT", INTERVAL_NAMES[(semitones % 12) as usize])
+                let _ = write!(display_str, "{} +OCT", INTERVAL_NAMES[(semitones % 12) as usize]);
             } else {
-                alloc::string::String::from(INTERVAL_NAMES[semitones as usize])
+                display_str.push_str(INTERVAL_NAMES[semitones as usize]);
             }
         } else if ev.chord_amount > 2 {
-            let chord_name = get_chord_name_str(s, ev);
-            if chord_name.is_empty() {
-                alloc::string::String::new()
-            } else {
-                chord_name
-            }
+            let cn = get_chord_name_str(s, ev);
+            display_str.push_str(cn.as_str());
         } else if is_drum {
-            // Single drum note: show drum name
-            let midi = ev.row.clamp(0, 127) as i8;
-            get_drum_name(midi)
+            let dn = get_drum_name(ev.row.clamp(0, 127) as i8);
+            display_str.push_str(dn.as_str());
         } else {
-            alloc::string::String::from("SINGLE NOTE")
-        };
+            display_str.push_str("SINGLE NOTE");
+        }
 
-        // Build stack name (voicing/inversion) — skip for drums and 2-note intervals
-        let stack_name = if !is_drum && ev.chord_amount > 2 {
+        // Append stack name (voicing/inversion) for chords > 2
+        if !is_drum && ev.chord_amount > 2 {
             let inv = ev.chord_inversion;
             if inv != 0 {
-                format!("INV{}{}", if inv > 0 { "+" } else { "" }, inv)
+                let _ = write!(display_str, "  (INV{}{})", if inv > 0 { "+" } else { "" }, inv);
             } else {
                 let voicing = get_voicing_name(ev.chord_amount, ev.chord_space, ev.chord_voicing);
-                if !voicing.is_empty() { to_upper(voicing) } else { alloc::string::String::from("BASE") }
+                if !voicing.is_empty() {
+                    let upper = to_upper(voicing);
+                    let _ = write!(display_str, "  ({})", upper.as_str());
+                } else {
+                    display_str.push_str("  (BASE)");
+                }
             }
-        } else {
-            alloc::string::String::new()
-        };
-
-        // Combine into ticker row (left-aligned)
-        let has_stack = !stack_name.is_empty();
-        let display_str = if has_stack {
-            format!("{}  ({})", extended, stack_name)
-        } else {
-            extended
-        };
+        }
         // Shift up/down = inversion, Alt+Shift up/down = voicing — both affect row 0
         let row0_color = if em.ud_rows & 1 != 0 { GFX_YELLOW } else { GFX_VALUE };
         let text_w = gfx_aa_text_width(&display_str, &FONT_AA_SMALL_BOLD);
@@ -800,7 +817,9 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     // ---- Row 1: NOTE [note]  LEN [length] ----
     let length_str = ticks_to_musical_name(ev.length, s.zoom);
     let note_display = if is_drum {
-        format!("{}", ev.row.clamp(0, 127))
+        let mut nb = FmtBuf::<8>::new();
+        let _ = write!(nb, "{}", ev.row.clamp(0, 127));
+        nb
     } else {
         note_name
     };
@@ -824,7 +843,8 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], &length_str, row_lr_color(1), &FONT_AA_SMALL_BOLD);
 
     // ---- Row 2: RPT [amount]  SPC [space] ----
-    let rpt_amt_str = format!("{}", ev.repeat_amount);
+    let mut rpt_amt_str = FmtBuf::<8>::new();
+    let _ = write!(rpt_amt_str, "{}", ev.repeat_amount);
     let rpt_space_str = ticks_to_canonical_name(ev.repeat_space);
     gfx_aa_text(PAD_X, ROW_Y5[2], "RPT", GFX_LABEL, &FONT_AA_SMALL);
     gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[2], &rpt_amt_str, row_lr_color(2), &FONT_AA_SMALL_BOLD);
@@ -834,8 +854,10 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     // ---- Row 3: STK [amount]  SPC [space] ----
     gfx_aa_text(PAD_X, ROW_Y5[3], "STK", GFX_LABEL, &FONT_AA_SMALL);
     if ev.chord_amount > 1 {
-        let ca_str = format!("{}", ev.chord_amount);
-        let cs_str = format!("{}", ev.chord_space);
+        let mut ca_str = FmtBuf::<4>::new();
+        let _ = write!(ca_str, "{}", ev.chord_amount);
+        let mut cs_str = FmtBuf::<4>::new();
+        let _ = write!(cs_str, "{}", ev.chord_space);
         gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[3], &ca_str, row_ud_color(3), &FONT_AA_SMALL_BOLD);
         gfx_aa_text(col2_x, ROW_Y5[3], "SPC", GFX_LABEL, &FONT_AA_SMALL);
         gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[3], &cs_str, row_ud_color(3), &FONT_AA_SMALL_BOLD);
@@ -848,14 +870,16 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     let style_name = *ARP_STYLE_NAMES.get(ev.arp_style as usize).unwrap_or(&"CHD");
     if eg == EditGroup::Voicing {
         // Alt+Shift: show voices count
-        let voices_str = format!("{}", ev.arp_voices);
+        let mut voices_str = FmtBuf::<4>::new();
+        let _ = write!(voices_str, "{}", ev.arp_voices);
         draw_segs_right(CONTENT_RIGHT, ROW_Y5[4], &[
             TextSeg { text: style_name, color: row_ud_color(4) },
             TextSeg { text: " / ", color: GFX_VALUE },
             TextSeg { text: &voices_str, color: row_lr_color(4) },
         ], &FONT_AA_SMALL_BOLD);
     } else if ev.arp_offset != 0 {
-        let offset_str = format!("{}{}", if ev.arp_offset > 0 { "+" } else { "" }, ev.arp_offset);
+        let mut offset_str = FmtBuf::<8>::new();
+        let _ = write!(offset_str, "{}{}", if ev.arp_offset > 0 { "+" } else { "" }, ev.arp_offset);
         draw_segs_right(CONTENT_RIGHT, ROW_Y5[4], &[
             TextSeg { text: style_name, color: row_ud_color(4) },
             TextSeg { text: " / ", color: GFX_VALUE },
@@ -895,29 +919,32 @@ fn render_modify(s: &EngineState, mods: u8) {
 
         // ---- Row 0: note name + extended name ----
         let note_name = get_note_display(ev.row, is_drum, s);
-        let extended = if is_drum {
+        let mut display_str = FmtBuf::<128>::new();
+        display_str.push_str(note_name.as_str());
+        display_str.push(' ');
+        if is_drum {
             if ev.chord_amount > 1 {
                 let mut offsets = [0i8; MAX_CHORD_SIZE];
                 let count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
-                let mut names = alloc::string::String::new();
                 for i in 0..count {
-                    if i > 0 { names.push_str(", "); }
+                    if i > 0 { display_str.push_str(", "); }
                     let row = ev.row + offsets[i] as i16;
-                    let midi = row.clamp(0, 127) as i8;
-                    names.push_str(&get_drum_name(midi));
+                    let dn = get_drum_name(row.clamp(0, 127) as i8);
+                    display_str.push_str(dn.as_str());
                 }
-                names
             } else {
-                get_drum_name(ev.row.clamp(0, 127) as i8)
+                let dn = get_drum_name(ev.row.clamp(0, 127) as i8);
+                display_str.push_str(dn.as_str());
             }
         } else if ev.chord_amount > 1 {
-            let chord_name = get_chord_name_str(s, ev);
-            if !chord_name.is_empty() { to_upper(&chord_name) }
-            else { alloc::string::String::new() }
+            let cn = get_chord_name_str(s, ev);
+            if !cn.is_empty() {
+                let upper = to_upper(cn.as_str());
+                display_str.push_str(upper.as_str());
+            }
         } else {
-            alloc::string::String::from("SINGLE NOTE")
-        };
-        let display_str = format!("{} {}", note_name, extended);
+            display_str.push_str("SINGLE NOTE");
+        }
         let text_w = gfx_aa_text_width(&display_str, &FONT_AA_SMALL_BOLD);
         let avail = CONTENT_RIGHT - PAD_X;
         if text_w <= avail {
@@ -970,9 +997,11 @@ fn render_modify(s: &EngineState, mods: u8) {
         }
 
         // ---- Row 3: LEN [n]  STAY [n] ----
-        let len_str = format!("{}", arr_len);
+        let mut len_str = FmtBuf::<4>::new();
+        let _ = write!(len_str, "{}", arr_len);
         let len_color = if !m_meta { GFX_RED } else { GFX_VALUE };
-        let stay_str = format!("{}", stay_val);
+        let mut stay_str = FmtBuf::<4>::new();
+        let _ = write!(stay_str, "{}", stay_val);
         let stay_color = if m_meta { GFX_RED } else { GFX_VALUE };
         draw_row_two_col(ROW_Y5[3], "LEN", &len_str, len_color, "STAY", &stay_str, stay_color);
 
@@ -1014,8 +1043,10 @@ fn render_modify(s: &EngineState, mods: u8) {
 fn render_channel(s: &EngineState) {
     let ch = s.current_channel;
     let pat = s.current_patterns[ch as usize];
-    let ch_buf = format!("CH {}", ch + 1);
-    let pat_buf = format!("{}", pat + 1);
+    let mut ch_buf = FmtBuf::<8>::new();
+    let _ = write!(ch_buf, "CH {}", ch + 1);
+    let mut pat_buf = FmtBuf::<4>::new();
+    let _ = write!(pat_buf, "{}", pat + 1);
 
     gfx_aa_text(PAD_X, ROW_Y[0], "MODE", GFX_LABEL, &FONT_AA_SMALL);
     gfx_aa_text(PAD_X + 50, ROW_Y[0], "CHANNEL", GFX_VALUE, &FONT_AA_SMALL_BOLD);
@@ -1062,9 +1093,10 @@ fn render_loop(s: &EngineState, mods: u8) {
 
 // ============ Chord name (simplified inline version for screen rendering) ============
 
-fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String {
+fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
+    let mut result = FmtBuf::<64>::new();
     if ev.chord_amount <= 1 {
-        return alloc::string::String::new();
+        return result;
     }
 
     let mut offsets = [0i8; MAX_CHORD_SIZE];
@@ -1086,7 +1118,7 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String 
         }
     });
 
-    if pc_count < 2 { return alloc::string::String::new(); }
+    if pc_count < 2 { return result; }
 
     pitch_classes[..pc_count].sort_unstable();
 
@@ -1150,8 +1182,6 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String 
         });
     });
 
-    let mut result = alloc::string::String::new();
-
     if let Some(suffix) = best_suffix {
         result.push_str(NOTE_NAMES_L[best_root_pc as usize]);
         result.push_str(suffix);
@@ -1166,7 +1196,7 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> alloc::string::String 
         (1..pc_count).for_each(|i| {
             if i > 1 { result.push(','); }
             let iv = ((pitch_classes[i] as i16 - root_pc as i16 + 12) % 12) as u8;
-            result.push_str(&format!("{}", iv));
+            let _ = write!(result, "{}", iv);
         });
         result.push(')');
         best_root_pc = root_pc;

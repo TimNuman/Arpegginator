@@ -4,7 +4,7 @@
 use crate::engine_core::*;
 
 fn init_state() -> Box<EngineState> {
-    let mut s = Box::new(EngineState::default());
+    let mut s = EngineState::new_boxed();
     engine_core_init(&mut s);
     s
 }

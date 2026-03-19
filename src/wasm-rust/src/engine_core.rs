@@ -1,6 +1,73 @@
 // engine_core.rs — Core types, constants, state, scales, arpeggios, voicings, playback
 
-extern crate alloc;
+// ============ FmtBuf — zero-alloc string formatting ============
+
+/// Fixed-capacity string buffer for `write!()` formatting without heap allocation.
+pub struct FmtBuf<const N: usize> {
+    buf: [u8; N],
+    len: usize,
+}
+
+impl<const N: usize> FmtBuf<N> {
+    pub const fn new() -> Self {
+        Self { buf: [0u8; N], len: 0 }
+    }
+
+    pub fn as_str(&self) -> &str {
+        unsafe { core::str::from_utf8_unchecked(&self.buf[..self.len]) }
+    }
+
+    pub fn push_str(&mut self, s: &str) {
+        let bytes = s.as_bytes();
+        let copy_len = bytes.len().min(N - self.len);
+        self.buf[self.len..self.len + copy_len].copy_from_slice(&bytes[..copy_len]);
+        self.len += copy_len;
+    }
+
+    pub fn push(&mut self, c: char) {
+        let mut tmp = [0u8; 4];
+        let s = c.encode_utf8(&mut tmp);
+        self.push_str(s);
+    }
+
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl<const N: usize> core::fmt::Write for FmtBuf<N> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.push_str(s);
+        Ok(())
+    }
+}
+
+impl<const N: usize> PartialEq<&str> for FmtBuf<N> {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl<const N: usize> core::fmt::Debug for FmtBuf<N> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl<const N: usize> core::ops::Deref for FmtBuf<N> {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
 
 // ============ Constants ============
 
@@ -455,9 +522,9 @@ pub struct GhostNote {
 // ============ Engine State ============
 
 pub struct EngineState {
-    pub patterns: Box<[[PatternData; NUM_PATTERNS]; NUM_CHANNELS]>,
-    pub sub_mode_pool: Box<SubModePool>,
-    pub event_pool: Box<NoteEventPool>,
+    pub patterns: [[PatternData; NUM_PATTERNS]; NUM_CHANNELS],
+    pub sub_mode_pool: SubModePool,
+    pub event_pool: NoteEventPool,
     pub loops: [[PatternLoop; NUM_PATTERNS]; NUM_CHANNELS],
 
     pub current_patterns: [u8; NUM_CHANNELS],
@@ -528,98 +595,78 @@ pub struct EngineState {
     pub ghost_notes: [GhostNote; MAX_GHOST_NOTES],
     pub ghost_count: u16,
     pub ghost_enabled: u8,
+
+    // Pre-allocated temp buffers (avoid per-frame heap allocation)
+    pub temp_rendered: [RenderedNote; MAX_RENDERED_NOTES],
+    pub temp_sub_modes: [[SubModeArray; NUM_SUB_MODES]; MAX_EVENTS],
 }
 
-impl Default for EngineState {
-    fn default() -> Self {
-        // Build patterns on the heap via Vec to avoid ~3MB stack temporary.
-        // Each push places one channel's patterns (~368KB) on the stack — well within 1MB.
-        let patterns = {
-            let mut v: Vec<[PatternData; NUM_PATTERNS]> = Vec::with_capacity(NUM_CHANNELS);
-            for _ in 0..NUM_CHANNELS {
-                v.push(core::array::from_fn(|_| PatternData::default()));
+impl EngineState {
+    /// Initialize a zero-allocated EngineState in place. Call on a pointer from alloc_zeroed.
+    /// Most fields are correct at zero; this sets the non-zero defaults.
+    pub fn init_in_place(&mut self) {
+        // Pattern defaults: length_ticks and event_handles
+        for ch in 0..NUM_CHANNELS {
+            for pat in 0..NUM_PATTERNS {
+                self.patterns[ch][pat].length_ticks = DEFAULT_PATTERN_TICKS;
+                self.patterns[ch][pat].event_handles = [POOL_HANDLE_NONE; MAX_EVENTS];
             }
-            v.into_boxed_slice().try_into().ok().unwrap()
-        };
-        Self {
-            patterns,
-            sub_mode_pool: {
-                // Build pool on the heap to avoid ~68KB stack temporary in WASM.
-                let mut pool = unsafe {
-                    let layout = alloc::alloc::Layout::new::<SubModePool>();
-                    let ptr = alloc::alloc::alloc_zeroed(layout) as *mut SubModePool;
-                    Box::from_raw(ptr)
-                };
-                (0..POOL_CAPACITY).for_each(|i| { pool.free_list[i] = i as u16; });
-                pool.free_count = POOL_CAPACITY as u16;
-                pool
-            },
-            event_pool: {
-                let mut pool = unsafe {
-                    let layout = alloc::alloc::Layout::new::<NoteEventPool>();
-                    let ptr = alloc::alloc::alloc_zeroed(layout) as *mut NoteEventPool;
-                    Box::from_raw(ptr)
-                };
-                (0..EVENT_POOL_CAPACITY).for_each(|i| { pool.free_list[i] = i as u16; });
-                pool.free_count = EVENT_POOL_CAPACITY as u16;
-                pool
-            },
-            loops: [[PatternLoop::default(); NUM_PATTERNS]; NUM_CHANNELS],
-            current_patterns: [0; NUM_CHANNELS],
-            queued_patterns: [-1; NUM_CHANNELS],
-            muted: [0; NUM_CHANNELS],
-            soloed: [0; NUM_CHANNELS],
-            channel_types: [0; NUM_CHANNELS],
-            scale_notes: [0; MAX_SCALE_NOTES],
-            scale_count: 0,
-            scale_zero_index: 0,
-            scale_root: 0,
-            scale_id_idx: 0,
-            scale_octave_size: 0,
-            current_tick: -1,
-            last_scrub_tick: -1,
-            resume_tick: -1,
-            is_playing: 0,
-            is_external_playback: 0,
-            bpm: 120.0,
-            swing: 50,
-            active_notes: [ActiveNote::default(); MAX_ACTIVE_NOTES],
-            continue_counters: [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],
-            counter_snapshots: [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],
-            rng_state: 12345,
-            ui_mode: UiMode::Pattern as u8,
-            modify_sub_mode: SubModeId::Velocity as u8,
-            current_channel: 0,
-            zoom: 120, // ZOOM_1_16
-            selected_event_idx: -1,
-            last_deselected_event_idx: -1,
-            loop_edit_target: 0,
-            row_offsets: [0.0; NUM_CHANNELS],
-            target_row_offsets: [0.0; NUM_CHANNELS],
-            col_offset: 0.0,
-            target_col_offset: 0.0,
-            strip_dragging: [0; 2],
-            strip_shift_dragging: 0,
-            strip_velocity: [0.0; 2],
-            strip_last_pos: [0; 2],
-            strip_last_time: [0.0; 2],
-            scrub_accumulator: 0.0,
-            manual_scroll_override: 0,
-            modifiers_held: 0,
-            channel_colors: [0; NUM_CHANNELS],
-            button_values: [[0; VISIBLE_COLS]; VISIBLE_ROWS],
-            color_overrides: [[0; VISIBLE_COLS]; VISIBLE_ROWS],
-            patterns_have_notes: [[0; NUM_PATTERNS]; NUM_CHANNELS],
-            channels_playing_now: [0; NUM_CHANNELS],
-            next_event_id: 0,
-            rendered_notes: [RenderedNote::default(); MAX_RENDERED_NOTES],
-            rendered_count: 0,
-            rendered_for_channel: 0xFF,
-            rendered_dirty: [1; NUM_CHANNELS],
-            ghost_notes: [GhostNote::default(); MAX_GHOST_NOTES],
-            ghost_count: 0,
-            ghost_enabled: 0,
         }
+
+        // Pool free lists
+        (0..POOL_CAPACITY).for_each(|i| { self.sub_mode_pool.free_list[i] = i as u16; });
+        self.sub_mode_pool.free_count = POOL_CAPACITY as u16;
+        (0..EVENT_POOL_CAPACITY).for_each(|i| { self.event_pool.free_list[i] = i as u16; });
+        self.event_pool.free_count = EVENT_POOL_CAPACITY as u16;
+
+        // Event pool defaults (sub_mode_handles must be POOL_HANDLE_NONE)
+        for slot in self.event_pool.slots.iter_mut() {
+            slot.sub_mode_handles = [POOL_HANDLE_NONE; NUM_SUB_MODES];
+            slot.repeat_amount = 1;
+            slot.chord_amount = 1;
+            slot.chord_space = 2;
+            slot.arp_voices = 1;
+        }
+
+        // SubModePool slot defaults
+        for slot in self.sub_mode_pool.slots.iter_mut() {
+            slot.length = 1;
+            slot.loop_mode = LoopMode::Continue as u8;
+            slot.stay = 1;
+        }
+
+        // Loop defaults
+        for ch in 0..NUM_CHANNELS {
+            for pat in 0..NUM_PATTERNS {
+                self.loops[ch][pat].length = DEFAULT_LOOP_TICKS;
+            }
+        }
+
+        self.queued_patterns = [-1; NUM_CHANNELS];
+        self.current_tick = -1;
+        self.last_scrub_tick = -1;
+        self.resume_tick = -1;
+        self.bpm = 120.0;
+        self.swing = 50;
+        self.rng_state = 12345;
+        self.zoom = 120;
+        self.selected_event_idx = -1;
+        self.last_deselected_event_idx = -1;
+        self.rendered_for_channel = 0xFF;
+        self.rendered_dirty = [1; NUM_CHANNELS];
+    }
+
+    /// Allocate a zeroed EngineState on the heap and initialize non-zero defaults.
+    /// Avoids constructing the large struct on the stack.
+    pub fn new_boxed() -> Box<EngineState> {
+        extern crate alloc;
+        let mut s = unsafe {
+            let layout = core::alloc::Layout::new::<EngineState>();
+            let ptr = alloc::alloc::alloc_zeroed(layout) as *mut EngineState;
+            Box::from_raw(ptr)
+        };
+        s.init_in_place();
+        s
     }
 }
 

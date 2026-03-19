@@ -229,10 +229,14 @@ pub fn engine_ensure_rendered(s: &mut EngineState, channel: u8) {
     let channel_changed = s.rendered_for_channel != channel;
     if !channel_changed && s.rendered_dirty[channel as usize] == 0 { return; }
     let pat = s.current_patterns[channel as usize];
-    // Use a heap-allocated temp buffer to avoid simultaneous &EngineState + &mut s.rendered_notes
-    let mut temp_buf = alloc::vec![RenderedNote::default(); MAX_RENDERED_NOTES];
-    let count = engine_render_events(s, channel, pat, &mut temp_buf, MAX_RENDERED_NOTES);
-    s.rendered_notes[..count as usize].copy_from_slice(&temp_buf[..count as usize]);
+    // Render into temp buffer, then copy to rendered_notes.
+    // Use raw pointer to split borrow: engine_render_events reads s, temp_rendered is write-only.
+    let temp_buf = unsafe { core::slice::from_raw_parts_mut(s.temp_rendered.as_mut_ptr(), MAX_RENDERED_NOTES) };
+    let count = engine_render_events(s, channel, pat, temp_buf, MAX_RENDERED_NOTES);
+    // Copy from temp to rendered_notes (non-overlapping fields)
+    unsafe {
+        core::ptr::copy_nonoverlapping(s.temp_rendered.as_ptr(), s.rendered_notes.as_mut_ptr(), count as usize);
+    }
     s.rendered_count = count;
     s.rendered_for_channel = channel;
     s.rendered_dirty[channel as usize] = 0;
@@ -324,8 +328,8 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     // Pre-extract event data to avoid borrow conflict (patterns vs active_notes/button_values)
     let event_count = s.patterns[ch][pat].event_count as usize;
     let mut ev_indexes = [0u16; MAX_EVENTS];
-    // Heap-allocate to avoid ~50KB stack usage (128 events × 6 sub-modes × 66 bytes)
-    let mut ev_sub_modes = alloc::vec![[SubModeArray::default(); NUM_SUB_MODES]; MAX_EVENTS];
+    // Use pre-allocated buffer on EngineState to avoid heap allocation
+    let ev_sub_modes = &mut s.temp_sub_modes;
     let mut ev_hit_snapshots = [0u16; MAX_EVENTS];
     let mut ev_vel_snapshots = [0u16; MAX_EVENTS];
     (0..event_count).for_each(|i| {
@@ -781,17 +785,16 @@ fn compute_ghost_notes(s: &mut EngineState) {
     let scale_zero = s.scale_zero_index;
     let scale_cnt = s.scale_count;
     let mut count = 0usize;
-    let mut temp_buf = alloc::vec![RenderedNote::default(); MAX_RENDERED_NOTES];
-
     for ch in 0..NUM_CHANNELS {
         if s.channel_types[ch] == ChannelType::Drum as u8 { continue; }
 
         let pat = s.current_patterns[ch];
-        let cnt = engine_render_events(s, ch as u8, pat, &mut temp_buf, MAX_RENDERED_NOTES);
+        let temp_buf = unsafe { core::slice::from_raw_parts_mut(s.temp_rendered.as_mut_ptr(), MAX_RENDERED_NOTES) };
+        let cnt = engine_render_events(s, ch as u8, pat, temp_buf, MAX_RENDERED_NOTES);
 
         for i in 0..cnt as usize {
             if count >= MAX_GHOST_NOTES { break; }
-            let rn = temp_buf[i];
+            let rn = s.temp_rendered[i];
             let midi_idx = scale_zero as i32 + rn.row as i32;
             if midi_idx < 0 || midi_idx >= scale_cnt as i32 { continue; }
             let midi = s.scale_notes[midi_idx as usize];
@@ -945,16 +948,25 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     engine_ensure_rendered(s, ch as u8);
     compute_ghost_notes(s);
 
-    // Copy rendered notes to avoid borrow conflict
-    let notes: Vec<RenderedNote> = s.rendered_notes[..s.rendered_count as usize].to_vec();
-    let note_count = notes.len();
+    // Copy rendered notes into temp buffer to avoid borrow conflict with &mut s
+    let note_count = s.rendered_count as usize;
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            s.rendered_notes.as_ptr(),
+            s.temp_rendered.as_mut_ptr(),
+            note_count,
+        );
+    }
+    // Create a slice from raw pointer — valid for the duration of this function
+    // since temp_rendered is not modified by the render functions
+    let notes = unsafe { core::slice::from_raw_parts(s.temp_rendered.as_ptr(), note_count) };
 
     match UiMode::from_u8(s.ui_mode) {
-        UiMode::Channel => render_channel_mode(s, &notes, note_count),
-        UiMode::Loop => render_loop_mode(s, &notes, note_count),
-        UiMode::Modify => render_modify_mode(s, &notes, note_count),
+        UiMode::Channel => render_channel_mode(s, notes, note_count),
+        UiMode::Loop => render_loop_mode(s, notes, note_count),
+        UiMode::Modify => render_modify_mode(s, notes, note_count),
         UiMode::Pattern => {
-            render_pattern_mode(s, &notes, note_count);
+            render_pattern_mode(s, notes, note_count);
             // Pulse loop boundary when Opt held in pattern mode with no selection
             if (s.modifiers_held & MOD_ALT) != 0 && s.selected_event_idx < 0 {
                 let ch = s.current_channel as usize;

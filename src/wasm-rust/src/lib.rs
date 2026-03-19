@@ -148,7 +148,7 @@ pub fn platform_play_preview_note(_channel: u8, _row: i16, _length_ticks: i32) {
 
 #[no_mangle]
 pub extern "C" fn engine_init() {
-    let mut s = Box::new(EngineState::default());
+    let mut s = EngineState::new_boxed();
     engine_core::engine_core_init(&mut s);
     unsafe {
         G_STATE = Some(s);
@@ -897,7 +897,8 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
         });
     });
 
-    let mut result = String::new();
+    use core::fmt::Write;
+    let mut result = engine_core::FmtBuf::<64>::new();
 
     if let Some(suffix) = best_suffix {
         result.push_str(NOTE_NAMES[best_root_pc as usize]);
@@ -921,7 +922,7 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
         (1..pc_count).for_each(|i| {
             if i > 1 { result.push(','); }
             let iv = ((pitch_classes[i] as i16 - root_pc as i16 + 12) % 12) as u8;
-            result.push_str(&alloc::format!("{}", iv));
+            let _ = write!(result, "{}", iv);
         });
         result.push(')');
         best_root_pc = root_pc;
@@ -935,7 +936,7 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
     }
 
     unsafe {
-        let bytes = result.as_bytes();
+        let bytes = result.as_str().as_bytes();
         let len = bytes.len().min(63);
         CHORD_NAME_BUF[..len].copy_from_slice(&bytes[..len]);
         CHORD_NAME_BUF[len] = 0;
