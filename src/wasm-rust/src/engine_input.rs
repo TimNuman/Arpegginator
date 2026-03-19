@@ -225,13 +225,13 @@ fn play_event_preview(s: &EngineState, ev: &NoteEvent, length_ticks: i32) {
     if s.is_playing != 0 { return; }
     let ch = s.current_channel;
     if ev.chord_amount <= 1 {
-        crate::platform_play_preview_note(ch, ev.row, length_ticks);
+        crate::platform::platform_play_preview_note(ch, ev.row, length_ticks);
         return;
     }
     let mut offsets = [0i8; MAX_CHORD_SIZE];
     let count = get_chord_offsets(s, ev, &mut offsets, 0);
     (0..count).for_each(|c| {
-        crate::platform_play_preview_note(ch, ev.row + offsets[c] as i16, length_ticks);
+        crate::platform::platform_play_preview_note(ch, ev.row + offsets[c] as i16, length_ticks);
     });
 }
 
@@ -662,7 +662,7 @@ fn pattern_press_bare(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     let new_idx = engine_toggle_event(s, row, tick, tpc);
     if new_idx >= 0 { s.selected_event_idx = new_idx; }
     if s.is_playing == 0 {
-        crate::platform_play_preview_note(s.current_channel, row, tpc);
+        crate::platform::platform_play_preview_note(s.current_channel, row, tpc);
     }
 }
 

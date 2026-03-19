@@ -1205,7 +1205,7 @@ fn kill_active_notes_for_channel(s: &mut EngineState, ch: u8) {
     s.active_notes.iter_mut()
         .filter(|n| n.active && n.channel == ch)
         .for_each(|n| {
-            crate::platform_note_off(ch, n.midi_note as u8);
+            crate::platform::platform_note_off(ch, n.midi_note as u8);
             n.active = false;
         });
 }
@@ -1214,7 +1214,7 @@ fn prune_active_notes(s: &mut EngineState, ch: u8, channel_tick: i32) {
     s.active_notes.iter_mut()
         .filter(|n| n.active && n.channel == ch && channel_tick > n.end)
         .for_each(|n| {
-            crate::platform_note_off(ch, n.midi_note as u8);
+            crate::platform::platform_note_off(ch, n.midi_note as u8);
             n.active = false;
         });
 }
@@ -1228,7 +1228,7 @@ fn handle_active_note(
     let mut free_slot: Option<usize> = None;
     s.active_notes.iter_mut().enumerate().for_each(|(i, n)| {
         if n.active && n.channel == ch && n.midi_note == midi_note {
-            crate::platform_note_off(ch, n.midi_note as u8);
+            crate::platform::platform_note_off(ch, n.midi_note as u8);
             n.active = false;
             if free_slot.is_none() { free_slot = Some(i); }
         }
@@ -1284,7 +1284,7 @@ fn compute_preview_for_channel(s: &mut EngineState, ch: u8) {
                 let ev_tick = ev.position + r as i32 * ev.repeat_space;
                 if ev_tick < loop_data.start || ev_tick >= loop_end { return; }
                 let val = resolve_sub_mode_preview(s, ev, sm, r, ch);
-                crate::platform_preview_value(sm as u8, ch, ev.event_index, ev_tick, val);
+                crate::platform::platform_preview_value(sm as u8, ch, ev.event_index, ev_tick, val);
             });
         });
     });
@@ -1363,7 +1363,7 @@ pub fn engine_core_stop(s: &mut EngineState) {
     s.active_notes.iter_mut()
         .filter(|n| n.active)
         .for_each(|n| {
-            crate::platform_note_off(n.channel, n.midi_note as u8);
+            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
             n.active = false;
         });
 
@@ -1462,7 +1462,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
                         // so note-off fires after the delayed note-on
                         let delay_ticks = (70 + timing as i32).max(0) * 120 / 100;
                         handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, channel_tick, ev.length + delay_ticks, midi_note);
-                        crate::platform_step_trigger(
+                        crate::platform::platform_step_trigger(
                             ch, midi_note as u8, channel_tick,
                             ev.length, (velocity.clamp(0, 127)) as u8,
                             timing as i8, flam_count, ev.event_index,
@@ -1478,9 +1478,9 @@ pub fn engine_core_tick(s: &mut EngineState) {
         switch_channels.iter().for_each(|&(ch, target)| {
             s.current_patterns[ch as usize] = target;
             s.queued_patterns[ch as usize] = -1;
-            crate::platform_clear_queued_pattern(ch);
+            crate::platform::platform_clear_queued_pattern(ch);
         });
-        crate::platform_set_current_patterns(&s.current_patterns);
+        crate::platform::platform_set_current_patterns(&s.current_patterns);
 
         switch_channels.iter().for_each(|&(ch, _)| {
             compute_preview_for_channel(s, ch);
@@ -1489,7 +1489,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
     }
 
     s.current_tick = next_tick;
-    crate::platform_set_current_tick(next_tick);
+    crate::platform::platform_set_current_tick(next_tick);
 }
 
 // ============ Scrub ============
@@ -1501,7 +1501,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
     s.active_notes.iter_mut()
         .filter(|n| n.active)
         .for_each(|n| {
-            crate::platform_note_off(n.channel, n.midi_note as u8);
+            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
             n.active = false;
         });
 
@@ -1572,7 +1572,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                     };
 
                     handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, curr_looped, SCRUB_NOTE_LENGTH, midi_note);
-                    crate::platform_step_trigger(
+                    crate::platform::platform_step_trigger(
                         ch, midi_note as u8, ev_tick,
                         SCRUB_NOTE_LENGTH, velocity.clamp(0, 127) as u8,
                         0, 0, ev.event_index,
@@ -1628,7 +1628,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
     }
 
     s.current_tick = target_tick;
-    crate::platform_set_current_tick(target_tick);
+    crate::platform::platform_set_current_tick(target_tick);
     s.last_scrub_tick = target_tick;
 }
 
@@ -1637,7 +1637,7 @@ pub fn engine_core_scrub_end(s: &mut EngineState) {
     s.active_notes.iter_mut()
         .filter(|n| n.active)
         .for_each(|n| {
-            crate::platform_note_off(n.channel, n.midi_note as u8);
+            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
             n.active = false;
         });
 }
