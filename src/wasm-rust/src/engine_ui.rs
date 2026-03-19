@@ -273,9 +273,9 @@ fn get_start_row(s: &EngineState, total_rows: i16) -> i16 {
     let ch = s.current_channel as usize;
     let offset = s.row_offsets[ch];
     let max_offset = total_rows - VISIBLE_ROWS as i16;
-    let start_array_index = ((1.0 - offset as f64) * max_offset as f64 + 0.5)
+    let start_array_index = ((1.0 - offset) * max_offset as f32 + 0.5)
         .max(0.0)
-        .min(max_offset as f64) as i16;
+        .min(max_offset as f32) as i16;
     start_array_index + min_row
 }
 

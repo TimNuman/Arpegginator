@@ -142,7 +142,7 @@ fn get_start_array_index(s: &EngineState) -> i16 {
     let total = get_total_rows(s);
     let max_offset = total - VISIBLE_ROWS as i16;
     if max_offset <= 0 { return 0; }
-    ((1.0 - s.row_offsets[s.current_channel as usize] as f64) * max_offset as f64 + 0.5) as i16
+    ((1.0 - s.row_offsets[s.current_channel as usize]) * max_offset as f32 + 0.5) as i16
 }
 
 pub fn engine_visible_to_actual_row(s: &EngineState, visible_row: u8) -> i16 {
