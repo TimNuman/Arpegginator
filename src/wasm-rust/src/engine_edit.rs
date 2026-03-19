@@ -80,7 +80,7 @@ pub fn engine_toggle_event(s: &mut EngineState, row: i16, tick: i32, length_tick
 
     let new_idx = s.patterns[ch][pat_idx].event_count;
     let id = engine_alloc_event_id(s);
-    let handle = event_alloc(&mut s.event_pool);
+    let Some(handle) = event_alloc(&mut s.event_pool) else { return -1; };
     init_event_fields(&mut s.event_pool.slots[handle as usize], row, tick, length_ticks, id);
     s.patterns[ch][pat_idx].event_handles[new_idx as usize] = handle;
     s.patterns[ch][pat_idx].event_count += 1;
@@ -188,7 +188,7 @@ pub fn engine_set_sub_mode_value(s: &mut EngineState, event_idx: u16, sub_mode: 
     let target_len = (repeat_idx + 1) as u8;
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize) else { return; };
     if target_len > arr.length {
         materialize_sub_mode(arr, target_len);
     }
@@ -205,7 +205,7 @@ pub fn engine_set_sub_mode_length(s: &mut EngineState, event_idx: u16, sub_mode:
     let clamped = new_length.max(1).min(MAX_SUB_MODE_LEN as u8);
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize) else { return; };
     materialize_sub_mode(arr, clamped);
     engine_mark_dirty(s, ch as u8);
 }
@@ -216,7 +216,7 @@ pub fn engine_toggle_sub_mode_loop_mode(s: &mut EngineState, event_idx: u16, sub
 
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize) else { return; };
     arr.loop_mode = (arr.loop_mode + 1) % 3;
     engine_mark_dirty(s, ch as u8);
 }
@@ -227,7 +227,7 @@ pub fn engine_set_sub_mode_stay(s: &mut EngineState, event_idx: u16, sub_mode: u
 
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-    let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize);
+    let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize) else { return; };
     arr.stay = stay.clamp(1, MAX_SUB_MODE_LEN as u8);
     engine_mark_dirty(s, ch as u8);
 }
@@ -391,7 +391,7 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
     // Deep-copy each event: alloc new pool slot, clone data, deep-copy sub-mode handles
     (0..src_ec as usize).for_each(|i| {
         let src_handle = s.patterns[ch][src].event_handles[i];
-        let new_handle = event_alloc(&mut s.event_pool);
+        let Some(new_handle) = event_alloc(&mut s.event_pool) else { return; };
         s.event_pool.slots[new_handle as usize] = s.event_pool.slots[src_handle as usize].clone();
         s.event_pool.slots[new_handle as usize].event_index = engine_alloc_event_id(s);
 
@@ -399,9 +399,10 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
         for sm in 0..NUM_SUB_MODES {
             let sm_handle = s.event_pool.slots[new_handle as usize].sub_mode_handles[sm];
             if sm_handle != POOL_HANDLE_NONE {
-                let new_sm = pool_alloc(&mut s.sub_mode_pool);
-                s.sub_mode_pool.slots[new_sm as usize] = s.sub_mode_pool.slots[sm_handle as usize];
-                s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sm;
+                if let Some(new_sm) = pool_alloc(&mut s.sub_mode_pool) {
+                    s.sub_mode_pool.slots[new_sm as usize] = s.sub_mode_pool.slots[sm_handle as usize];
+                    s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sm;
+                }
             }
         }
 

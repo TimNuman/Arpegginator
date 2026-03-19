@@ -376,7 +376,7 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
     let src_handle = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
-    let new_handle = event_alloc(&mut s.event_pool);
+    let Some(new_handle) = event_alloc(&mut s.event_pool) else { return; };
     s.event_pool.slots[new_handle as usize] = s.event_pool.slots[src_handle as usize].clone();
     s.event_pool.slots[new_handle as usize].row = row;
     s.event_pool.slots[new_handle as usize].position = tick;
@@ -384,9 +384,10 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     for sm in 0..NUM_SUB_MODES {
         let sh = s.event_pool.slots[new_handle as usize].sub_mode_handles[sm];
         if sh != POOL_HANDLE_NONE {
-            let new_sh = pool_alloc(&mut s.sub_mode_pool);
-            s.sub_mode_pool.slots[new_sh as usize] = s.sub_mode_pool.slots[sh as usize];
-            s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sh;
+            if let Some(new_sh) = pool_alloc(&mut s.sub_mode_pool) {
+                s.sub_mode_pool.slots[new_sh as usize] = s.sub_mode_pool.slots[sh as usize];
+                s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sh;
+            }
         }
     }
     let new_idx = s.patterns[ch][pat_idx].event_count;
@@ -446,16 +447,18 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         ev.arp_voices = 1;
 
         let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-        let vel_arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Velocity as usize);
-        vel_arr.length = amt;
-        vel_arr.loop_mode = 0;
-        vel_arr.values[..amt as usize].copy_from_slice(&vel_vals[..amt as usize]);
+        if let Some(vel_arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Velocity as usize) {
+            vel_arr.length = amt;
+            vel_arr.loop_mode = 0;
+            vel_arr.values[..amt as usize].copy_from_slice(&vel_vals[..amt as usize]);
+        }
 
         let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-        let hit_arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Hit as usize);
-        hit_arr.length = amt;
-        hit_arr.loop_mode = 0;
-        hit_arr.values[..amt as usize].copy_from_slice(&hit_vals[..amt as usize]);
+        if let Some(hit_arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Hit as usize) {
+            hit_arr.length = amt;
+            hit_arr.loop_mode = 0;
+            hit_arr.values[..amt as usize].copy_from_slice(&hit_vals[..amt as usize]);
+        }
 
         s.selected_event_idx = new_idx;
         engine_mark_dirty(s, ch as u8);
@@ -530,10 +533,11 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         let sm = sm_pick[i];
         let (ref vals, arr_len, loop_mode) = sm_data[i];
         let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-        let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sm);
-        arr.length = arr_len;
-        arr.loop_mode = loop_mode;
-        arr.values[..arr_len as usize].copy_from_slice(&vals[..arr_len as usize]);
+        if let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sm) {
+            arr.length = arr_len;
+            arr.loop_mode = loop_mode;
+            arr.values[..arr_len as usize].copy_from_slice(&vals[..arr_len as usize]);
+        }
     }
 
     s.selected_event_idx = new_idx;

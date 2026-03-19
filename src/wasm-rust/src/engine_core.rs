@@ -340,10 +340,10 @@ impl Default for SubModePool {
     }
 }
 
-pub fn pool_alloc(pool: &mut SubModePool) -> u16 {
-    assert!(pool.free_count > 0, "sub-mode pool exhausted");
+pub fn pool_alloc(pool: &mut SubModePool) -> Option<u16> {
+    if pool.free_count == 0 { return None; }
     pool.free_count -= 1;
-    pool.free_list[pool.free_count as usize]
+    Some(pool.free_list[pool.free_count as usize])
 }
 
 pub fn pool_free(pool: &mut SubModePool, handle: u16) {
@@ -379,13 +379,13 @@ pub fn get_sub_mode<'a>(pool: &'a SubModePool, handles: &[u16; NUM_SUB_MODES], s
     if h == POOL_HANDLE_NONE { &SM_DEFAULTS[sm] } else { &pool.slots[h as usize] }
 }
 
-pub fn get_sub_mode_mut<'a>(pool: &'a mut SubModePool, handles: &mut [u16; NUM_SUB_MODES], sm: usize) -> &'a mut SubModeArray {
+pub fn get_sub_mode_mut<'a>(pool: &'a mut SubModePool, handles: &mut [u16; NUM_SUB_MODES], sm: usize) -> Option<&'a mut SubModeArray> {
     if handles[sm] == POOL_HANDLE_NONE {
-        let h = pool_alloc(pool);
+        let h = pool_alloc(pool)?;
         pool.slots[h as usize] = SM_DEFAULTS[sm];
         handles[sm] = h;
     }
-    &mut pool.slots[handles[sm] as usize]
+    Some(&mut pool.slots[handles[sm] as usize])
 }
 
 // ============ Event Pool ============
@@ -396,10 +396,10 @@ pub struct NoteEventPool {
     pub free_count: u16,
 }
 
-pub fn event_alloc(pool: &mut NoteEventPool) -> u16 {
-    assert!(pool.free_count > 0, "event pool exhausted");
+pub fn event_alloc(pool: &mut NoteEventPool) -> Option<u16> {
+    if pool.free_count == 0 { return None; }
     pool.free_count -= 1;
-    pool.free_list[pool.free_count as usize]
+    Some(pool.free_list[pool.free_count as usize])
 }
 
 pub fn event_free(pool: &mut NoteEventPool, handle: u16) {
