@@ -441,10 +441,8 @@ fn draw_circle_of_fifths(s: &EngineState, active: bool) {
     let tick_color = if active { GFX_RED } else { gfx_rgb565(0x40, 0x4A, 0x68) };
 
     // Draw thick tick (3px wide perpendicular to radius)
-    // Use both perpendicular and axis-aligned offsets to ensure consistent width at all angles
-    let perp_x = -sin_a;
-    let perp_y = cos_a;
-    // Collect unique (ox, oy) pairs from offsets -1..=1 along perpendicular
+    // Use axis-aligned offsets filtered by perpendicular distance for consistent width
+    // Collect (ox, oy) pairs within ~1.2px perpendicular distance of the line
     let mut offsets: [(i16, i16); 9] = [(0, 0); 9];
     let mut n = 0usize;
     (-1i16..=1).for_each(|dx| {
