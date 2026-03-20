@@ -663,6 +663,9 @@ impl EngineState {
         let mut s = unsafe {
             let layout = core::alloc::Layout::new::<EngineState>();
             let ptr = alloc::alloc::alloc_zeroed(layout) as *mut EngineState;
+            if ptr.is_null() {
+                alloc::alloc::handle_alloc_error(layout);
+            }
             Box::from_raw(ptr)
         };
         s.init_in_place();
