@@ -153,13 +153,21 @@ npm run test:rust
 
 ```
 src/
-├── wasm-rust/         Rust engine crate (core, edit, input, UI, OLED, platform)
-├── engine/            TypeScript wrappers for WASM module
+├── wasm-rust/src/     Rust engine crate
+│   ├── engine_core    State, pools, types, playback tick processing
+│   ├── engine_edit    Note creation/deletion, sub-mode editing, chord ops
+│   ├── engine_input   Keyboard/grid input handling, pattern press modes
+│   ├── engine_ui      Grid rendering, rendered note cache, coordinate mapping
+│   ├── engine_drums   Drum channel logic
+│   ├── engine_strip   Touch strip handling
+│   ├── platform       Platform callbacks (WASM / Teensy / test)
+│   ├── oled_*         OLED display rendering, fonts, graphics primitives
+│   └── test_*         Rust unit tests
+├── engine/            TypeScript wrappers for WASM module (WasmEngine, OledRenderer)
 ├── components/        React components (Grid, Transport, ButtonGrid, TouchStrip)
 ├── actions/           Playback and pattern actions (transport loop, MIDI scheduling)
 ├── hooks/             useMidi (Web MIDI I/O + sync), useKeyboard
-├── store/             Zustand render store for React<>WASM sync
-└── types/             NoteEvent, PatternData, scales, drums
+└── store/             Zustand render store for React<>WASM sync
 ```
 
 ## Tech Stack
