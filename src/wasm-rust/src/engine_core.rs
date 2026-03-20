@@ -87,7 +87,7 @@ pub const TICKS_PER_QUARTER: i32 = 480;
 pub const MAX_RENDERED_NOTES: usize = 512;
 
 pub const POOL_CAPACITY: usize = 512;
-pub const EVENT_POOL_CAPACITY: usize = 512;
+pub const EVENT_POOL_CAPACITY: usize = 1024;
 pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
 
 pub const DEFAULT_PATTERN_TICKS: i32 = TICKS_PER_QUARTER * 4 * 4; // 4 bars of 4/4 = 7680
