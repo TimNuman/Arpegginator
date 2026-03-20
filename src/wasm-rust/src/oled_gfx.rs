@@ -128,9 +128,9 @@ pub fn gfx_blend(fg: u16, bg: u16, alpha: u8) -> u16 {
     let (br, bg_g, bb) = rgb565_components(bg);
     let a = alpha as u16;
     let inv = 255 - a;
-    let r = ((fr as u16 * a + br as u16 * inv) / 255) as u8;
-    let g = ((fg_g as u16 * a + bg_g as u16 * inv) / 255) as u8;
-    let b = ((fb as u16 * a + bb as u16 * inv) / 255) as u8;
+    let r = ((fr as u16 * a + br as u16 * inv + 128) >> 8) as u8;
+    let g = ((fg_g as u16 * a + bg_g as u16 * inv + 128) >> 8) as u8;
+    let b = ((fb as u16 * a + bb as u16 * inv + 128) >> 8) as u8;
     rgb565_pack(r, g, b)
 }
 

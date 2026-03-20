@@ -49,28 +49,66 @@ static SUB_ZOOM: [i32; 4] = [60, 90, 120, 180];
 static TRIPLETS: [i32; 5] = [40, 80, 160, 320, 640];
 const MAX_STEPS: usize = 128;
 
-fn build_step_table(zoom: i32, max_tick: i32) -> Vec<i32> {
-    let mut steps: Vec<i32> = SUB_ZOOM.iter()
-        .filter(|&&v| v < zoom && v <= max_tick)
-        .copied()
-        .chain((1..).map(|i| zoom * i).take_while(|&v| v <= max_tick))
-        .take(MAX_STEPS)
-        .collect();
-    steps.sort_unstable();
-    steps.dedup();
-    steps
+struct StepTable {
+    data: [i32; MAX_STEPS],
+    len: usize,
 }
 
-fn build_step_table_with_triplets(zoom: i32, max_tick: i32) -> Vec<i32> {
-    let mut steps = build_step_table(zoom, max_tick);
-    let extras: Vec<i32> = TRIPLETS.iter()
-        .filter(|&&t| t >= zoom && t <= max_tick && !steps.contains(&t))
-        .copied()
-        .collect();
-    steps.extend(extras);
-    steps.sort_unstable();
-    steps.dedup();
-    steps
+impl StepTable {
+    fn as_slice(&self) -> &[i32] { &self.data[..self.len] }
+
+    fn push(&mut self, val: i32) {
+        if self.len < MAX_STEPS {
+            self.data[self.len] = val;
+            self.len += 1;
+        }
+    }
+
+    fn sort_dedup(&mut self) {
+        self.data[..self.len].sort_unstable();
+        // dedup in place
+        if self.len > 1 {
+            let mut write = 1;
+            for read in 1..self.len {
+                if self.data[read] != self.data[write - 1] {
+                    self.data[write] = self.data[read];
+                    write += 1;
+                }
+            }
+            self.len = write;
+        }
+    }
+
+    fn contains(&self, val: i32) -> bool {
+        self.data[..self.len].contains(&val)
+    }
+}
+
+fn build_step_table(zoom: i32, max_tick: i32) -> StepTable {
+    let mut t = StepTable { data: [0; MAX_STEPS], len: 0 };
+    for &v in SUB_ZOOM.iter() {
+        if v < zoom && v <= max_tick { t.push(v); }
+    }
+    let mut i = 1;
+    while t.len < MAX_STEPS {
+        let v = zoom * i;
+        if v > max_tick { break; }
+        t.push(v);
+        i += 1;
+    }
+    t.sort_dedup();
+    t
+}
+
+fn build_step_table_with_triplets(zoom: i32, max_tick: i32) -> StepTable {
+    let mut t = build_step_table(zoom, max_tick);
+    for &trip in TRIPLETS.iter() {
+        if trip >= zoom && trip <= max_tick && !t.contains(trip) {
+            t.push(trip);
+        }
+    }
+    t.sort_dedup();
+    t
 }
 
 fn find_step_index(steps: &[i32], current: i32) -> usize {
@@ -104,7 +142,7 @@ fn get_start_array_index(s: &EngineState) -> i16 {
     let total = get_total_rows(s);
     let max_offset = total - VISIBLE_ROWS as i16;
     if max_offset <= 0 { return 0; }
-    ((1.0 - s.row_offsets[s.current_channel as usize] as f64) * max_offset as f64 + 0.5) as i16
+    ((1.0 - s.row_offsets[s.current_channel as usize]) * max_offset as f32 + 0.5) as i16
 }
 
 pub fn engine_visible_to_actual_row(s: &EngineState, visible_row: u8) -> i16 {
@@ -187,13 +225,13 @@ fn play_event_preview(s: &EngineState, ev: &NoteEvent, length_ticks: i32) {
     if s.is_playing != 0 { return; }
     let ch = s.current_channel;
     if ev.chord_amount <= 1 {
-        crate::platform_play_preview_note(ch, ev.row, length_ticks);
+        crate::platform::platform_play_preview_note(ch, ev.row, length_ticks);
         return;
     }
     let mut offsets = [0i8; MAX_CHORD_SIZE];
     let count = get_chord_offsets(s, ev, &mut offsets, 0);
     (0..count).for_each(|c| {
-        crate::platform_play_preview_note(ch, ev.row + offsets[c] as i16, length_ticks);
+        crate::platform::platform_play_preview_note(ch, ev.row + offsets[c] as i16, length_ticks);
     });
 }
 
@@ -338,17 +376,21 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
     let src_handle = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
-    let new_handle = event_alloc(&mut s.event_pool);
+    let Some(new_handle) = event_alloc(&mut s.event_pool) else { return; };
     s.event_pool.slots[new_handle as usize] = s.event_pool.slots[src_handle as usize].clone();
     s.event_pool.slots[new_handle as usize].row = row;
     s.event_pool.slots[new_handle as usize].position = tick;
     s.event_pool.slots[new_handle as usize].event_index = engine_alloc_event_id(s);
+    // Deep-copy sub-mode handles — reset to NONE on alloc failure to avoid aliasing
     for sm in 0..NUM_SUB_MODES {
         let sh = s.event_pool.slots[new_handle as usize].sub_mode_handles[sm];
         if sh != POOL_HANDLE_NONE {
-            let new_sh = pool_alloc(&mut s.sub_mode_pool);
-            s.sub_mode_pool.slots[new_sh as usize] = s.sub_mode_pool.slots[sh as usize];
-            s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sh;
+            if let Some(new_sh) = pool_alloc(&mut s.sub_mode_pool) {
+                s.sub_mode_pool.slots[new_sh as usize] = s.sub_mode_pool.slots[sh as usize];
+                s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sh;
+            } else {
+                s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = POOL_HANDLE_NONE;
+            }
         }
     }
     let new_idx = s.patterns[ch][pat_idx].event_count;
@@ -408,16 +450,18 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         ev.arp_voices = 1;
 
         let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-        let vel_arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Velocity as usize);
-        vel_arr.length = amt;
-        vel_arr.loop_mode = 0;
-        vel_arr.values[..amt as usize].copy_from_slice(&vel_vals[..amt as usize]);
+        if let Some(vel_arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Velocity as usize) {
+            vel_arr.length = amt;
+            vel_arr.loop_mode = 0;
+            vel_arr.values[..amt as usize].copy_from_slice(&vel_vals[..amt as usize]);
+        }
 
         let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-        let hit_arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Hit as usize);
-        hit_arr.length = amt;
-        hit_arr.loop_mode = 0;
-        hit_arr.values[..amt as usize].copy_from_slice(&hit_vals[..amt as usize]);
+        if let Some(hit_arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, SubModeId::Hit as usize) {
+            hit_arr.length = amt;
+            hit_arr.loop_mode = 0;
+            hit_arr.values[..amt as usize].copy_from_slice(&hit_vals[..amt as usize]);
+        }
 
         s.selected_event_idx = new_idx;
         engine_mark_dirty(s, ch as u8);
@@ -428,6 +472,7 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
 
     // Melodic random
     let steps = build_step_table_with_triplets(tpc, 1920);
+    let steps = steps.as_slice();
     let r_len = ((engine_random(s) % 4) + 1) as i32 * tpc;
     let r_repeat_amt = ((engine_random(s) % 8) + 1) as u16;
     let max_space = tpc * 8;
@@ -491,10 +536,11 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         let sm = sm_pick[i];
         let (ref vals, arr_len, loop_mode) = sm_data[i];
         let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
-        let arr = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sm);
-        arr.length = arr_len;
-        arr.loop_mode = loop_mode;
-        arr.values[..arr_len as usize].copy_from_slice(&vals[..arr_len as usize]);
+        if let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sm) {
+            arr.length = arr_len;
+            arr.loop_mode = loop_mode;
+            arr.values[..arr_len as usize].copy_from_slice(&vals[..arr_len as usize]);
+        }
     }
 
     s.selected_event_idx = new_idx;
@@ -623,7 +669,7 @@ fn pattern_press_bare(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     let new_idx = engine_toggle_event(s, row, tick, tpc);
     if new_idx >= 0 { s.selected_event_idx = new_idx; }
     if s.is_playing == 0 {
-        crate::platform_play_preview_note(s.current_channel, row, tpc);
+        crate::platform::platform_play_preview_note(s.current_channel, row, tpc);
     }
 }
 
@@ -1009,7 +1055,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 let ev = &s.event_pool.slots[h as usize];
                 let max_len = s.patterns[ch][pat_idx].length_ticks - ev.position;
                 let steps = build_step_table(tpc, max_len);
-                let new_len = step_to(&steps, ev.length, dir == DIR_RIGHT);
+                let new_len = step_to(steps.as_slice(), ev.length, dir == DIR_RIGHT);
                 engine_set_event_length(s, sel, new_len);
                 let ev = s.event_pool.slots[h as usize].clone();
                 play_event_preview(s, &ev, new_len);
@@ -1044,7 +1090,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 let steps = build_step_table_with_triplets(tpc, 1920);
                 let h = s.patterns[ch][pat_idx].event_handles[sel as usize];
                 let cur = s.event_pool.slots[h as usize].repeat_space;
-                let new_val = step_to(&steps, cur, dir == DIR_RIGHT);
+                let new_val = step_to(steps.as_slice(), cur, dir == DIR_RIGHT);
                 engine_set_event_repeat_space(s, sel, new_val);
             }
         }
