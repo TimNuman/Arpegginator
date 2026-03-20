@@ -126,17 +126,17 @@ pub const MAX_GHOST_NOTES: usize = 128;
 #[repr(u8)]
 pub enum LoopMode {
     #[default]
-    Reset = 0,
-    Continue = 1,
+    Continue = 0,
+    Reset = 1,
     Fill = 2,
 }
 
 impl LoopMode {
     pub fn cycle(self) -> Self {
         match self {
-            Self::Reset => Self::Continue,
-            Self::Continue => Self::Fill,
-            Self::Fill => Self::Reset,
+            Self::Continue => Self::Reset,
+            Self::Reset => Self::Fill,
+            Self::Fill => Self::Continue,
         }
     }
 }
@@ -312,10 +312,10 @@ impl Default for SubModeArray {
 impl SubModeArray {
     pub fn mode(&self) -> LoopMode {
         match self.loop_mode {
-            0 => LoopMode::Reset,
-            1 => LoopMode::Continue,
+            0 => LoopMode::Continue,
+            1 => LoopMode::Reset,
             2 => LoopMode::Fill,
-            _ => LoopMode::Reset,
+            _ => LoopMode::Continue,
         }
     }
 }
@@ -360,7 +360,7 @@ pub fn pool_free_event_handles(pool: &mut SubModePool, handles: &mut [u16; NUM_S
 }
 
 const fn make_sm_default(val: i16) -> SubModeArray {
-    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: 1, stay: 1 }; // Continue
+    let mut a = SubModeArray { values: [0i16; MAX_SUB_MODE_LEN], length: 1, loop_mode: LoopMode::Continue as u8, stay: 1 };
     a.values[0] = val;
     a
 }

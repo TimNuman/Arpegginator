@@ -980,9 +980,9 @@ fn render_modify(s: &EngineState, mods: u8) {
             }
         }
 
-        // ---- Row 2: LOOP [RST/CNT/FIL] — all modes shown, current highlighted ----
+        // ---- Row 2: LOOP [CNT/RST/FIL] — all modes shown, current highlighted ----
         {
-            static LOOP_DISPLAY_LABELS: [&str; 3] = ["RST", "CNT", "FIL"];
+            static LOOP_DISPLAY_LABELS: [&str; 3] = ["CNT", "RST", "FIL"];
             gfx_aa_text(PAD_X, ROW_Y5[2], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
             let mut x = PAD_X + gfx_aa_text_width("LOOP ", &FONT_AA_SMALL);
             for (i, &label) in LOOP_DISPLAY_LABELS.iter().enumerate() {
