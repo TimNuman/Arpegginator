@@ -201,11 +201,11 @@ fn toggle_loop_mode_cycles() {
     let idx = engine_toggle_event(&mut s, 10, 0, 120);
 
     assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev(&s, idx as usize).sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Continue as u8);
-    engine_toggle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8);
+    engine_cycle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8, true);
     assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev(&s, idx as usize).sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Fill as u8);
-    engine_toggle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8);
+    engine_cycle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8, true);
     assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev(&s, idx as usize).sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Reset as u8);
-    engine_toggle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8);
+    engine_cycle_sub_mode_loop_mode(&mut s, idx as u16, SubModeId::Velocity as u8, true);
     assert_eq!(get_sub_mode(&s.sub_mode_pool, &ev(&s, idx as usize).sub_mode_handles, SubModeId::Velocity as usize).loop_mode, LoopMode::Continue as u8);
 }
 

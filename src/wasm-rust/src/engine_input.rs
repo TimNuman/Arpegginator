@@ -1149,7 +1149,7 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
         (true,  false, false) => { // Cmd: loop mode (U/D), stay (L/R)
             if s.selected_event_idx < 0 { return; }
             if dir == DIR_UP || dir == DIR_DOWN {
-                engine_toggle_sub_mode_loop_mode(s, s.selected_event_idx as u16, s.modify_sub_mode);
+                engine_cycle_sub_mode_loop_mode(s, s.selected_event_idx as u16, s.modify_sub_mode, dir == DIR_UP);
             } else if dir == DIR_LEFT || dir == DIR_RIGHT {
                 let ch = s.current_channel as usize;
                 let pat = s.current_patterns[ch] as usize;
@@ -1169,7 +1169,7 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
                 let idx = MODIFY_SUB_MODE_ORDER.iter()
                     .position(|&m| m == s.modify_sub_mode)
                     .unwrap_or(0);
-                let new_idx = if dir == DIR_DOWN {
+                let new_idx = if dir == DIR_UP {
                     (idx + 1) % MODIFY_SUB_MODE_ORDER.len()
                 } else {
                     (idx + MODIFY_SUB_MODE_ORDER.len() - 1) % MODIFY_SUB_MODE_ORDER.len()

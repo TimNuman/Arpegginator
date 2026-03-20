@@ -210,14 +210,18 @@ pub fn engine_set_sub_mode_length(s: &mut EngineState, event_idx: u16, sub_mode:
     engine_mark_dirty(s, ch as u8);
 }
 
-pub fn engine_toggle_sub_mode_loop_mode(s: &mut EngineState, event_idx: u16, sub_mode: u8) {
+pub fn engine_cycle_sub_mode_loop_mode(s: &mut EngineState, event_idx: u16, sub_mode: u8, forward: bool) {
     let (ch, pat_idx) = get_current_pattern_indices(s);
     if event_idx >= s.patterns[ch][pat_idx].event_count || sub_mode as usize >= NUM_SUB_MODES { return; }
 
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let handles = &mut s.event_pool.slots[h as usize].sub_mode_handles;
     let Some(arr) = get_sub_mode_mut(&mut s.sub_mode_pool, handles, sub_mode as usize) else { return; };
-    arr.loop_mode = (arr.loop_mode + 1) % 3;
+    arr.loop_mode = if forward {
+        (arr.loop_mode + 1) % 3
+    } else {
+        (arr.loop_mode + 2) % 3
+    };
     engine_mark_dirty(s, ch as u8);
 }
 

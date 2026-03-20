@@ -431,8 +431,8 @@ pub extern "C" fn engine_set_sub_mode_length_export(event_idx: u16, sub_mode: u8
 }
 
 #[no_mangle]
-pub extern "C" fn engine_toggle_sub_mode_loop_mode_export(event_idx: u16, sub_mode: u8) {
-    engine_edit::engine_toggle_sub_mode_loop_mode(state(), event_idx, sub_mode);
+pub extern "C" fn engine_cycle_sub_mode_loop_mode_export(event_idx: u16, sub_mode: u8, forward: u8) {
+    engine_edit::engine_cycle_sub_mode_loop_mode(state(), event_idx, sub_mode, forward != 0);
 }
 
 #[no_mangle]
