@@ -3,6 +3,13 @@
 use crate::engine_core::*;
 use crate::engine_input::{MOD_ALT, MOD_CTRL, MOD_META};
 
+// Temp buffer lives outside EngineState to avoid aliasing UB when passing
+// &EngineState to engine_render_events while writing into this buffer.
+static mut TEMP_RENDERED: [RenderedNote; MAX_RENDERED_NOTES] = [RenderedNote {
+    row: 0, position: 0, length: 0, source_idx: 0,
+    repeat_index: 0, chord_index: 0, chord_offset: 0,
+}; MAX_RENDERED_NOTES];
+
 // ============ Sub-mode render configs ============
 
 pub struct SubModeRenderConfig {
@@ -237,14 +244,11 @@ pub fn engine_ensure_rendered(s: &mut EngineState, channel: u8) {
     let channel_changed = s.rendered_for_channel != channel;
     if !channel_changed && s.rendered_dirty[channel as usize] == 0 { return; }
     let pat = s.current_patterns[channel as usize];
-    // Render into temp buffer, then copy to rendered_notes.
-    // Use raw pointer to split borrow: engine_render_events reads s, temp_rendered is write-only.
-    let temp_buf = unsafe { core::slice::from_raw_parts_mut(s.temp_rendered.as_mut_ptr(), MAX_RENDERED_NOTES) };
+    // Render into separate static buffer to avoid aliasing &EngineState and &mut temp.
+    let temp_buf = unsafe { &mut TEMP_RENDERED };
     let count = engine_render_events(s, channel, pat, temp_buf, MAX_RENDERED_NOTES);
-    // Copy from temp to rendered_notes (non-overlapping fields)
-    unsafe {
-        core::ptr::copy_nonoverlapping(s.temp_rendered.as_ptr(), s.rendered_notes.as_mut_ptr(), count as usize);
-    }
+    // Copy from temp to rendered_notes
+    s.rendered_notes[..count as usize].copy_from_slice(&temp_buf[..count as usize]);
     s.rendered_count = count;
     s.rendered_for_channel = channel;
     s.rendered_dirty[channel as usize] = 0;
@@ -797,12 +801,12 @@ fn compute_ghost_notes(s: &mut EngineState) {
         if s.channel_types[ch] == ChannelType::Drum as u8 { continue; }
 
         let pat = s.current_patterns[ch];
-        let temp_buf = unsafe { core::slice::from_raw_parts_mut(s.temp_rendered.as_mut_ptr(), MAX_RENDERED_NOTES) };
+        let temp_buf = unsafe { &mut TEMP_RENDERED };
         let cnt = engine_render_events(s, ch as u8, pat, temp_buf, MAX_RENDERED_NOTES);
 
         for i in 0..cnt as usize {
             if count >= MAX_GHOST_NOTES { break; }
-            let rn = s.temp_rendered[i];
+            let rn = temp_buf[i];
             let midi_idx = scale_zero as i32 + rn.row as i32;
             if midi_idx < 0 || midi_idx >= scale_cnt as i32 { continue; }
             let midi = s.scale_notes[midi_idx as usize];
@@ -956,18 +960,11 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     engine_ensure_rendered(s, ch as u8);
     compute_ghost_notes(s);
 
-    // Copy rendered notes into temp buffer to avoid borrow conflict with &mut s
+    // Copy rendered notes into separate static buffer to avoid borrow conflict with &mut s
     let note_count = s.rendered_count as usize;
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            s.rendered_notes.as_ptr(),
-            s.temp_rendered.as_mut_ptr(),
-            note_count,
-        );
-    }
-    // Create a slice from raw pointer — valid for the duration of this function
-    // since temp_rendered is not modified by the render functions
-    let notes = unsafe { core::slice::from_raw_parts(s.temp_rendered.as_ptr(), note_count) };
+    let temp = unsafe { &mut TEMP_RENDERED };
+    temp[..note_count].copy_from_slice(&s.rendered_notes[..note_count]);
+    let notes = &temp[..note_count];
 
     match UiMode::from_u8(s.ui_mode) {
         UiMode::Channel => render_channel_mode(s, notes, note_count),

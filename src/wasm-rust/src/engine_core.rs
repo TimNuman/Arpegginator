@@ -596,8 +596,7 @@ pub struct EngineState {
     pub ghost_count: u16,
     pub ghost_enabled: u8,
 
-    // Pre-allocated temp buffers (avoid per-frame heap allocation)
-    pub temp_rendered: [RenderedNote; MAX_RENDERED_NOTES],
+    // Pre-allocated temp buffer (avoid per-frame heap allocation)
     pub temp_sub_modes: [[SubModeArray; NUM_SUB_MODES]; MAX_EVENTS],
 }
 
