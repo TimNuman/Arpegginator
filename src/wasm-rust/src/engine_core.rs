@@ -1237,17 +1237,27 @@ fn handle_active_note(
         }
     });
 
-    if let Some(slot) = free_slot {
-        let n = &mut s.active_notes[slot];
-        n.active = true;
-        n.channel = ch;
-        n.event_index = event_index;
-        n.repeat_index = repeat_index;
-        n.chord_index = chord_index;
-        n.start = channel_tick;
-        n.end = channel_tick + note_length - 1;
-        n.midi_note = midi_note;
-    }
+    // If no free slot, evict the oldest active note to prevent stuck notes
+    let slot = free_slot.unwrap_or_else(|| {
+        let oldest = s.active_notes.iter().enumerate()
+            .filter(|(_, n)| n.active)
+            .min_by_key(|(_, n)| n.start)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let old = &s.active_notes[oldest];
+        crate::platform::platform_note_off(old.channel, old.midi_note as u8);
+        oldest
+    });
+
+    let n = &mut s.active_notes[slot];
+    n.active = true;
+    n.channel = ch;
+    n.event_index = event_index;
+    n.repeat_index = repeat_index;
+    n.chord_index = chord_index;
+    n.start = channel_tick;
+    n.end = channel_tick + note_length - 1;
+    n.midi_note = midi_note;
 }
 
 // ============ Preview Computation ============
