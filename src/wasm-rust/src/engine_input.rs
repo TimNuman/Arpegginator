@@ -381,12 +381,15 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     s.event_pool.slots[new_handle as usize].row = row;
     s.event_pool.slots[new_handle as usize].position = tick;
     s.event_pool.slots[new_handle as usize].event_index = engine_alloc_event_id(s);
+    // Deep-copy sub-mode handles — reset to NONE on alloc failure to avoid aliasing
     for sm in 0..NUM_SUB_MODES {
         let sh = s.event_pool.slots[new_handle as usize].sub_mode_handles[sm];
         if sh != POOL_HANDLE_NONE {
             if let Some(new_sh) = pool_alloc(&mut s.sub_mode_pool) {
                 s.sub_mode_pool.slots[new_sh as usize] = s.sub_mode_pool.slots[sh as usize];
                 s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sh;
+            } else {
+                s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = POOL_HANDLE_NONE;
             }
         }
     }

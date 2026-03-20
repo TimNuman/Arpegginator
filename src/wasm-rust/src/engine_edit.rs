@@ -395,13 +395,15 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
         s.event_pool.slots[new_handle as usize] = s.event_pool.slots[src_handle as usize].clone();
         s.event_pool.slots[new_handle as usize].event_index = engine_alloc_event_id(s);
 
-        // Deep-copy sub-mode handles
+        // Deep-copy sub-mode handles — reset to NONE on alloc failure to avoid aliasing
         for sm in 0..NUM_SUB_MODES {
             let sm_handle = s.event_pool.slots[new_handle as usize].sub_mode_handles[sm];
             if sm_handle != POOL_HANDLE_NONE {
                 if let Some(new_sm) = pool_alloc(&mut s.sub_mode_pool) {
                     s.sub_mode_pool.slots[new_sm as usize] = s.sub_mode_pool.slots[sm_handle as usize];
                     s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = new_sm;
+                } else {
+                    s.event_pool.slots[new_handle as usize].sub_mode_handles[sm] = POOL_HANDLE_NONE;
                 }
             }
         }
