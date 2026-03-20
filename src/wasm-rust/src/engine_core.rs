@@ -118,7 +118,7 @@ pub const FLAG_IN_SCALE: u16 = 8192;
 pub const FLAG_GHOST: u16 = 16384;
 pub const FLAG_OFFSCREEN: u16 = 32768;
 
-pub const MAX_GHOST_NOTES: usize = 512;
+pub const MAX_GHOST_NOTES: usize = 128;
 
 // ============ Enums ============
 
