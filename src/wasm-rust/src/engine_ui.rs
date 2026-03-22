@@ -310,17 +310,6 @@ fn is_note_active(s: &EngineState, channel: u8, event_idx: u16, tick: i32) -> bo
 
 // ============ Color helpers ============
 
-fn velocity_color_blend(base_rgb: u32, velocity: i16) -> u32 {
-    let white_mix = (1.0 - ((velocity - 7) as f32 / 120.0)) * 0.3;
-    let r = ((base_rgb >> 16) & 0xFF) as f32;
-    let g = ((base_rgb >> 8) & 0xFF) as f32;
-    let b = (base_rgb & 0xFF) as f32;
-    let nr = (r + (255.0 - r) * white_mix) as u8;
-    let ng = (g + (255.0 - g) * white_mix) as u8;
-    let nb = (b + (255.0 - b) * white_mix) as u8;
-    ((nr as u32) << 16) | ((ng as u32) << 8) | nb as u32
-}
-
 // ============ Pattern Mode Rendering ============
 
 fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: usize) {
@@ -419,11 +408,28 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 let rn = &notes[ni];
                 let src_sub_modes = &ev_sub_modes[rn.source_idx as usize];
 
+                // Hit: deterministic per-repeat evaluation
                 let hit_sm = &src_sub_modes[SubModeId::Hit as usize];
                 let hit_chance = resolve_render_sub_mode_inline(hit_sm, rn.repeat_index, ev_hit_snapshots[rn.source_idx as usize]);
-                value = if hit_chance >= 75 { BTN_COLOR_100 }
-                    else if hit_chance >= 50 { BTN_COLOR_50 }
+                let will_hit = if hit_chance >= 100 { true }
+                    else {
+                        // Deterministic hash from event + repeat to decide hit/miss
+                        let seed = (ev_indexes[rn.source_idx as usize] as u32).wrapping_mul(2654435761)
+                            ^ (rn.repeat_index as u32).wrapping_mul(2246822519);
+                        (seed % 100) < hit_chance as u32
+                    };
+
+                // Velocity determines brightness via color level
+                let vel_sm = &src_sub_modes[SubModeId::Velocity as usize];
+                let vel = resolve_render_sub_mode_inline(vel_sm, rn.repeat_index, ev_vel_snapshots[rn.source_idx as usize]);
+                // Map velocity (7-127) to brightness level 1-4
+                let norm = ((vel - 7).max(0) as f32) / 120.0; // 0.0-1.0
+                value = if norm >= 0.75 { BTN_COLOR_100 }
+                    else if norm >= 0.50 { BTN_COLOR_75 }
+                    else if norm >= 0.25 { BTN_COLOR_50 }
                     else { BTN_COLOR_25 };
+
+                if !will_hit { value |= FLAG_NO_HIT; }
 
                 let is_start = rn.position >= actual_tick && rn.position < col_end_tick;
                 if !is_start { value |= FLAG_CONTINUATION; }
@@ -437,9 +443,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                     value |= FLAG_SELECTED;
                 }
 
-                let vel_sm = &src_sub_modes[SubModeId::Velocity as usize];
-                let vel = resolve_render_sub_mode_inline(vel_sm, rn.repeat_index, ev_vel_snapshots[rn.source_idx as usize]);
-                color = velocity_color_blend(ch_color, vel);
+                color = ch_color;
             } else {
                 // Off-screen indicators
                 let is_top = vr == 0;
@@ -1053,13 +1057,13 @@ fn compute_grid_colors(s: &mut EngineState) {
             let selected = value & FLAG_SELECTED != 0;
             let playhead = value & FLAG_PLAYHEAD != 0;
             let c_note = value & FLAG_C_NOTE != 0;
-            let in_scale = value & FLAG_IN_SCALE != 0;
             let loop_boundary = value & FLAG_LOOP_BOUNDARY != 0;
             let beat_marker = value & FLAG_BEAT_MARKER != 0;
             let ghost = value & FLAG_GHOST != 0;
             let offscreen = value & FLAG_OFFSCREEN != 0;
             let dimmed = value & FLAG_DIMMED != 0;
             let pulsing = value & FLAG_LOOP_BOUNDARY_PULSING != 0;
+            let no_hit = value & FLAG_NO_HIT != 0;
 
             // Effective color for this cell (color_override or channel color)
             let cell_rgb = if co != 0 { co } else { ch_rgb };
@@ -1071,7 +1075,6 @@ fn compute_grid_colors(s: &mut EngineState) {
             else if beat_marker { base_bright = 0.15; }
             else if level == 0 { base_bright = 0.1; }
             if c_note { base_bright += 0.1; }
-            else if in_scale { base_bright += 0.08; }
 
             let argb = if level == 0 {
                 // Off state
@@ -1108,6 +1111,20 @@ fn compute_grid_colors(s: &mut EngineState) {
                 let whiteness = (level - 4) as f32 * 0.25;
                 let (wr, wg, wb) = blend_toward_white(cr, cg, cb, whiteness);
                 pack_argb(255, wr, wg, wb)
+            } else if no_hit {
+                // No-hit: show grid background with 10% channel color overlay
+                // First compute the background grey (same as level==0 logic)
+                let bg_a = if loop_boundary { 0.2 }
+                    else if beat_marker { 0.15 }
+                    else { 0.1 };
+                let bg_a = bg_a + if c_note { 0.1 } else { 0.0 };
+                // Background is white * bg_a over black = grey
+                let bg = (255.0 * bg_a) as f32;
+                // Layer 10% channel color on top
+                let nr = (bg + cr as f32 * 0.1) as u8;
+                let ng = (bg + cg as f32 * 0.1) as u8;
+                let nb = (bg + cb as f32 * 0.1) as u8;
+                pack_argb(255, nr, ng, nb)
             } else {
                 // Color levels (1-4)
                 let opacity = level as f32 * 0.25;

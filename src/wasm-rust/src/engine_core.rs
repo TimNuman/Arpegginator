@@ -114,7 +114,7 @@ pub const FLAG_CONTINUATION: u16 = 512;
 pub const FLAG_PLAYING: u16 = 1024;
 pub const FLAG_LOOP_BOUNDARY_PULSING: u16 = 2048;
 pub const FLAG_DIMMED: u16 = 4096;
-pub const FLAG_IN_SCALE: u16 = 8192;
+pub const FLAG_NO_HIT: u16 = 8192;
 pub const FLAG_GHOST: u16 = 16384;
 pub const FLAG_OFFSCREEN: u16 = 32768;
 
