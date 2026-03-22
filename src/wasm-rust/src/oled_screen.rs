@@ -829,12 +829,6 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     } else {
         note_name
     };
-    // Row color helper: yellow if U/D target, red if L/R target, else value
-    let row_color = |row: u8| -> u16 {
-        if em.ud_rows & (1 << row) != 0 { GFX_YELLOW }
-        else if em.lr_rows & (1 << row) != 0 { GFX_RED }
-        else { GFX_VALUE }
-    };
     // Left/right column colors for rows with two values (U/D edits left, L/R edits right)
     let row_ud_color = |row: u8| -> u16 {
         if em.ud_rows & (1 << row) != 0 { GFX_YELLOW } else { GFX_VALUE }
