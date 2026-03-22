@@ -640,7 +640,8 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let mut pat_str = FmtBuf::<4>::new();
     let _ = write!(pat_str, "{:02}", pat + 1);
     let ch_color = if alt_only { GFX_YELLOW } else { GFX_VALUE };
-    draw_row_two_col(ROW_Y[0], "CH", &ch_str, ch_color, "PAT", &pat_str, GFX_VALUE);
+    let pat_color = if alt_only { GFX_RED } else { GFX_VALUE };
+    draw_row_two_col(ROW_Y[0], "CH", &ch_str, ch_color, "PAT", &pat_str, pat_color);
 
     // ---- Row 1: LOOP x.x-y.y ----
     // Highlight start (U/D) yellow when Cmd+Alt, highlight end (L/R) red when Cmd+Alt or Alt-only
@@ -708,10 +709,10 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         draw_legend_item(1, 1, "", GFX_DIM);
         draw_legend_item(2, 2, "", GFX_DIM);
     } else if p_alt {
-        // Alt only: channel cycle (U/D)
+        // Alt only: channel cycle (U/D), pattern cycle (L/R)
         draw_legend_item(0, 0, "", GFX_DIM);
         draw_legend_item(1, 1, "CHANNEL", GFX_YELLOW);
-        draw_legend_item(2, 2, "", GFX_DIM);
+        draw_legend_item(2, 2, "PATTERN", GFX_RED);
     } else if p_shift {
         // Shift only: camera scroll octave/beat
         draw_legend_item(0, 0, "ENABLE", GFX_BLUE);

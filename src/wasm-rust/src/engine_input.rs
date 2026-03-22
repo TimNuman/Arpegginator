@@ -955,7 +955,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 }
             }
             (false, true,  true)  => {} // Alt+Shift: placeholder
-            (false, true,  false) => { // Alt: channel cycle (U/D)
+            (false, true,  false) => { // Alt: channel cycle (U/D), pattern cycle (L/R)
                 match dir {
                     DIR_UP => {
                         let ch = if s.current_channel == 0 { NUM_CHANNELS as u8 - 1 } else { s.current_channel - 1 };
@@ -968,6 +968,37 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                         s.current_channel = ch;
                         s.selected_event_idx = -1;
                         engine_mark_dirty(s, ch);
+                    }
+                    DIR_LEFT => {
+                        let ch = s.current_channel as usize;
+                        let cur = s.current_patterns[ch];
+                        let new_pat = if cur == 0 {
+                            // Wrap: find last pattern with notes, or stay at 0
+                            let mut last = 0u8;
+                            for p in 0..NUM_PATTERNS {
+                                if s.patterns_have_notes[ch][p] != 0 { last = p as u8; }
+                            }
+                            last
+                        } else {
+                            cur - 1
+                        };
+                        s.current_patterns[ch] = new_pat;
+                        s.selected_event_idx = -1;
+                        engine_mark_dirty(s, ch as u8);
+                    }
+                    DIR_RIGHT => {
+                        let ch = s.current_channel as usize;
+                        let cur = s.current_patterns[ch] as usize;
+                        // Find first empty pattern (max boundary for cycling)
+                        let mut max_pat = 0usize;
+                        for p in 0..NUM_PATTERNS {
+                            if s.patterns_have_notes[ch][p] != 0 { max_pat = p + 1; }
+                        }
+                        max_pat = max_pat.min(NUM_PATTERNS - 1);
+                        let new_pat = if cur >= max_pat { 0 } else { cur + 1 };
+                        s.current_patterns[ch] = new_pat as u8;
+                        s.selected_event_idx = -1;
+                        engine_mark_dirty(s, ch as u8);
                     }
                     _ => {}
                 }
