@@ -480,8 +480,12 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     let r_repeat_space = (engine_random(s) as usize) % space_limit.max(1);
     let r_chord_amt = ((engine_random(s) % 5) + 1) as u8;
     let r_chord_space = ((engine_random(s) % DIATONIC_OCTAVE as u32) + 1) as u8;
-    let r_arp_style = (engine_random(s) % ARP_STYLE_COUNT as u32) as u8;
-    let r_arp_offset = engine_random(s);
+    // Only pick arp styles that start on the first (clicked) note
+    static ARP_STARTS_ON_FIRST: [u8; 7] = [
+        ARP_CHORD, ARP_UP, ARP_UP_DOWN, ARP_CHORD_UP,
+        ARP_CHORD_UP_DOWN, ARP_ZIG_UP, ARP_ZIG_UP_DOWN,
+    ];
+    let r_arp_style = ARP_STARTS_ON_FIRST[(engine_random(s) % ARP_STARTS_ON_FIRST.len() as u32) as usize];
     let r_arp_voices = engine_random(s);
 
     let mut sm_pick = [SubModeId::Velocity as usize, SubModeId::Hit as usize, SubModeId::Modulate as usize, 0];
@@ -498,7 +502,9 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         let mut vals = [0i16; MAX_SUB_MODE_LEN];
         for (j, v) in vals.iter_mut().take(arr_len as usize).enumerate() {
             *v = if j == 0 && sm_pick[i] == 4 {
-                0
+                0 // modulate: first value always 0
+            } else if j == 0 && sm_pick[i] == 1 {
+                100 // hit: first value always 100%
             } else {
                 match sm_pick[i] {
                     0 => ((engine_random(s) % 81) + 20) as i16,
@@ -525,7 +531,7 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     ev.chord_voicing = 0;
     ev.arp_style = r_arp_style;
     if ev.chord_amount > 1 && ev.arp_style != ARP_CHORD {
-        ev.arp_offset = (r_arp_offset % ev.chord_amount as u32) as i8;
+        ev.arp_offset = 0; // Always start arp from clicked note
         ev.arp_voices = ((r_arp_voices % (ev.chord_amount as u32 - 1)) + 1) as u8;
     } else {
         ev.arp_offset = 0;
@@ -540,6 +546,25 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
             arr.length = arr_len;
             arr.loop_mode = loop_mode;
             arr.values[..arr_len as usize].copy_from_slice(&vals[..arr_len as usize]);
+        }
+    }
+
+    // Randomize voicing and inversion, keeping lowest note at clicked row
+    if r_chord_amt > 1 {
+        let voicing_count = get_voicing_count(r_chord_amt, r_chord_space);
+        let r_voicing = (engine_random(s) % voicing_count as u32) as u8;
+        s.event_pool.slots[h as usize].chord_voicing = r_voicing;
+
+        // Try random inversion, keep only if min offset == 0
+        let max_inv = r_chord_amt as i8;
+        let r_inv = (engine_random(s) % (max_inv as u32 * 2 + 1)) as i8 - max_inv;
+        s.event_pool.slots[h as usize].chord_inversion = r_inv;
+
+        let ev_ref = &s.event_pool.slots[h as usize];
+        let mut offsets = [0i8; MAX_CHORD_SIZE];
+        get_chord_offsets(s, ev_ref, &mut offsets, 0);
+        if offsets[0] != 0 {
+            s.event_pool.slots[h as usize].chord_inversion = 0;
         }
     }
 
