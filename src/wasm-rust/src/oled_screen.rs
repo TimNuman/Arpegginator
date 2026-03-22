@@ -844,7 +844,14 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     };
 
     gfx_aa_text(PAD_X, ROW_Y5[1], "NOTE", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[1], &note_display, row_color(1), &FONT_AA_SMALL_BOLD);
+    let note_color = if row_ud_color(1) != GFX_VALUE {
+        GFX_YELLOW
+    } else if shift && !meta && !alt && ev.chord_amount <= 1 {
+        GFX_YELLOW // Shift+U/D on single note = octave move
+    } else {
+        GFX_VALUE
+    };
+    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[1], &note_display, note_color, &FONT_AA_SMALL_BOLD);
     gfx_aa_text(col2_x, ROW_Y5[1], "LEN", GFX_LABEL, &FONT_AA_SMALL);
     gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], &length_str, row_lr_color(1), &FONT_AA_SMALL_BOLD);
 
