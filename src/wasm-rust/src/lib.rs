@@ -343,6 +343,11 @@ pub extern "C" fn engine_get_color_overrides_buffer() -> *mut u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn engine_get_grid_colors_buffer() -> *mut u32 {
+    state().grid_colors[0].as_mut_ptr()
+}
+
+#[no_mangle]
 pub extern "C" fn engine_get_patterns_have_notes_buffer() -> *mut u8 {
     state().patterns_have_notes[0].as_mut_ptr()
 }

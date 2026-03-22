@@ -228,6 +228,7 @@ export class WasmEngine {
   // Grid output
   private _getButtonValuesBuffer!: () => number;
   private _getColorOverridesBuffer!: () => number;
+  private _getGridColorsBuffer!: () => number;
   private _getPatternsHaveNotesBuffer!: () => number;
   private _getChannelsPlayingNowBuffer!: () => number;
   private _computeGrid!: (timestampMs: number) => void;
@@ -387,6 +388,7 @@ export class WasmEngine {
     // Grid output
     this._getButtonValuesBuffer = cw('engine_get_button_values_buffer', 'number', []);
     this._getColorOverridesBuffer = cw('engine_get_color_overrides_buffer', 'number', []);
+    this._getGridColorsBuffer = cw('engine_get_grid_colors_buffer', 'number', []);
     this._getPatternsHaveNotesBuffer = cw('engine_get_patterns_have_notes_buffer', 'number', []);
     this._getChannelsPlayingNowBuffer = cw('engine_get_channels_playing_now_buffer', 'number', []);
     this._computeGrid = cw('engine_compute_grid_export', null, ['number']) as unknown as (timestampMs: number) => void;
@@ -606,28 +608,34 @@ export class WasmEngine {
    * Read the grid output buffers from WASM memory.
    * Dimensions come from WASM (single source of truth).
    */
-  readGridBuffers(): { buttonValues: number[][]; colorOverrides: number[][] } {
+  readGridBuffers(): { buttonValues: number[][]; colorOverrides: number[][]; gridColors: number[][] } {
     const mod = this.module!;
     const rows = this._getVisibleRows();
     const cols = this._getVisibleCols();
     const bvPtr = this._getButtonValuesBuffer();
     const coPtr = this._getColorOverridesBuffer();
+    const gcPtr = this._getGridColorsBuffer();
     const bvView = new Uint16Array(mod.HEAPU8.buffer, bvPtr, rows * cols);
     const coView = new Uint32Array(mod.HEAPU8.buffer, coPtr, rows * cols);
+    const gcView = new Uint32Array(mod.HEAPU8.buffer, gcPtr, rows * cols);
 
     const buttonValues: number[][] = [];
     const colorOverrides: number[][] = [];
+    const gridColors: number[][] = [];
     for (let r = 0; r < rows; r++) {
       const bvRow: number[] = [];
       const coRow: number[] = [];
+      const gcRow: number[] = [];
       for (let c = 0; c < cols; c++) {
         bvRow.push(bvView[r * cols + c]);
         coRow.push(coView[r * cols + c]);
+        gcRow.push(gcView[r * cols + c]);
       }
       buttonValues.push(bvRow);
       colorOverrides.push(coRow);
+      gridColors.push(gcRow);
     }
-    return { buttonValues, colorOverrides };
+    return { buttonValues, colorOverrides, gridColors };
   }
 
   // ============ UI State ============

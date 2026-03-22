@@ -3,7 +3,6 @@ import { Box } from "@mui/material";
 import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
-import { CHANNEL_COLORS } from "./ChannelColors";
 import { useRenderVersion, markDirty, setAnimatingCheck } from "../../store/renderStore";
 import * as actions from "../../actions";
 import type { WasmEngine } from "../../engine/WasmEngine";
@@ -38,7 +37,7 @@ import {
   ACTION_DELETE_NOTE,
   ACTION_DISABLE_NOTE,
 } from "./Grid.config";
-import { noop, uint32ToHex, encodeModifiers } from "./Grid.helpers";
+import { noop, encodeModifiers } from "./Grid.helpers";
 
 // ============ Grid Component ============
 
@@ -83,8 +82,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const VISIBLE_ROWS = wasmEngine.getVisibleRows();
   const VISIBLE_COLS = wasmEngine.getVisibleCols();
   const currentChannel = wasmEngine.getCurrentChannel();
-
-  const channelColor = CHANNEL_COLORS[currentChannel];
 
   const buttonSize = 44;
   const gridHeight = VISIBLE_ROWS * buttonSize;
@@ -195,7 +192,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   keyboardRef.current = keyboard;
 
   // ============ Compute Grid via WASM ============
-  const { buttonValues, colorOverrides, brightness } = useMemo(() => {
+  const gridColors = useMemo(() => {
     // Set modifier state before computing grid (for Ctrl overlay + loop pulsing)
     const mods =
       (keyboard.ctrl ? 1 : 0) |
@@ -207,23 +204,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     // Tell WASM to compute the grid
     wasmEngine.computeGrid();
 
-    // Read buffers from WASM linear memory
+    // Read ARGB grid colors from WASM
     const buffers = wasmEngine.readGridBuffers();
-
-    // Convert uint32 color_overrides to hex strings
-    const hexColors: (string | null)[][] = [];
-    for (let r = 0; r < VISIBLE_ROWS; r++) {
-      const row: (string | null)[] = [];
-      for (let c = 0; c < VISIBLE_COLS; c++) {
-        const val = buffers.colorOverrides[r][c];
-        row.push(val === 0 ? null : uint32ToHex(val));
-      }
-      hexColors.push(row);
-    }
-
-    const brightness = wasmEngine.getBrightness() / 255;
-
-    return { buttonValues: buffers.buttonValues, colorOverrides: hexColors, brightness };
+    return buffers.gridColors;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmEngine, renderVersion, keyboard.ctrl, keyboard.meta, keyboard.shift]);
 
@@ -291,10 +274,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       <Box css={gridInnerContainerStyles}>
         <Box css={gridContainerStyles}>
           <ButtonGrid
-            values={buttonValues}
-            channelColor={channelColor}
-            colorOverrides={colorOverrides}
-            brightness={brightness}
+            gridColors={gridColors}
             onPress={handleButtonPressFromInput}
             onDragEnter={handleButtonDragEnter}
             onRelease={noop}

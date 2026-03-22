@@ -581,6 +581,7 @@ pub struct EngineState {
 
     pub button_values: [[u16; VISIBLE_COLS]; VISIBLE_ROWS],
     pub color_overrides: [[u32; VISIBLE_COLS]; VISIBLE_ROWS],
+    pub grid_colors: [[u32; VISIBLE_COLS]; VISIBLE_ROWS], // 0xAARRGGBB output for LEDs/web
 
     pub patterns_have_notes: [[u8; NUM_PATTERNS]; NUM_CHANNELS],
     pub channels_playing_now: [u8; NUM_CHANNELS],

@@ -1011,10 +1011,167 @@ pub fn engine_compute_grid(s: &mut EngineState, timestamp_ms: f32) {
         s.brightness = ((0.3 + 0.7 * smooth) * 255.0) as u8;
     }
 
+    // Compute final ARGB grid colors for LEDs/web
+    compute_grid_colors(s);
+
     // Update channels_playing_now
     (0..NUM_CHANNELS).for_each(|i| {
         s.channels_playing_now[i] = if s.active_notes.iter().any(|n| n.active && n.channel == i as u8) { 1 } else { 0 };
     });
+}
+
+// ============ Grid Color Computation (ARGB output for LEDs/web) ============
+
+fn pack_argb(a: u8, r: u8, g: u8, b: u8) -> u32 {
+    ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | b as u32
+}
+
+fn unpack_rgb(rgb: u32) -> (u8, u8, u8) {
+    (((rgb >> 16) & 0xFF) as u8, ((rgb >> 8) & 0xFF) as u8, (rgb & 0xFF) as u8)
+}
+
+fn blend_toward_white(r: u8, g: u8, b: u8, mix: f32) -> (u8, u8, u8) {
+    (
+        (r as f32 + (255.0 - r as f32) * mix) as u8,
+        (g as f32 + (255.0 - g as f32) * mix) as u8,
+        (b as f32 + (255.0 - b as f32) * mix) as u8,
+    )
+}
+
+fn compute_grid_colors(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    let ch_rgb = s.channel_colors[ch];
+
+    for vr in 0..VISIBLE_ROWS {
+        for vc in 0..VISIBLE_COLS {
+            let value = s.button_values[vr][vc];
+            let co = s.color_overrides[vr][vc];
+            let level = (value & 0xF) as u8;
+
+            let playing = value & FLAG_PLAYING != 0;
+            let continuation = value & FLAG_CONTINUATION != 0;
+            let selected = value & FLAG_SELECTED != 0;
+            let playhead = value & FLAG_PLAYHEAD != 0;
+            let c_note = value & FLAG_C_NOTE != 0;
+            let in_scale = value & FLAG_IN_SCALE != 0;
+            let loop_boundary = value & FLAG_LOOP_BOUNDARY != 0;
+            let beat_marker = value & FLAG_BEAT_MARKER != 0;
+            let ghost = value & FLAG_GHOST != 0;
+            let offscreen = value & FLAG_OFFSCREEN != 0;
+            let dimmed = value & FLAG_DIMMED != 0;
+            let pulsing = value & FLAG_LOOP_BOUNDARY_PULSING != 0;
+
+            // Effective color for this cell (color_override or channel color)
+            let cell_rgb = if co != 0 { co } else { ch_rgb };
+            let (cr, cg, cb) = unpack_rgb(cell_rgb);
+
+            // Base brightness from grid markers (for off cells)
+            let mut base_bright: f32 = 0.0;
+            if loop_boundary { base_bright = 0.2; }
+            else if beat_marker { base_bright = 0.15; }
+            else if level == 0 { base_bright = 0.1; }
+            if c_note { base_bright += 0.1; }
+            else if in_scale { base_bright += 0.08; }
+
+            let argb = if level == 0 {
+                // Off state
+                if ghost {
+                    let opacity = if continuation { 0.10 } else { 0.16 };
+                    if offscreen {
+                        // Offscreen: channel color tint over grey background
+                        let base = base_bright + opacity;
+                        let tint: f32 = 0.15;
+                        let mut wr = (255.0 * base + cr as f32 * tint) as u16;
+                        let mut wg = (255.0 * base + cg as f32 * tint) as u16;
+                        let mut wb = (255.0 * base + cb as f32 * tint) as u16;
+                        if playing {
+                            wr = wr + ((255 - wr) as f32 * 0.5) as u16;
+                            wg = wg + ((255 - wg) as f32 * 0.5) as u16;
+                            wb = wb + ((255 - wb) as f32 * 0.5) as u16;
+                        }
+                        pack_argb(255, wr.min(255) as u8, wg.min(255) as u8, wb.min(255) as u8)
+                    } else {
+                        // Ghost: white at base_bright + opacity
+                        let a = ((base_bright + opacity) * 255.0) as u8;
+                        pack_argb(a, 255, 255, 255)
+                    }
+                } else if playhead {
+                    pack_argb(76, 255, 255, 255) // 0.3 * 255 ≈ 76
+                } else if base_bright > 0.0 {
+                    let a = (base_bright * 255.0) as u8;
+                    pack_argb(a, 255, 255, 255)
+                } else {
+                    pack_argb(229, 30, 30, 30) // dark gray at 0.9 opacity
+                }
+            } else if level >= 5 {
+                // White levels (5-8): blend channel color toward white
+                let whiteness = (level - 4) as f32 * 0.25;
+                let (wr, wg, wb) = blend_toward_white(cr, cg, cb, whiteness);
+                pack_argb(255, wr, wg, wb)
+            } else {
+                // Color levels (1-4)
+                let opacity = level as f32 * 0.25;
+
+                // Darken unselected, non-playing notes
+                let darken = if !selected && !playing { 0.35 } else { 0.0 };
+                let dr = (cr as f32 * (1.0 - darken)) as u8;
+                let dg = (cg as f32 * (1.0 - darken)) as u8;
+                let db = (cb as f32 * (1.0 - darken)) as u8;
+
+                if continuation && !playing {
+                    let a = (opacity * 0.5 * 255.0) as u8;
+                    pack_argb(a, dr, dg, db)
+                } else if playing {
+                    if !continuation {
+                        pack_argb(255, 255, 255, 255) // pure white
+                    } else {
+                        // Playing continuation: 20% white blend at 0.7 opacity
+                        let (pr, pg, pb) = blend_toward_white(cr, cg, cb, 0.2);
+                        pack_argb(178, pr, pg, pb) // 0.7 * 255 ≈ 178
+                    }
+                } else {
+                    let a = (opacity * 255.0) as u8;
+                    pack_argb(a, dr, dg, db)
+                }
+            };
+
+            // Apply dimming overlay
+            let argb = if dimmed {
+                let a = ((argb >> 24) & 0xFF) as f32;
+                let r = ((argb >> 16) & 0xFF) as f32;
+                let g = ((argb >> 8) & 0xFF) as f32;
+                let b = (argb & 0xFF) as f32;
+                // Darken by 60%
+                pack_argb(
+                    (a * 0.4) as u8,
+                    (r * 0.4) as u8,
+                    (g * 0.4) as u8,
+                    (b * 0.4) as u8,
+                )
+            } else {
+                argb
+            };
+
+            // Apply pulse brightness
+            let argb = if pulsing {
+                let pulse = s.brightness as f32 / 255.0;
+                let a = ((argb >> 24) & 0xFF) as f32;
+                let r = ((argb >> 16) & 0xFF) as f32;
+                let g = ((argb >> 8) & 0xFF) as f32;
+                let b = (argb & 0xFF) as f32;
+                pack_argb(
+                    (a * pulse) as u8,
+                    (r * pulse) as u8,
+                    (g * pulse) as u8,
+                    (b * pulse) as u8,
+                )
+            } else {
+                argb
+            };
+
+            s.grid_colors[vr][vc] = argb;
+        }
+    }
 }
 
 pub fn engine_is_animating(s: &EngineState) -> bool {
