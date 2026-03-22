@@ -1,26 +1,6 @@
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useRef } from "react";
 import { Box } from "@mui/material";
 import { rowStyles } from "./ButtonGrid.styles";
-
-// Inject pulsing keyframes once.
-// The animation runs on ALL grid cells always (so they share a single timeline).
-// --pulse-active (0 or 1) controls whether opacity actually changes.
-let pulsingStyleInjected = false;
-const injectPulsingStyle = () => {
-  if (pulsingStyleInjected) return;
-  pulsingStyleInjected = true;
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes loopBoundaryPulse {
-      0%, 100% { opacity: calc(1 - 0.7 * var(--pulse-active, 0)); }
-      50% { opacity: 1; }
-    }
-    .grid-button-cell {
-      animation: loopBoundaryPulse 800ms ease-in-out infinite;
-    }
-  `;
-  document.head.appendChild(style);
-};
 
 /**
  * Button state encoding:
@@ -194,15 +174,17 @@ interface GridButtonCellProps {
   col: number;
   value: number;
   channelColor: string;
+  brightness: number;
   onPress: () => void;
   onDragEnter: () => void;
 }
 
-const GridButtonCell = memo(({ row, col, value, channelColor, onPress, onDragEnter }: GridButtonCellProps) => {
+const GridButtonCell = memo(({ row, col, value, channelColor, brightness, onPress, onDragEnter }: GridButtonCellProps) => {
   const bgColor = getBackgroundColor(value, channelColor);
   const boxShadow = getBoxShadow(value, channelColor);
   const pulsing = isLoopBoundaryPulsing(value);
   const dimmed = isDimmed(value);
+  const opacity = pulsing ? brightness : 1;
 
   return (
     <div
@@ -222,20 +204,18 @@ const GridButtonCell = memo(({ row, col, value, channelColor, onPress, onDragEnt
         onPress();
       }}
       onContextMenu={(e) => e.preventDefault()}
-      className="grid-button-cell"
       style={{
-        "--pulse-active": pulsing ? 1 : 0,
+        opacity,
         width: 40,
         height: 40,
         margin: 2,
         borderRadius: 4,
-        transition: "all 0.05s ease",
         border: "1px solid rgba(255, 255, 255, 0.1)",
         cursor: "pointer",
         touchAction: "none",
         background: dimmed ? `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), ${bgColor}` : bgColor,
         boxShadow: dimmed ? "inset 0 0 5px rgba(0, 0, 0, 0.5)" : boxShadow,
-      } as React.CSSProperties}
+      }}
     />
   );
 });
@@ -255,11 +235,11 @@ interface ButtonGridProps {
   onDragEnter: (row: number, col: number) => void;
   /** Called when mouse/touch is released */
   onRelease: () => void;
+  /** Brightness from WASM (0-1), applied to pulsing cells */
+  brightness?: number;
 }
 
-export const ButtonGrid = memo(({ values, channelColor, colorOverrides, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
-  // Inject pulsing animation CSS once
-  useEffect(() => { injectPulsingStyle(); }, []);
+export const ButtonGrid = memo(({ values, channelColor, colorOverrides, brightness = 1, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
 
   // Create stable callbacks for each cell
   const handlePress = useCallback((row: number, col: number) => {
@@ -311,6 +291,7 @@ export const ButtonGrid = memo(({ values, channelColor, colorOverrides, onPress,
               col={colIndex}
               value={value}
               channelColor={colorOverrides?.[rowIndex]?.[colIndex] ?? channelColor}
+              brightness={brightness}
               onPress={() => handlePress(rowIndex, colIndex)}
               onDragEnter={() => handleDragEnter(rowIndex, colIndex)}
             />

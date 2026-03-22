@@ -405,16 +405,17 @@ fn draw_segs_row_tickered(y: i16, label: &str, segs: &[TextSeg], font: &AAFont, 
 }
 
 /// Draw scale interval visualization (12 squares for chromatic notes)
-fn draw_scale_dots(s: &EngineState) {
+fn draw_scale_dots(s: &EngineState, highlight: bool) {
     let n: i16 = 12;
     let total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
     let start_x = CONTENT_RIGHT - total_w;
     let idx = (s.scale_id_idx as usize).min(NUM_SCALES - 1);
     let pattern = &SCALE_PATTERNS[idx];
 
+    let active_color = if highlight { GFX_YELLOW } else { GFX_VALUE };
     (0..12).for_each(|i| {
         let x = start_x + i as i16 * (DOT_SIZE + DOT_GAP);
-        let color = if pattern[i] != 0 { GFX_VALUE } else { gfx_rgb565(0x20, 0x2E, 0x50) };
+        let color = if pattern[i] != 0 { active_color } else { gfx_rgb565(0x20, 0x2E, 0x50) };
         gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, color);
     });
 }
@@ -633,20 +634,22 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let p_shift = (mods & MOD_SHIFT) != 0;
 
     // ---- Row 0: CH xx | PAT yy (two columns at 50%) ----
+    let alt_only = p_alt && !p_meta && !p_shift;
     let mut ch_str = FmtBuf::<4>::new();
     let _ = write!(ch_str, "{:02}", ch + 1);
     let mut pat_str = FmtBuf::<4>::new();
     let _ = write!(pat_str, "{:02}", pat + 1);
-    draw_row_two_col(ROW_Y[0], "CH", &ch_str, GFX_VALUE, "PAT", &pat_str, GFX_VALUE);
+    let ch_color = if alt_only { GFX_YELLOW } else { GFX_VALUE };
+    draw_row_two_col(ROW_Y[0], "CH", &ch_str, ch_color, "PAT", &pat_str, GFX_VALUE);
 
     // ---- Row 1: LOOP x.x-y.y ----
-    // Highlight start when Cmd+Alt, highlight end when Alt only
+    // Highlight start (U/D) yellow when Cmd+Alt, highlight end (L/R) red when Cmd+Alt or Alt-only
     let loop_data = &s.loops[ch][pat];
     let s_buf = tick_to_beat_display(loop_data.start);
     let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
     gfx_aa_text(PAD_X, ROW_Y[1], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
     let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
-    let e_color = if p_alt && !p_meta { GFX_RED } else { GFX_VALUE };
+    let e_color = if p_alt && p_meta { GFX_YELLOW } else { GFX_VALUE };
     let mut loop_val = FmtBuf::<12>::new();
     let _ = write!(loop_val, "{}-", s_buf.as_str());
     draw_segs_right(CONTENT_RIGHT, ROW_Y[1], &[
@@ -675,7 +678,7 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     }
 
     // ---- Scale interval visualization ----
-    draw_scale_dots(s);
+    draw_scale_dots(s, cmd_only);
 
     // ---- Circle of fifths (right panel) ----
     if !is_drum {
@@ -685,28 +688,30 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     // ---- Bottom legend bar ----
     // Priority: Cmd+Alt+Shift > Cmd+Alt > Cmd only > Alt+Shift > Alt only > Shift only > bare
     if p_meta && p_alt && p_shift {
-        // Cmd+Alt+Shift: random note + loop start fine
-        draw_legend_item(0, 0, "RANDOM", GFX_BLUE);
-        draw_legend_item(1, 1, "", GFX_DIM);
+        // Cmd+Alt+Shift: loop end fine (U/D), loop start fine (L/R)
+        draw_legend_item(0, 0, "", GFX_DIM);
+        draw_legend_item(1, 1, "LOOP END +/-0.1", GFX_YELLOW);
         draw_legend_item(2, 2, "LOOP ST +/-0.1", GFX_RED);
     } else if p_meta && p_alt {
-        // Cmd+Alt: loop start editing
+        // Cmd+Alt: loop end (U/D), loop start (L/R)
         draw_legend_item(0, 0, "", GFX_DIM);
-        draw_legend_item(1, 1, "", GFX_DIM);
+        draw_legend_item(1, 1, "LOOP END", GFX_YELLOW);
         draw_legend_item(2, 2, "LOOP ST", GFX_RED);
     } else if p_meta {
         // Cmd only: disable + scale/key editing
         draw_legend_item(0, 0, "DISABLE", GFX_BLUE);
         draw_legend_item(1, 1, "SCALE", GFX_YELLOW);
         draw_legend_item(2, 2, "KEY", GFX_RED);
-    } else if p_alt {
-        // Alt(+Shift): loop end editing
-        let fine = if p_shift { " +/-0.1" } else { "" };
-        let mut label = FmtBuf::<24>::new();
-        let _ = write!(label, "LOOP END{}", fine);
+    } else if p_alt && p_shift {
+        // Alt+Shift: unused
         draw_legend_item(0, 0, "", GFX_DIM);
         draw_legend_item(1, 1, "", GFX_DIM);
-        draw_legend_item(2, 2, &label, GFX_RED);
+        draw_legend_item(2, 2, "", GFX_DIM);
+    } else if p_alt {
+        // Alt only: channel cycle (U/D)
+        draw_legend_item(0, 0, "", GFX_DIM);
+        draw_legend_item(1, 1, "CHANNEL", GFX_YELLOW);
+        draw_legend_item(2, 2, "", GFX_DIM);
     } else if p_shift {
         // Shift only: camera scroll octave/beat
         draw_legend_item(0, 0, "ENABLE", GFX_BLUE);

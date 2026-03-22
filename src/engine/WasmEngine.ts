@@ -230,8 +230,9 @@ export class WasmEngine {
   private _getColorOverridesBuffer!: () => number;
   private _getPatternsHaveNotesBuffer!: () => number;
   private _getChannelsPlayingNowBuffer!: () => number;
-  private _computeGrid!: () => void;
+  private _computeGrid!: (timestampMs: number) => void;
   private _isAnimating!: () => number;
+  private _getBrightness!: () => number;
 
   // Input handling
   private _buttonPress!: (row: number, col: number, modifiers: number) => void;
@@ -388,8 +389,9 @@ export class WasmEngine {
     this._getColorOverridesBuffer = cw('engine_get_color_overrides_buffer', 'number', []);
     this._getPatternsHaveNotesBuffer = cw('engine_get_patterns_have_notes_buffer', 'number', []);
     this._getChannelsPlayingNowBuffer = cw('engine_get_channels_playing_now_buffer', 'number', []);
-    this._computeGrid = cw('engine_compute_grid_export', null, []) as unknown as () => void;
+    this._computeGrid = cw('engine_compute_grid_export', null, ['number']) as unknown as (timestampMs: number) => void;
     this._isAnimating = cw('engine_is_animating_export', 'number', []);
+    this._getBrightness = cw('engine_get_brightness', 'number', []);
 
     // Input handling
     this._buttonPress = cw('engine_button_press_export', null, ['number', 'number', 'number']) as unknown as (r: number, c: number, m: number) => void;
@@ -563,11 +565,15 @@ export class WasmEngine {
   // ============ Grid Rendering ============
 
   computeGrid(): void {
-    this._computeGrid();
+    this._computeGrid(performance.now());
   }
 
   isAnimating(): boolean {
     return this._isAnimating() !== 0;
+  }
+
+  getBrightness(): number {
+    return this._getBrightness();
   }
 
   /** Read which patterns have notes (8×8 boolean grid). */

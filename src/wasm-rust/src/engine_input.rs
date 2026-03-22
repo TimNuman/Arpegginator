@@ -858,7 +858,7 @@ fn adjust_loop_end(s: &mut EngineState, dir: u8, fine: bool) {
     let pat_len = s.patterns[ch][pat].length_ticks;
     let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
     s.loop_edit_target = 0;
-    let new_end = if dir == DIR_LEFT {
+    let new_end = if dir == DIR_LEFT || dir == DIR_DOWN {
         (loop_end - step).max(s.loops[ch][pat].start + tpc)
     } else {
         (loop_end + step).min(pat_len)
@@ -876,7 +876,7 @@ fn adjust_loop_start(s: &mut EngineState, dir: u8, fine: bool) {
     let pat = s.current_patterns[ch] as usize;
     let loop_end = s.loops[ch][pat].start + s.loops[ch][pat].length;
     s.loop_edit_target = 1;
-    let new_start = if dir == DIR_LEFT {
+    let new_start = if dir == DIR_LEFT || dir == DIR_DOWN {
         (s.loops[ch][pat].start - step).max(0)
     } else {
         (s.loops[ch][pat].start + step).min(loop_end - tpc)
@@ -932,11 +932,19 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
     if s.selected_event_idx < 0 {
         // ---- No note selected ----
         match (meta, alt, shift) {
-            (true,  true,  true)  => { // Cmd+Opt+Shift+L/R: loop start fine
-                if dir == DIR_LEFT || dir == DIR_RIGHT { adjust_loop_start(s, dir, true); }
+            (true,  true,  true)  => { // Cmd+Opt+Shift: loop end fine (U/D), loop start fine (L/R)
+                match dir {
+                    DIR_UP | DIR_DOWN => adjust_loop_end(s, dir, true),
+                    DIR_LEFT | DIR_RIGHT => adjust_loop_start(s, dir, true),
+                    _ => {}
+                }
             }
-            (true,  true,  false) => { // Cmd+Opt+L/R: loop start
-                if dir == DIR_LEFT || dir == DIR_RIGHT { adjust_loop_start(s, dir, false); }
+            (true,  true,  false) => { // Cmd+Opt: loop end (U/D), loop start (L/R)
+                match dir {
+                    DIR_UP | DIR_DOWN => adjust_loop_end(s, dir, false),
+                    DIR_LEFT | DIR_RIGHT => adjust_loop_start(s, dir, false),
+                    _ => {}
+                }
             }
             (true,  false, true)  => {} // Cmd+Shift: placeholder
             (true,  false, false) => { // Cmd: cycle scale (U/D) / key (L/R)
@@ -946,11 +954,23 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                     _ => {}
                 }
             }
-            (false, true,  true)  => { // Alt+Shift+L/R: loop end fine
-                if dir == DIR_LEFT || dir == DIR_RIGHT { adjust_loop_end(s, dir, true); }
-            }
-            (false, true,  false) => { // Alt+L/R: loop end
-                if dir == DIR_LEFT || dir == DIR_RIGHT { adjust_loop_end(s, dir, false); }
+            (false, true,  true)  => {} // Alt+Shift: placeholder
+            (false, true,  false) => { // Alt: channel cycle (U/D)
+                match dir {
+                    DIR_UP => {
+                        let ch = if s.current_channel == 0 { NUM_CHANNELS as u8 - 1 } else { s.current_channel - 1 };
+                        s.current_channel = ch;
+                        s.selected_event_idx = -1;
+                        engine_mark_dirty(s, ch);
+                    }
+                    DIR_DOWN => {
+                        let ch = if s.current_channel as usize >= NUM_CHANNELS - 1 { 0 } else { s.current_channel + 1 };
+                        s.current_channel = ch;
+                        s.selected_event_idx = -1;
+                        engine_mark_dirty(s, ch);
+                    }
+                    _ => {}
+                }
             }
             (false, false, true)  => { // Shift: camera octave/beat
                 scroll_camera(s, dir, true);

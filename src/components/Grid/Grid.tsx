@@ -107,6 +107,17 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       event: KeyboardEvent,
       state: KeyboardState,
     ): boolean => {
+      // Debug: log all modified keypresses
+      if (state.ctrl || state.shift || state.meta || state.alt) {
+        const mods = [
+          state.ctrl && "Ctrl",
+          state.shift && "Shift",
+          state.meta && "Cmd",
+          state.alt && "Alt",
+        ].filter(Boolean).join("+");
+        console.log(`[key] ${mods}+${code} (key="${key}")`);
+      }
+
       // Spacebar: toggle play/stop via JS actions (JS manages transport)
       if (key === " " || code === "Space") {
         actions.togglePlay();
@@ -134,13 +145,13 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         return true;
       }
 
-      // Zoom: [ = zoom out, ] = zoom in
-      if (key === "[") {
+      // Zoom: [ = zoom out, ] = zoom in (only without modifiers to avoid conflicts)
+      if (key === "[" && !state.meta && !state.alt) {
         wasmEngine.keyAction(ACTION_ZOOM_OUT);
         markDirty();
         return true;
       }
-      if (key === "]") {
+      if (key === "]" && !state.meta && !state.alt) {
         wasmEngine.keyAction(ACTION_ZOOM_IN);
         markDirty();
         return true;
@@ -184,7 +195,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   keyboardRef.current = keyboard;
 
   // ============ Compute Grid via WASM ============
-  const { buttonValues, colorOverrides } = useMemo(() => {
+  const { buttonValues, colorOverrides, brightness } = useMemo(() => {
     // Set modifier state before computing grid (for Ctrl overlay + loop pulsing)
     const mods =
       (keyboard.ctrl ? 1 : 0) |
@@ -210,7 +221,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
       hexColors.push(row);
     }
 
-    return { buttonValues: buffers.buttonValues, colorOverrides: hexColors };
+    const brightness = wasmEngine.getBrightness() / 255;
+
+    return { buttonValues: buffers.buttonValues, colorOverrides: hexColors, brightness };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmEngine, renderVersion, keyboard.ctrl, keyboard.meta, keyboard.shift]);
 
@@ -281,6 +294,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             values={buttonValues}
             channelColor={channelColor}
             colorOverrides={colorOverrides}
+            brightness={brightness}
             onPress={handleButtonPressFromInput}
             onDragEnter={handleButtonDragEnter}
             onRelease={noop}

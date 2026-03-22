@@ -362,13 +362,18 @@ pub extern "C" fn engine_alloc_event_id_export() -> u16 {
 // ============ Grid Rendering ============
 
 #[no_mangle]
-pub extern "C" fn engine_compute_grid_export() {
-    engine_ui::engine_compute_grid(state());
+pub extern "C" fn engine_compute_grid_export(timestamp_ms: f32) {
+    engine_ui::engine_compute_grid(state(), timestamp_ms);
 }
 
 #[no_mangle]
 pub extern "C" fn engine_is_animating_export() -> u8 {
     if engine_ui::engine_is_animating(state_ref()) || oled_screen::oled_is_animating() { 1 } else { 0 }
+}
+
+#[no_mangle]
+pub extern "C" fn engine_get_brightness() -> u8 {
+    state_ref().brightness
 }
 
 // ============ Pattern Data Getters ============

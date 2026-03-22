@@ -596,6 +596,10 @@ pub struct EngineState {
     pub ghost_count: u16,
     pub ghost_enabled: u8,
 
+    // Pulse animation state
+    pub brightness: u8, // 0-255, computed each frame
+    pub pulse_active: u8, // nonzero if any cell is pulsing this frame
+
     // Pre-allocated temp buffer (avoid per-frame heap allocation)
     pub temp_sub_modes: [[SubModeArray; NUM_SUB_MODES]; MAX_EVENTS],
 }

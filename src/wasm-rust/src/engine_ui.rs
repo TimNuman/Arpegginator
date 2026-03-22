@@ -620,6 +620,7 @@ fn render_loop_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: usi
         (0..VISIBLE_COLS).for_each(|vc| {
             if s.button_values[vr][vc] & FLAG_LOOP_BOUNDARY != 0 {
                 s.button_values[vr][vc] |= FLAG_LOOP_BOUNDARY_PULSING;
+                s.pulse_active = 1;
             }
             if s.is_playing == 0 {
                 s.button_values[vr][vc] &= !FLAG_PLAYHEAD;
@@ -917,7 +918,7 @@ fn apply_ctrl_overlay(s: &mut EngineState) {
 const EASE_FACTOR: f32 = 0.12;
 const EASE_SNAP: f32 = 0.001;
 
-pub fn engine_compute_grid(s: &mut EngineState) {
+pub fn engine_compute_grid(s: &mut EngineState, timestamp_ms: f32) {
     // Auto-scroll to follow playhead
     crate::engine_strip::engine_playhead_follow(s);
 
@@ -956,6 +957,7 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     // Clear buffers
     s.button_values = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
     s.color_overrides = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
+    s.pulse_active = 0;
 
     engine_ensure_rendered(s, ch as u8);
     compute_ghost_notes(s);
@@ -972,16 +974,14 @@ pub fn engine_compute_grid(s: &mut EngineState) {
         UiMode::Modify => render_modify_mode(s, notes, note_count),
         UiMode::Pattern => {
             render_pattern_mode(s, notes, note_count);
-            // Pulse loop boundary when Opt held in pattern mode with no selection
-            if (s.modifiers_held & MOD_ALT) != 0 && s.selected_event_idx < 0 {
+            // Pulse loop boundaries when Cmd+Opt held in pattern mode with no selection
+            if (s.modifiers_held & MOD_ALT) != 0 && (s.modifiers_held & MOD_META) != 0 && s.selected_event_idx < 0 {
                 let ch = s.current_channel as usize;
                 let pat = s.current_patterns[ch] as usize;
                 let lp_start = s.loops[ch][pat].start;
                 let loop_end = lp_start + s.loops[ch][pat].length;
                 let tpc = s.zoom;
                 let start_tick = get_start_tick(s);
-                // Cmd+Opt = start, Opt only = end
-                let pulse_start = (s.modifiers_held & MOD_META) != 0;
 
                 (0..VISIBLE_COLS).for_each(|vc| {
                     let actual_tick = start_tick + vc as i32 * tpc;
@@ -989,7 +989,8 @@ pub fn engine_compute_grid(s: &mut EngineState) {
                     let is_start_col = actual_tick == lp_start;
                     let is_end_col = col_end_tick >= loop_end && actual_tick < loop_end;
 
-                    if (pulse_start && is_start_col) || (!pulse_start && is_end_col) {
+                    if is_start_col || is_end_col {
+                        s.pulse_active = 1;
                         (0..VISIBLE_ROWS).for_each(|vr| {
                             s.button_values[vr][vc] |= FLAG_LOOP_BOUNDARY_PULSING;
                         });
@@ -1000,6 +1001,15 @@ pub fn engine_compute_grid(s: &mut EngineState) {
     }
 
     apply_ctrl_overlay(s);
+
+    // Compute pulse brightness from timestamp (frame-rate independent)
+    {
+        const PERIOD_MS: f32 = 1100.0;
+        let pos = (timestamp_ms % PERIOD_MS) / PERIOD_MS;
+        let tri = if pos < 0.5 { pos * 2.0 } else { 2.0 - pos * 2.0 };
+        let smooth = tri * tri * (3.0 - 2.0 * tri);
+        s.brightness = ((0.3 + 0.7 * smooth) * 255.0) as u8;
+    }
 
     // Update channels_playing_now
     (0..NUM_CHANNELS).for_each(|i| {
@@ -1014,4 +1024,5 @@ pub fn engine_is_animating(s: &EngineState) -> bool {
     // Only count strip velocity when not actively dragging (inertia is a no-op during drag)
     || (s.strip_dragging[0] == 0 && s.strip_velocity[0].abs() > 0.0001)
     || (s.strip_dragging[1] == 0 && s.strip_velocity[1].abs() > 0.0001)
+    || s.pulse_active != 0
 }
