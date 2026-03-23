@@ -69,23 +69,6 @@ function App() {
         // Full init (resets UI state, generates chord shapes, sets default loops/patterns)
         engine.fullInit();
 
-        // Set initial channel colors
-        const CHANNEL_COLORS = [
-          "#ff3366",
-          "#ff9933",
-          "#ffcc00",
-          "#33cc66",
-          "#3399ff",
-          "#9966ff",
-        ];
-        for (let ch = 0; ch < 6; ch++) {
-          const hex = CHANNEL_COLORS[ch];
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-          engine.setChannelColor(ch, (r << 16) | (g << 8) | b);
-        }
-
         // Set channel types: channels 0-3 melodic, 4-5 drum
         engine.writeChannelTypes([0, 0, 0, 0, 1, 1]);
 

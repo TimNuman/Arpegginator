@@ -652,6 +652,16 @@ impl EngineState {
         self.resume_tick = -1;
         self.bpm = 120.0;
         self.swing = 50;
+        // Default channel colors
+        self.channel_colors = [
+            0xFF3366, // Hot pink
+            0xFF9933, // Orange
+            0xFFCC00, // Yellow
+            0x33CC66, // Green
+            0x3399FF, // Cyan
+            0x9966FF, // Purple
+        ];
+
         self.rng_state = 12345;
         self.zoom = 120;
         self.selected_event_idx = -1;
