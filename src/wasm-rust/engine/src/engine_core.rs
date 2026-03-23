@@ -1,5 +1,9 @@
 // engine_core.rs — Core types, constants, state, scales, arpeggios, voicings, playback
 
+extern crate alloc;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+
 // ============ FmtBuf — zero-alloc string formatting ============
 
 /// Fixed-capacity string buffer for `write!()` formatting without heap allocation.

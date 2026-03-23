@@ -1,26 +1,20 @@
-// lib.rs — WASM exports and JS callback bridges for the Rust engine
-// Equivalent to engine_wasm.c in the C version
+// wasm/lib.rs — WASM exports and JS callback bridges
+// Thin shell around arp3-engine: global state + #[no_mangle] exports
 //
 // Single-threaded WASM — mutable statics are safe in this context.
 #![allow(static_mut_refs)]
 
-pub mod engine_core;
-pub mod engine_edit;
-pub mod engine_ui;
-pub mod engine_input;
-pub mod platform;
-pub mod oled_gfx;
-pub mod oled_fonts_aa;
-pub mod oled_display;
-pub mod oled_screen;
-pub mod engine_strip;
-pub mod engine_drums;
-
-use engine_core::*;
-
-// ============ Alloc (required for cdylib) ============
-
 extern crate alloc;
+
+use arp3_engine::engine_core::*;
+use arp3_engine::engine_core;
+use arp3_engine::engine_edit;
+use arp3_engine::engine_ui;
+use arp3_engine::engine_input;
+use arp3_engine::engine_strip;
+use arp3_engine::oled_screen;
+use arp3_engine::oled_gfx;
+use arp3_engine::oled_display;
 
 // ============ Global Engine State ============
 
@@ -40,11 +34,6 @@ fn state_ref() -> &'static EngineState {
     }
 }
 
-// Pointer for oled_screen to access
-pub static mut G_STATE_PTR: *const EngineState = core::ptr::null();
-
-// Platform callbacks are in platform.rs (cfg-switched per target)
-
 // ============ Exported Functions ============
 
 #[no_mangle]
@@ -53,7 +42,6 @@ pub extern "C" fn engine_init() {
     engine_core::engine_core_init(&mut s);
     unsafe {
         G_STATE = Some(s);
-        G_STATE_PTR = G_STATE.as_deref().unwrap() as *const EngineState;
     }
 }
 
@@ -280,7 +268,6 @@ pub extern "C" fn engine_set_is_playing(playing: u8) {
     let s = state();
     let was_playing = s.is_playing;
     s.is_playing = playing;
-    // Clear manual scroll override on play/stop transitions
     if was_playing != playing {
         s.manual_scroll_override = 0;
     }
@@ -769,7 +756,6 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
 
     pitch_classes[..pc_count].sort_unstable();
 
-    // Find bass_pc index
     let bass_idx = pitch_classes[..pc_count].iter().position(|&p| p == bass_pc).unwrap_or(0);
 
     let mut best_suffix: Option<&str> = None;
@@ -809,7 +795,7 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
     });
 
     use core::fmt::Write;
-    let mut result = engine_core::FmtBuf::<64>::new();
+    let mut result = FmtBuf::<64>::new();
 
     if let Some(suffix) = best_suffix {
         result.push_str(NOTE_NAMES[best_root_pc as usize]);
@@ -893,14 +879,5 @@ pub extern "C" fn oled_get_framebuffer() -> *mut u16 {
 
 #[no_mangle]
 pub extern "C" fn oled_render(modifiers: u8) {
-    oled_screen::oled_render(modifiers);
+    oled_screen::oled_render(state_ref(), modifiers);
 }
-
-// ============ Tests ============
-
-#[cfg(test)]
-mod test_core;
-#[cfg(test)]
-mod test_edit;
-#[cfg(test)]
-mod test_rendered;

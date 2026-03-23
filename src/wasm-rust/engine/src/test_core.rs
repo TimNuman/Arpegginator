@@ -1,6 +1,7 @@
 // test_core.rs — Tests for engine_core functions
 // Mirrors src/wasm/tests/test_core.c
 
+use alloc::boxed::Box;
 use crate::engine_core::*;
 
 fn init_state() -> Box<EngineState> {

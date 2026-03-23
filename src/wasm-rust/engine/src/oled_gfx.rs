@@ -1,5 +1,7 @@
 // oled_gfx.rs — RGB565 framebuffer graphics library with anti-aliased rendering
 
+use libm::{sqrtf, atan2f};
+
 // ============ Anti-aliased font structures ============
 
 #[derive(Clone, Copy)]
@@ -237,7 +239,7 @@ pub fn gfx_aa_circle(cx: i16, cy: i16, radius: i16, color: u16) {
 
     while x > y {
         y += 1.0;
-        x = (r * r - y * y).sqrt();
+        x = sqrtf(r * r - y * y);
         let xi = x as i16;
         let frac = x - xi as f32;
         let alpha_outer = (frac * 255.0) as u8;
@@ -286,7 +288,7 @@ pub fn gfx_aa_circle_thick(cx: i16, cy: i16, radius: i16, thickness: i16, color:
 pub fn gfx_fill_circle(cx: i16, cy: i16, radius: i16, color: u16) {
     let r = radius as i32;
     (-r..=r).for_each(|dy| {
-        let dx = ((r * r - dy * dy) as f32).sqrt() as i16;
+        let dx = sqrtf((r * r - dy * dy) as f32) as i16;
         gfx_hline(cx - dx, cy + dy as i16, dx * 2 + 1, color);
     });
 }
@@ -322,14 +324,14 @@ pub fn gfx_aa_arc(cx: i16, cy: i16, radius: i16, thickness: i16, start_deg: i16,
         (-bounds..=bounds).for_each(|dx| {
             let px = dx as f32;
             let py = dy as f32;
-            let dist = (px * px + py * py).sqrt();
+            let dist = sqrtf(px * px + py * py);
 
             if dist < r_inner - 1.0 || dist > r_outer + 1.0 {
                 return;
             }
 
             // Check angle (0 = top, clockwise)
-            let mut angle = (px.atan2(-py)).to_degrees();
+            let mut angle = atan2f(px, -py) * (180.0 / core::f32::consts::PI);
             if angle < 0.0 {
                 angle += 360.0;
             }
@@ -373,7 +375,7 @@ pub fn gfx_fill_rounded_rect(x: i16, y: i16, w: i16, h: i16, r: i16, color: u16)
     // Fill corners
     let ri = r as i32;
     (0..r).for_each(|dy| {
-        let dx = ((ri * ri - (dy as i32) * (dy as i32)) as f32).sqrt() as i16;
+        let dx = sqrtf((ri * ri - (dy as i32) * (dy as i32)) as f32) as i16;
         // Top-left
         gfx_hline(x + r - dx, y + r - dy, dx, color);
         // Top-right

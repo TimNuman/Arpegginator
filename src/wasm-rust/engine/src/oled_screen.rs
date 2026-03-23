@@ -2,6 +2,7 @@
 // Full-width layout with 256×128 display, IBM Plex Mono fonts
 
 use core::fmt::Write;
+use libm::{cosf, sinf};
 use crate::engine_core::FmtBuf;
 use crate::oled_gfx::*;
 use crate::oled_fonts_aa::*;
@@ -452,8 +453,8 @@ fn draw_circle_of_fifths(s: &EngineState, active: bool) {
     // 0 = top (270° in math coords), going clockwise
     let angle_deg = cof_pos as f32 * 30.0 - 90.0;
     let angle_rad = angle_deg * core::f32::consts::PI / 180.0;
-    let cos_a = angle_rad.cos();
-    let sin_a = angle_rad.sin();
+    let cos_a = cosf(angle_rad);
+    let sin_a = sinf(angle_rad);
 
     // Tick from outer circle inward
     let tick_outer = r_outer as f32;
@@ -472,7 +473,7 @@ fn draw_circle_of_fifths(s: &EngineState, active: bool) {
     let mut n = 0usize;
     (-1i16..=1).for_each(|dx| {
         (-1i16..=1).for_each(|dy| {
-            let dist_sq = (dx as f32 * cos_a + dy as f32 * sin_a).powi(2);
+            let dist_sq = { let v = dx as f32 * cos_a + dy as f32 * sin_a; v * v };
             // Keep points within ~1.2px of the line (perpendicular distance)
             if dist_sq <= 1.5 {
                 offsets[n] = (dx, dy);
@@ -1227,15 +1228,9 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
 
 // ============ Public entry point ============
 
-pub fn oled_render(modifiers: u8) {
+pub fn oled_render(s: &EngineState, modifiers: u8) {
     unsafe { FRAME_COUNT = FRAME_COUNT.wrapping_add(1); }
     gfx_clear(GFX_BLACK);
-
-    let s = unsafe {
-        let ptr = crate::G_STATE_PTR;
-        if ptr.is_null() { return; }
-        &*ptr
-    };
 
     let mode = s.ui_mode;
     let has_sel = s.selected_event_idx >= 0;

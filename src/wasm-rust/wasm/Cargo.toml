@@ -1,0 +1,11 @@
+[package]
+name = "arpegginator-engine"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+# build.sh overrides to cdylib via --crate-type flag
+crate-type = ["rlib"]
+
+[dependencies]
+arp3-engine = { path = "../engine" }

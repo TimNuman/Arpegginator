@@ -1,6 +1,7 @@
 // test_edit.rs — Tests for engine_edit functions
 // Mirrors src/wasm/tests/test_edit.c
 
+use alloc::boxed::Box;
 use crate::engine_core::*;
 use crate::engine_edit::*;
 

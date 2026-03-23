@@ -20,7 +20,7 @@ fi
 
 echo "Building Rust WASM engine..."
 cd "$SCRIPT_DIR"
-cargo rustc --target wasm32-unknown-unknown --release --crate-type cdylib
+cargo rustc -p arpegginator-engine --target wasm32-unknown-unknown --release --crate-type cdylib
 
 mkdir -p "$OUTPUT_DIR"
 cp "$SCRIPT_DIR/target/wasm32-unknown-unknown/release/arpegginator_engine.wasm" "$OUTPUT_DIR/engine.wasm"

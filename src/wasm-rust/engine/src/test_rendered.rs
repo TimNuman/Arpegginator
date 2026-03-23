@@ -1,6 +1,7 @@
 // test_rendered.rs — Tests for rendered notes cache and dirty flag system
 // Mirrors src/wasm/tests/test_rendered.c
 
+use alloc::boxed::Box;
 use crate::engine_core::*;
 use crate::engine_edit::*;
 use crate::engine_ui::*;

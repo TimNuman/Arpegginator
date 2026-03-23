@@ -1,17 +1,9 @@
-[package]
-name = "arpegginator-engine"
-version = "0.1.0"
+[workspace]
+members = ["engine", "wasm", "teensy"]
+resolver = "2"
+
+[workspace.package]
 edition = "2021"
-
-[lib]
-# cdylib for WASM builds, rlib for cargo test
-# Use --crate-type flag or target-specific config
-crate-type = ["rlib"]
-
-[dependencies]
-
-[build-dependencies]
-fontdue = "0.9"
 
 [profile.release]
 opt-level = "z"

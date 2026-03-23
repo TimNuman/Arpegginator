@@ -1,0 +1,11 @@
+[package]
+name = "arp3-teensy"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+arp3-engine = { path = "../engine" }
+teensy4-bsp = { version = "0.5", features = ["rt"] }
+teensy4-panic = "0.2"
+cortex-m = "0.7"
+embedded-alloc = "0.6"
