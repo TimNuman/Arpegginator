@@ -10,7 +10,6 @@ pub mod engine_ui;
 pub mod engine_input;
 pub mod platform;
 pub mod oled_gfx;
-pub mod oled_fonts;
 pub mod oled_fonts_aa;
 pub mod oled_display;
 pub mod oled_screen;
@@ -891,16 +890,6 @@ pub extern "C" fn oled_init() { oled_display::oled_init(); }
 pub extern "C" fn oled_clear() { oled_display::oled_clear(); }
 
 #[no_mangle]
-pub extern "C" fn oled_draw_text(x: i16, y: i16, text: *const u8, color_idx: u8, font_idx: u8) {
-    let text_str = unsafe {
-        let mut len = 0;
-        while *text.add(len) != 0 { len += 1; }
-        core::str::from_utf8_unchecked(core::slice::from_raw_parts(text, len))
-    };
-    oled_display::oled_draw_text(x, y, text_str, color_idx, font_idx);
-}
-
-#[no_mangle]
 pub extern "C" fn oled_draw_hline(x: i16, y: i16, w: i16, color_idx: u8) {
     oled_display::oled_draw_hline(x, y, w, color_idx);
 }
@@ -928,21 +917,6 @@ pub extern "C" fn oled_fill_rect(x: i16, y: i16, w: i16, h: i16, color_idx: u8) 
 #[no_mangle]
 pub extern "C" fn oled_draw_pixel(x: i16, y: i16, color_idx: u8) {
     oled_display::oled_draw_pixel(x, y, color_idx);
-}
-
-#[no_mangle]
-pub extern "C" fn oled_text_width(text: *const u8, font_idx: u8) -> i16 {
-    let text_str = unsafe {
-        let mut len = 0;
-        while *text.add(len) != 0 { len += 1; }
-        core::str::from_utf8_unchecked(core::slice::from_raw_parts(text, len))
-    };
-    oled_display::oled_text_width(text_str, font_idx)
-}
-
-#[no_mangle]
-pub extern "C" fn oled_font_height(font_idx: u8) -> i16 {
-    oled_display::oled_font_height(font_idx)
 }
 
 #[no_mangle]

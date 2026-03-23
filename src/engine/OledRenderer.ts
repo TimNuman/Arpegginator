@@ -7,10 +7,6 @@ export const OLED_RED = 2;
 export const OLED_WHITE = 3;
 export const OLED_DIM = 4;
 
-// Font indices (must match oled_display.h)
-export const OLED_FONT_MAIN = 0;
-export const OLED_FONT_SMALL = 1;
-
 // Display dimensions (must match oled_gfx.rs)
 export const OLED_WIDTH = 256;
 export const OLED_HEIGHT = 128;
@@ -33,13 +29,6 @@ export class OledRenderer {
   // WASM function bindings
   private _init: () => void;
   private _clear: () => void;
-  private _drawText: (
-    x: number,
-    y: number,
-    text: string,
-    color: number,
-    font: number,
-  ) => void;
   private _drawHLine: (
     x: number,
     y: number,
@@ -74,8 +63,6 @@ export class OledRenderer {
     color: number,
   ) => void;
   private _drawPixel: (x: number, y: number, color: number) => void;
-  private _textWidth: (text: string, font: number) => number;
-  private _fontHeight: (font: number) => number;
   private _render: (modifiers: number) => void;
   private _getFramebufferPtr: () => number;
 
@@ -90,13 +77,6 @@ export class OledRenderer {
 
     this._init = cw("oled_init", null, []) as () => void;
     this._clear = cw("oled_clear", null, []) as () => void;
-    this._drawText = cw("oled_draw_text", null, [
-      "number",
-      "number",
-      "string",
-      "number",
-      "number",
-    ]) as (x: number, y: number, text: string, color: number, font: number) => void;
     this._drawHLine = cw("oled_draw_hline", null, [
       "number",
       "number",
@@ -153,13 +133,6 @@ export class OledRenderer {
       "number",
       "number",
     ]) as (x: number, y: number, color: number) => void;
-    this._textWidth = cw("oled_text_width", "number", [
-      "string",
-      "number",
-    ]) as (text: string, font: number) => number;
-    this._fontHeight = cw("oled_font_height", "number", [
-      "number",
-    ]) as (font: number) => number;
     this._render = cw("oled_render", null, [
       "number",
     ]) as (modifiers: number) => void;
@@ -197,16 +170,6 @@ export class OledRenderer {
 
   clear(): void {
     this._clear();
-  }
-
-  drawText(
-    x: number,
-    y: number,
-    text: string,
-    color = OLED_CYAN,
-    font = OLED_FONT_MAIN,
-  ): void {
-    this._drawText(x, y, text, color, font);
   }
 
   drawHLine(x: number, y: number, w: number, color = OLED_CYAN): void {
@@ -249,14 +212,6 @@ export class OledRenderer {
 
   drawPixel(x: number, y: number, color = OLED_CYAN): void {
     this._drawPixel(x, y, color);
-  }
-
-  textWidth(text: string, font = OLED_FONT_MAIN): number {
-    return this._textWidth(text, font);
-  }
-
-  fontHeight(font = OLED_FONT_MAIN): number {
-    return this._fontHeight(font);
   }
 
   // ============ Canvas blit ============

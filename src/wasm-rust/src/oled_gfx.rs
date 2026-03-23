@@ -1,25 +1,4 @@
 // oled_gfx.rs — RGB565 framebuffer graphics library with anti-aliased rendering
-// Supports both legacy bitmap fonts (Adafruit GFX) and pre-rasterized AA fonts
-
-// ============ Legacy font structures (Adafruit GFX compatible) ============
-
-#[derive(Clone, Copy)]
-pub struct GFXglyph {
-    pub bitmap_offset: u16,
-    pub width: u8,
-    pub height: u8,
-    pub x_advance: u8,
-    pub x_offset: i8,
-    pub y_offset: i8,
-}
-
-pub struct GFXfont {
-    pub bitmap: &'static [u8],
-    pub glyph: &'static [GFXglyph],
-    pub first: u16,
-    pub last: u16,
-    pub y_advance: u8,
-}
 
 // ============ Anti-aliased font structures ============
 
@@ -404,71 +383,6 @@ pub fn gfx_fill_rounded_rect(x: i16, y: i16, w: i16, h: i16, r: i16, color: u16)
         // Bottom-right
         gfx_hline(x + w - r, y + h - r - 1 + dy, dx, color);
     });
-}
-
-// ============ Legacy text rendering (Adafruit GFX bitmap fonts) ============
-
-fn gfx_draw_char(x: i16, y: i16, c: u8, color: u16, font: &GFXfont) {
-    if (c as u16) < font.first || (c as u16) > font.last {
-        return;
-    }
-
-    let glyph = &font.glyph[(c as u16 - font.first) as usize];
-    let w = glyph.width;
-    let h = glyph.height;
-    let xo = glyph.x_offset;
-    let yo = glyph.y_offset;
-    let mut bo = glyph.bitmap_offset as usize;
-
-    let mut bits: u8 = 0;
-    let mut bit: u8 = 0;
-
-    (0..h).for_each(|yy| {
-        (0..w).for_each(|xx| {
-            if (bit & 7) == 0 {
-                bits = font.bitmap[bo];
-                bo += 1;
-            }
-            bit += 1;
-            if bits & 0x80 != 0 {
-                gfx_pixel(
-                    x + xo as i16 + xx as i16,
-                    y + yo as i16 + yy as i16,
-                    color,
-                );
-            }
-            bits <<= 1;
-        });
-    });
-}
-
-pub fn gfx_text(x: i16, y: i16, s: &str, color: u16, font: &GFXfont) {
-    let mut cx = x;
-    s.bytes().for_each(|ch| {
-        if ch as u16 >= font.first && ch as u16 <= font.last {
-            gfx_draw_char(cx, y, ch, color, font);
-            cx += font.glyph[(ch as u16 - font.first) as usize].x_advance as i16;
-        }
-    });
-}
-
-pub fn gfx_text_width(s: &str, font: &GFXfont) -> i16 {
-    s.bytes()
-        .filter(|&ch| ch as u16 >= font.first && ch as u16 <= font.last)
-        .map(|ch| font.glyph[(ch as u16 - font.first) as usize].x_advance as i16)
-        .sum()
-}
-
-pub fn gfx_font_height(font: &GFXfont) -> i16 {
-    font.y_advance as i16
-}
-
-/// Draw text right-aligned
-pub fn gfx_text_right(right_x: i16, y: i16, s: &str, color: u16, font: &GFXfont) -> i16 {
-    let w = gfx_text_width(s, font);
-    let x = right_x - w;
-    gfx_text(x, y, s, color, font);
-    x
 }
 
 // ============ Anti-aliased text rendering ============

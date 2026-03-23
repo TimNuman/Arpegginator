@@ -2,7 +2,6 @@
 // Wraps oled_gfx with color/font index lookups and WASM-exported API
 
 use crate::oled_gfx::*;
-use crate::oled_fonts::*;
 use crate::oled_fonts_aa::*;
 
 // ============ Color indices (passed from JS) ============
@@ -14,11 +13,6 @@ pub const OLED_WHITE: u8 = 3;
 pub const OLED_DIM: u8 = 4;
 pub const OLED_PINK: u8 = 5;
 pub const OLED_BLUE: u8 = 6;
-
-// ============ Font indices (passed from JS) ============
-
-pub const OLED_FONT_MAIN: u8 = 0;
-pub const OLED_FONT_SMALL: u8 = 1;
 
 // ============ AA Font indices ============
 
@@ -48,13 +42,6 @@ pub fn color_lookup(idx: u8) -> u16 {
 
 // ============ Font lookup ============
 
-pub fn font_lookup(idx: u8) -> &'static GFXfont {
-    match idx {
-        OLED_FONT_SMALL => &FONT_SMALL,
-        _ => &FONT_MAIN,
-    }
-}
-
 pub fn aa_font_lookup(idx: u8) -> &'static AAFont {
     match idx {
         OLED_AA_MEDIUM => &FONT_AA_MEDIUM,
@@ -72,10 +59,6 @@ pub fn oled_init() {
 
 pub fn oled_clear() {
     gfx_clear(GFX_BLACK);
-}
-
-pub fn oled_draw_text(x: i16, y: i16, text: &str, color_idx: u8, font_idx: u8) {
-    gfx_text(x, y, text, color_lookup(color_idx), font_lookup(font_idx));
 }
 
 pub fn oled_draw_aa_text(x: i16, y: i16, text: &str, color_idx: u8, font_idx: u8) {
@@ -106,12 +89,8 @@ pub fn oled_draw_pixel(x: i16, y: i16, color_idx: u8) {
     gfx_pixel(x, y, color_lookup(color_idx));
 }
 
-pub fn oled_text_width(text: &str, font_idx: u8) -> i16 {
-    gfx_text_width(text, font_lookup(font_idx))
-}
-
-pub fn oled_font_height(font_idx: u8) -> i16 {
-    gfx_font_height(font_lookup(font_idx))
+pub fn oled_aa_text_width(text: &str, font_idx: u8) -> i16 {
+    gfx_aa_text_width(text, aa_font_lookup(font_idx))
 }
 
 pub fn oled_get_framebuffer() -> *mut u16 {

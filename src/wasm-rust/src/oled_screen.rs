@@ -4,7 +4,6 @@
 use core::fmt::Write;
 use crate::engine_core::FmtBuf;
 use crate::oled_gfx::*;
-use crate::oled_fonts::FONT_MAIN;
 use crate::oled_fonts_aa::*;
 use crate::oled_display::*;
 use crate::engine_core::*;
@@ -616,10 +615,10 @@ fn draw_icon_legend(y: i16, label: &str, value: &str, legend_color: u8) {
     let tx = PAD_X + 13 + 4;
     let mut prefix = FmtBuf::<16>::new();
     let _ = write!(prefix, "{}: ", label);
-    gfx_text(tx, y, &prefix, color_lookup(legend_color), &FONT_MAIN);
+    gfx_aa_text(tx, y, &prefix, color_lookup(legend_color), &FONT_AA_SMALL);
     if !value.is_empty() {
-        let w = gfx_text_width(&prefix, &FONT_MAIN);
-        gfx_text(tx + w, y, value, color_lookup(OLED_CYAN), &FONT_MAIN);
+        let w = gfx_aa_text_width(&prefix, &FONT_AA_SMALL);
+        gfx_aa_text(tx + w, y, value, color_lookup(OLED_CYAN), &FONT_AA_SMALL);
     }
 }
 
