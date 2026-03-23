@@ -887,46 +887,8 @@ pub extern "C" fn wasm_free(ptr: *mut u8, size: u32) {
 pub extern "C" fn oled_init() { oled_display::oled_init(); }
 
 #[no_mangle]
-pub extern "C" fn oled_clear() { oled_display::oled_clear(); }
-
-#[no_mangle]
-pub extern "C" fn oled_draw_hline(x: i16, y: i16, w: i16, color_idx: u8) {
-    oled_display::oled_draw_hline(x, y, w, color_idx);
-}
-
-#[no_mangle]
-pub extern "C" fn oled_draw_vline(x: i16, y: i16, h: i16, color_idx: u8) {
-    oled_display::oled_draw_vline(x, y, h, color_idx);
-}
-
-#[no_mangle]
-pub extern "C" fn oled_draw_line(x0: i16, y0: i16, x1: i16, y1: i16, color_idx: u8) {
-    oled_display::oled_draw_line(x0, y0, x1, y1, color_idx);
-}
-
-#[no_mangle]
-pub extern "C" fn oled_draw_rect(x: i16, y: i16, w: i16, h: i16, color_idx: u8) {
-    oled_display::oled_draw_rect(x, y, w, h, color_idx);
-}
-
-#[no_mangle]
-pub extern "C" fn oled_fill_rect(x: i16, y: i16, w: i16, h: i16, color_idx: u8) {
-    oled_display::oled_fill_rect(x, y, w, h, color_idx);
-}
-
-#[no_mangle]
-pub extern "C" fn oled_draw_pixel(x: i16, y: i16, color_idx: u8) {
-    oled_display::oled_draw_pixel(x, y, color_idx);
-}
-
-#[no_mangle]
 pub extern "C" fn oled_get_framebuffer() -> *mut u16 {
     oled_gfx::gfx_get_framebuffer()
-}
-
-#[no_mangle]
-pub extern "C" fn oled_get_framebuffer_size() -> u32 {
-    (oled_gfx::GFX_WIDTH * oled_gfx::GFX_HEIGHT * 2) as u32
 }
 
 #[no_mangle]

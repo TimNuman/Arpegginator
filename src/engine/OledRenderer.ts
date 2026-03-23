@@ -1,12 +1,5 @@
 // OledRenderer.ts — Canvas-based OLED display renderer using WASM framebuffer
 
-// Color indices (must match oled_display.h)
-export const OLED_CYAN = 0;
-export const OLED_YELLOW = 1;
-export const OLED_RED = 2;
-export const OLED_WHITE = 3;
-export const OLED_DIM = 4;
-
 // Display dimensions (must match oled_gfx.rs)
 export const OLED_WIDTH = 256;
 export const OLED_HEIGHT = 128;
@@ -27,42 +20,6 @@ export class OledRenderer {
   private imageData: ImageData | null = null;
 
   // WASM function bindings
-  private _init: () => void;
-  private _clear: () => void;
-  private _drawHLine: (
-    x: number,
-    y: number,
-    w: number,
-    color: number,
-  ) => void;
-  private _drawVLine: (
-    x: number,
-    y: number,
-    h: number,
-    color: number,
-  ) => void;
-  private _drawLine: (
-    x0: number,
-    y0: number,
-    x1: number,
-    y1: number,
-    color: number,
-  ) => void;
-  private _drawRect: (
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    color: number,
-  ) => void;
-  private _fillRect: (
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    color: number,
-  ) => void;
-  private _drawPixel: (x: number, y: number, color: number) => void;
   private _render: (modifiers: number) => void;
   private _getFramebufferPtr: () => number;
 
@@ -75,79 +32,15 @@ export class OledRenderer {
       args: string[],
     ): ((...a: unknown[]) => unknown) => module.cwrap(name, ret, args);
 
-    this._init = cw("oled_init", null, []) as () => void;
-    this._clear = cw("oled_clear", null, []) as () => void;
-    this._drawHLine = cw("oled_draw_hline", null, [
-      "number",
-      "number",
-      "number",
-      "number",
-    ]) as (x: number, y: number, w: number, color: number) => void;
-    this._drawVLine = cw("oled_draw_vline", null, [
-      "number",
-      "number",
-      "number",
-      "number",
-    ]) as (x: number, y: number, h: number, color: number) => void;
-    this._drawLine = cw("oled_draw_line", null, [
-      "number",
-      "number",
-      "number",
-      "number",
-      "number",
-    ]) as (
-      x0: number,
-      y0: number,
-      x1: number,
-      y1: number,
-      color: number,
+    (cw("oled_init", null, []) as () => void)();
+    this._render = cw("oled_render", null, ["number"]) as (
+      modifiers: number,
     ) => void;
-    this._drawRect = cw("oled_draw_rect", null, [
-      "number",
-      "number",
-      "number",
-      "number",
-      "number",
-    ]) as (
-      x: number,
-      y: number,
-      w: number,
-      h: number,
-      color: number,
-    ) => void;
-    this._fillRect = cw("oled_fill_rect", null, [
-      "number",
-      "number",
-      "number",
-      "number",
-      "number",
-    ]) as (
-      x: number,
-      y: number,
-      w: number,
-      h: number,
-      color: number,
-    ) => void;
-    this._drawPixel = cw("oled_draw_pixel", null, [
-      "number",
-      "number",
-      "number",
-    ]) as (x: number, y: number, color: number) => void;
-    this._render = cw("oled_render", null, [
-      "number",
-    ]) as (modifiers: number) => void;
     this._getFramebufferPtr = cw(
       "oled_get_framebuffer",
       "number",
       [],
     ) as () => number;
-    cw(
-      "oled_get_framebuffer_size",
-      "number",
-      [],
-    );
-
-    this._init();
   }
 
   /** Attach a canvas element for rendering */
@@ -159,62 +52,10 @@ export class OledRenderer {
     this.imageData = this.ctx.createImageData(OLED_WIDTH, OLED_HEIGHT);
   }
 
-  // ============ High-level API ============
-
-  /** Render the full OLED screen (all logic in C). Modifier bitmask: shift=1, meta=2, alt=4, ctrl=8 */
+  /** Render the full OLED screen (all logic in Rust). Modifier bitmask: shift=1, meta=2, alt=4, ctrl=8 */
   render(modifiers: number): void {
     this._render(modifiers);
   }
-
-  // ============ Drawing API (low-level, kept for compatibility) ============
-
-  clear(): void {
-    this._clear();
-  }
-
-  drawHLine(x: number, y: number, w: number, color = OLED_CYAN): void {
-    this._drawHLine(x, y, w, color);
-  }
-
-  drawVLine(x: number, y: number, h: number, color = OLED_CYAN): void {
-    this._drawVLine(x, y, h, color);
-  }
-
-  drawLine(
-    x0: number,
-    y0: number,
-    x1: number,
-    y1: number,
-    color = OLED_CYAN,
-  ): void {
-    this._drawLine(x0, y0, x1, y1, color);
-  }
-
-  drawRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    color = OLED_CYAN,
-  ): void {
-    this._drawRect(x, y, w, h, color);
-  }
-
-  fillRect(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    color = OLED_CYAN,
-  ): void {
-    this._fillRect(x, y, w, h, color);
-  }
-
-  drawPixel(x: number, y: number, color = OLED_CYAN): void {
-    this._drawPixel(x, y, color);
-  }
-
-  // ============ Canvas blit ============
 
   /** Copy the RGB565 framebuffer from WASM to the canvas */
   blit(): void {

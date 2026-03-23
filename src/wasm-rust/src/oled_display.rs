@@ -1,10 +1,9 @@
-// oled_display.rs — OLED display API with color/font indices
-// Wraps oled_gfx with color/font index lookups and WASM-exported API
+// oled_display.rs — OLED display constants and color/font lookup
 
 use crate::oled_gfx::*;
 use crate::oled_fonts_aa::*;
 
-// ============ Color indices (passed from JS) ============
+// ============ Color indices ============
 
 pub const OLED_CYAN: u8 = 0;
 pub const OLED_YELLOW: u8 = 1;
@@ -51,52 +50,8 @@ pub fn aa_font_lookup(idx: u8) -> &'static AAFont {
     }
 }
 
-// ============ API ============
+// ============ Init ============
 
 pub fn oled_init() {
     gfx_init();
-}
-
-pub fn oled_clear() {
-    gfx_clear(GFX_BLACK);
-}
-
-pub fn oled_draw_aa_text(x: i16, y: i16, text: &str, color_idx: u8, font_idx: u8) {
-    gfx_aa_text(x, y, text, color_lookup(color_idx), aa_font_lookup(font_idx));
-}
-
-pub fn oled_draw_hline(x: i16, y: i16, w: i16, color_idx: u8) {
-    gfx_hline(x, y, w, color_lookup(color_idx));
-}
-
-pub fn oled_draw_vline(x: i16, y: i16, h: i16, color_idx: u8) {
-    gfx_vline(x, y, h, color_lookup(color_idx));
-}
-
-pub fn oled_draw_line(x0: i16, y0: i16, x1: i16, y1: i16, color_idx: u8) {
-    gfx_line(x0, y0, x1, y1, color_lookup(color_idx));
-}
-
-pub fn oled_draw_rect(x: i16, y: i16, w: i16, h: i16, color_idx: u8) {
-    gfx_rect(x, y, w, h, color_lookup(color_idx));
-}
-
-pub fn oled_fill_rect(x: i16, y: i16, w: i16, h: i16, color_idx: u8) {
-    gfx_fill_rect(x, y, w, h, color_lookup(color_idx));
-}
-
-pub fn oled_draw_pixel(x: i16, y: i16, color_idx: u8) {
-    gfx_pixel(x, y, color_lookup(color_idx));
-}
-
-pub fn oled_aa_text_width(text: &str, font_idx: u8) -> i16 {
-    gfx_aa_text_width(text, aa_font_lookup(font_idx))
-}
-
-pub fn oled_get_framebuffer() -> *mut u16 {
-    gfx_get_framebuffer()
-}
-
-pub fn oled_get_framebuffer_size() -> u32 {
-    (GFX_WIDTH * GFX_HEIGHT * core::mem::size_of::<u16>()) as u32
 }
