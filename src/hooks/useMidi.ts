@@ -25,7 +25,7 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   const [inputs, setInputs] = useState<Input[]>([]);
   const [selectedOutput, setSelectedOutput] = useState<Output | null>(null);
   const [selectedInput, setSelectedInput] = useState<Input | null>(null);
-  const [_error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const activeNotes = useRef<Map<number, Output>>(new Map());
   const transportCallbacksRef = useRef(transportCallbacks);
 

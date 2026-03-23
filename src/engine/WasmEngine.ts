@@ -48,7 +48,7 @@ class RustWasmAdapter implements WasmModule {
     _returnType: string | null,
     argTypes: string[],
   ): (...args: number[]) => number {
-    const fn = this.instance.exports[name] as Function;
+    const fn = this.instance.exports[name] as (...args: number[]) => number;
     if (!fn) throw new Error(`WASM export "${name}" not found`);
 
     const hasStringArgs = argTypes.some((t) => t === "string");
@@ -96,7 +96,7 @@ class RustWasmAdapter implements WasmModule {
 
 /** Load the Rust WASM module directly (no Emscripten glue). */
 async function loadRustWasm(
-  callbacks: Record<string, Function>,
+  callbacks: Record<string, (...args: number[]) => void>,
 ): Promise<WasmModule> {
   const importObject = {
     env: {
@@ -136,13 +136,11 @@ export class WasmEngine {
   private _getVersion!: () => number;
 
   // Buffer accessors
-  private _getEventPoolBasePtr!: () => number;
   private _getChannelTypesBuffer!: () => number;
   private _setRngSeed!: (seed: number) => void;
   private _getNoteEventSize!: () => number;
   private _getFieldOffset!: (fieldId: number) => number;
   private _getSubModeArraySize!: () => number;
-  private _getPoolBasePtr!: () => number;
 
   // UI state setters
   private _setZoom!: (tpc: number) => void;
@@ -228,7 +226,7 @@ export class WasmEngine {
         vel: number,
         timing: number,
         flam: number,
-        _evIdx: number,
+        _evIdx: number, // eslint-disable-line @typescript-eslint/no-unused-vars
       ) => {
         if (!this.onStepTrigger) return;
         const extras: StepTriggerExtras = {};
@@ -249,13 +247,13 @@ export class WasmEngine {
       noteOff: (ch: number, note: number) => {
         this.onNoteOff?.(ch, note);
       },
-      setCurrentTick: (_tick: number) => {
+      setCurrentTick: () => {
         markDirty();
       },
-      setCurrentPatterns: (_ptr: number) => {
+      setCurrentPatterns: () => {
         markDirty();
       },
-      clearQueuedPattern: (_ch: number) => {
+      clearQueuedPattern: () => {
         markDirty();
       },
       previewValue: () => {},
@@ -282,11 +280,6 @@ export class WasmEngine {
     this._engineTick = cw("engine_tick", null, []) as unknown as () => void;
     this._engineStop = cw("engine_stop", null, []) as unknown as () => void;
     this._getVersion = cw("engine_get_version", "number", []);
-    this._getEventPoolBasePtr = cw(
-      "engine_get_event_pool_base_ptr",
-      "number",
-      [],
-    ) as unknown as () => number;
     this._getChannelTypesBuffer = cw(
       "engine_get_channel_types_buffer",
       "number",
@@ -302,11 +295,6 @@ export class WasmEngine {
       "number",
       [],
     );
-    this._getPoolBasePtr = cw(
-      "engine_get_pool_base_ptr",
-      "number",
-      [],
-    ) as unknown as () => number;
 
     // UI state setters
     this._setZoom = cw("engine_set_zoom", null, ["number"]) as unknown as (

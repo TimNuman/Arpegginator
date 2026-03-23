@@ -43,18 +43,17 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
 
   // Use refs to avoid stale closures in event handlers
   const stateRef = useRef(state);
-  stateRef.current = state;
-
   const onKeyDownRef = useRef(onKeyDown);
-  onKeyDownRef.current = onKeyDown;
-
   const onKeyUpRef = useRef(onKeyUp);
-  onKeyUpRef.current = onKeyUp;
+
+  useEffect(() => {
+    stateRef.current = state;
+    onKeyDownRef.current = onKeyDown;
+    onKeyUpRef.current = onKeyUp;
+  });
 
   useEffect(() => {
     if (!enabled) {
-      // Reset state when disabled
-      setState(createInitialState());
       return;
     }
 
@@ -119,6 +118,8 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      // Reset state when listeners are removed (disabled or unmount)
+      setState(createInitialState());
     };
   }, [enabled]);
 

@@ -58,6 +58,9 @@ const titleStyles = css`
 
 function App() {
   // WASM engine — null until loaded, non-null gates rendering
+  // Use ref for callback wiring (avoids eslint useState mutation warning),
+  // and state to trigger re-render when engine becomes ready.
+  const wasmEngineRef = useRef<WasmEngine | null>(null);
   const [wasmEngine, setWasmEngine] = useState<WasmEngine | null>(null);
 
   useEffect(() => {
@@ -97,6 +100,7 @@ function App() {
           }
         }
 
+        wasmEngineRef.current = engine;
         setWasmEngine(engine);
         actions.setWasmEngine(engine);
         console.log(
@@ -109,6 +113,7 @@ function App() {
       .catch((err) => {
         console.warn("WASM engine not available:", err);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Subscribe to render version for transport state re-renders
@@ -236,19 +241,20 @@ function App() {
 
   // Wire up step trigger and note-off callbacks
   useEffect(() => {
-    console.log("[startup] Wiring callbacks: wasmEngine=" + !!wasmEngine);
-    if (wasmEngine) {
-      wasmEngine.onStepTrigger = handleStepTrigger;
-      wasmEngine.onNoteOff = handleNoteOff;
-      wasmEngine.onPlayPreviewNote = (
+    const engine = wasmEngineRef.current;
+    console.log("[startup] Wiring callbacks: wasmEngine=" + !!engine);
+    if (engine) {
+      engine.onStepTrigger = handleStepTrigger;
+      engine.onNoteOff = handleNoteOff;
+      engine.onPlayPreviewNote = (
         channel: number,
         row: number,
         lengthTicks: number,
       ) => {
-        const isDrum = wasmEngine.getChannelType(channel) === 1;
+        const isDrum = engine.getChannelType(channel) === 1;
         const midiNote = isDrum
           ? Math.max(0, Math.min(127, row))
-          : wasmEngine.noteToMidi(row);
+          : engine.noteToMidi(row);
         if (midiNote >= 0) {
           handlePlayNote(
             midiNote,
@@ -259,10 +265,10 @@ function App() {
       };
     }
     return () => {
-      if (wasmEngine) {
-        wasmEngine.onStepTrigger = null;
-        wasmEngine.onNoteOff = null;
-        wasmEngine.onPlayPreviewNote = null;
+      if (engine) {
+        engine.onStepTrigger = null;
+        engine.onNoteOff = null;
+        engine.onPlayPreviewNote = null;
       }
     };
   }, [handleStepTrigger, handleNoteOff, handlePlayNote, wasmEngine]);

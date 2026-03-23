@@ -80,8 +80,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
 
   // ============ Read ALL state from WASM (single source of truth) ============
   const VISIBLE_ROWS = wasmEngine.getVisibleRows();
-  const VISIBLE_COLS = wasmEngine.getVisibleCols();
-  const currentChannel = wasmEngine.getCurrentChannel();
 
   const buttonSize = 44;
   const gridHeight = VISIBLE_ROWS * buttonSize;
