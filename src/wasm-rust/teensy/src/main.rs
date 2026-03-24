@@ -249,8 +249,8 @@ fn main() -> ! {
 
             while let Some(ev) = platform::arm_platform::dequeue_midi() {
                 match ev.kind {
-                    0 => midi.note_on(ev.channel, ev.note, ev.velocity),
-                    1 => midi.note_off(ev.channel, ev.note),
+                    0 => midi.note_on(ev.channel, ev.note as u8, ev.velocity),
+                    1 => midi.note_off(ev.channel, ev.note as u8),
                     2 => {
                         // Kill old preview notes on first note of a new batch
                         if !new_preview_started && preview_count > 0 {
@@ -262,7 +262,7 @@ fn main() -> ! {
                         }
                         new_preview_started = true;
 
-                        let midi_note = engine_core::note_to_midi(ev.note as i16, &state);
+                        let midi_note = engine_core::note_to_midi(ev.note, &state);
                         if midi_note >= 0 {
                             let note = midi_note as u8;
                             midi.note_on(ev.channel, note, ev.velocity);

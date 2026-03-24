@@ -85,9 +85,9 @@ pub mod arm_platform {
     #[derive(Clone, Copy)]
     #[repr(C)]
     pub struct MidiEvent {
-        pub kind: u8,       // 0 = note_on, 1 = note_off, 2 = preview (row in note field)
+        pub kind: u8,       // 0 = note_on, 1 = note_off, 2 = preview
         pub channel: u8,
-        pub note: u8,       // MIDI note (kind 0/1) or scale row as u8 (kind 2)
+        pub note: i16,      // MIDI note (kind 0/1) or scale row (kind 2, can be negative)
         pub velocity: u8,
         pub length_ticks: i32, // only used for kind=2 (preview)
     }
@@ -132,14 +132,14 @@ pub fn platform_step_trigger(
     _event_index: u16,
 ) {
     arm_platform::enqueue_midi(arm_platform::MidiEvent {
-        kind: 0, channel, note: midi_note, velocity, length_ticks: 0,
+        kind: 0, channel, note: midi_note as i16, velocity, length_ticks: 0,
     });
 }
 
 #[cfg(all(target_arch = "arm", not(test)))]
 pub fn platform_note_off(channel: u8, midi_note: u8) {
     arm_platform::enqueue_midi(arm_platform::MidiEvent {
-        kind: 1, channel, note: midi_note, velocity: 0, length_ticks: 0,
+        kind: 1, channel, note: midi_note as i16, velocity: 0, length_ticks: 0,
     });
 }
 
@@ -160,11 +160,8 @@ pub fn platform_preview_value(
 
 #[cfg(all(target_arch = "arm", not(test)))]
 pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
-    // Enqueue as kind=2 (preview). Row stored in note field.
-    // Main loop converts row → MIDI note using engine state.
-    let row_u8 = row.clamp(0, 127) as u8;
     arm_platform::enqueue_midi(arm_platform::MidiEvent {
-        kind: 2, channel, note: row_u8, velocity: 100, length_ticks,
+        kind: 2, channel, note: row, velocity: 100, length_ticks,
     });
 }
 
