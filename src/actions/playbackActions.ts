@@ -31,17 +31,17 @@ let tickAccumulator: number = 0;
 // ============ Playback Loop ============
 
 function playbackLoop(): void {
-  if (!engine || !engine.getIsPlaying() || wasmEngine.getIsExternalPlayback()) return;
+  if (!engine || !engine.getIsPlaying() || engine.getIsExternalPlayback()) return;
 
   const now = performance.now();
   const elapsed = now - lastFrameTime;
-  const msPerTick = 60000 / (wasmEngine.getBpm() * TICKS_PER_QUARTER);
+  const msPerTick = 60000 / (engine.getBpm() * TICKS_PER_QUARTER);
   tickAccumulator += elapsed;
 
   const ticksToProcess = Math.floor(tickAccumulator / msPerTick);
   if (ticksToProcess > 0) {
     for (let i = 0; i < ticksToProcess; i++) {
-      wasmEngine.tick();
+      engine.tick();
     }
     tickAccumulator -= ticksToProcess * msPerTick;
   }
