@@ -1,14 +1,14 @@
-import { getWasmEngine } from './playbackActions';
+import { getEngine } from './playbackActions';
 import { markDirty } from '../store/renderStore';
 
 /**
  * Clear current pattern.
- * Delegates to WASM which owns pattern data and loops.
+ * Delegates to engine which owns pattern data and loops.
  */
 export function clearPattern(): void {
-  const wasmEngine = getWasmEngine();
-  if (!wasmEngine?.isReady()) return;
+  const engine = getEngine();
+  if (!engine?.isReady()) return;
 
-  wasmEngine.clearPattern();
+  engine.clearPattern();
   markDirty();
 }

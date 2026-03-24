@@ -5,7 +5,7 @@ import { TouchStrip } from "../TouchStrip";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
 import { useRenderVersion, markDirty, setAnimatingCheck } from "../../store/renderStore";
 import * as actions from "../../actions";
-import type { WasmEngine } from "../../engine/WasmEngine";
+import type { Engine } from "../../engine/types";
 import { OledRenderer } from "../../engine/OledRenderer";
 import {
   gridOuterContainerStyles,
@@ -42,7 +42,7 @@ import { noop, encodeModifiers } from "./Grid.helpers";
 // ============ Grid Component ============
 
 interface GridProps {
-  wasmEngine: WasmEngine;
+  wasmEngine: Engine;
 }
 
 export const Grid = memo(({ wasmEngine }: GridProps) => {

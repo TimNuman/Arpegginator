@@ -4,6 +4,8 @@ import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
 import { Transport } from "./components/Transport";
 import { WasmEngine } from "./engine/WasmEngine";
+import { TeensyEngine } from "./engine/TeensyEngine";
+import type { Engine } from "./engine/types";
 import { useMidi } from "./hooks/useMidi";
 import { useRenderVersion } from "./store/renderStore";
 import * as actions from "./actions";
@@ -57,11 +59,11 @@ const titleStyles = css`
 `;
 
 function App() {
-  // WASM engine — null until loaded, non-null gates rendering
-  // Use ref for callback wiring (avoids eslint useState mutation warning),
-  // and state to trigger re-render when engine becomes ready.
-  const wasmEngineRef = useRef<WasmEngine | null>(null);
-  const [wasmEngine, setWasmEngine] = useState<WasmEngine | null>(null);
+  // Engine — null until loaded, non-null gates rendering.
+  // Supports WasmEngine (browser-only) or TeensyEngine (USB serial).
+  const engineRef = useRef<Engine | null>(null);
+  const [wasmEngine, setWasmEngine] = useState<Engine | null>(null);
+  const [teensyConnected, setTeensyConnected] = useState(false);
 
   useEffect(() => {
     console.log("[startup] Loading WASM engine...");
@@ -100,9 +102,9 @@ function App() {
           }
         }
 
-        wasmEngineRef.current = engine;
+        engineRef.current = engine;
         setWasmEngine(engine);
-        actions.setWasmEngine(engine);
+        actions.setEngine(engine);
         console.log(
           "[startup] WASM engine v" +
             engine.getVersion() +
@@ -241,8 +243,8 @@ function App() {
 
   // Wire up step trigger and note-off callbacks
   useEffect(() => {
-    const engine = wasmEngineRef.current;
-    console.log("[startup] Wiring callbacks: wasmEngine=" + !!engine);
+    const engine = engineRef.current;
+    console.log("[startup] Wiring callbacks: engine=" + !!engine);
     if (engine) {
       engine.onStepTrigger = handleStepTrigger;
       engine.onNoteOff = handleNoteOff;
@@ -321,6 +323,65 @@ function App() {
     actions.setSwing(newSwing);
   }, []);
 
+  const handleConnectTeensy = useCallback(async () => {
+    if (teensyConnected) {
+      // Disconnect and switch back to WASM
+      const current = engineRef.current;
+      if (current?.disconnect) current.disconnect();
+      // Reload a fresh WASM engine
+      const fresh = new WasmEngine();
+      await fresh.load();
+      fresh.fullInit();
+      fresh.writeChannelTypes([0, 0, 0, 0, 1, 1]);
+      fresh.setZoom(120);
+      fresh.setBpm(bpm);
+      engineRef.current = fresh;
+      setWasmEngine(fresh);
+      actions.setEngine(fresh);
+      setTeensyConnected(false);
+      return;
+    }
+
+    try {
+      const teensy = new TeensyEngine();
+      teensy.onConnectionChange = (connected) => {
+        setTeensyConnected(connected);
+        if (!connected) {
+          // Teensy disconnected — fall back to its internal WASM engine
+          // (it's still usable, just not connected to hardware)
+        }
+      };
+      await teensy.load();
+      teensy.fullInit();
+      teensy.writeChannelTypes([0, 0, 0, 0, 1, 1]);
+      teensy.setZoom(120);
+      teensy.setBpm(bpm);
+
+      // Compute initial row offsets
+      {
+        const sc = teensy.getScaleCount();
+        const szi = teensy.getScaleZeroIndex();
+        const vr = teensy.getVisibleRows();
+        const melodicMax = Math.max(0, sc - vr);
+        const melodicOff = melodicMax > 0 ? 1 - szi / melodicMax : 0.5;
+        const drumMax = Math.max(0, 128 - vr);
+        const drumOff = drumMax > 0 ? 1 - 36 / drumMax : 0.5;
+        for (let ch = 0; ch < 6; ch++) {
+          teensy.setRowOffset(ch, ch >= 4 ? drumOff : melodicOff);
+        }
+      }
+
+      await teensy.connect(); // Opens WebSerial port picker
+
+      engineRef.current = teensy;
+      setWasmEngine(teensy);
+      actions.setEngine(teensy);
+      setTeensyConnected(true);
+    } catch (e) {
+      console.warn("Teensy connection failed:", e);
+    }
+  }, [teensyConnected, bpm]);
+
   // Don't render anything until both WASM and MIDI are ready
   if (!wasmEngine || !isEnabled) {
     console.log(
@@ -373,6 +434,30 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
+        {"serial" in navigator && (
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
+            <Box
+              component="button"
+              onClick={handleConnectTeensy}
+              sx={{
+                background: teensyConnected ? "#1a3a1a" : "#1a1a2a",
+                border: `1px solid ${teensyConnected ? "#4a8a4a" : "#3a3a5a"}`,
+                color: teensyConnected ? "#6c6" : "#888",
+                borderRadius: "4px",
+                px: 2,
+                py: 0.5,
+                cursor: "pointer",
+                fontSize: "12px",
+                letterSpacing: "1px",
+                "&:hover": {
+                  borderColor: teensyConnected ? "#6c6" : "#66f",
+                },
+              }}
+            >
+              {teensyConnected ? "TEENSY CONNECTED" : "CONNECT TEENSY"}
+            </Box>
+          </Box>
+        )}
         <Grid wasmEngine={wasmEngine} />
       </Box>
     </ThemeProvider>

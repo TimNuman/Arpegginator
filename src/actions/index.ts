@@ -9,7 +9,7 @@ export {
   playExternal,
   externalTick,
   stopExternal,
-  setWasmEngine,
+  setEngine,
 } from './playbackActions';
 export type { StepTriggerExtras } from './playbackActions';
 

@@ -1,5 +1,5 @@
 import { TICKS_PER_QUARTER } from '../components/Grid/Grid.config';
-import type { WasmEngine } from '../engine/WasmEngine';
+import type { Engine } from '../engine/types';
 import { markDirty } from '../store/renderStore';
 
 // Extra parameters passed alongside each triggered note
@@ -8,19 +8,19 @@ export interface StepTriggerExtras {
   flamCount?: number;
 }
 
-// WASM engine reference (set from App.tsx when engine loads)
-let wasmEngine: WasmEngine | null = null;
+// Engine reference (set from App.tsx when engine loads)
+let engine: Engine | null = null;
 
-export function setWasmEngine(engine: WasmEngine | null): void {
-  wasmEngine = engine;
+export function setEngine(e: Engine | null): void {
+  engine = e;
 }
 
-function wasmReady(): boolean {
-  return wasmEngine !== null && wasmEngine.isReady();
+function engineReady(): boolean {
+  return engine !== null && engine.isReady();
 }
 
-export function getWasmEngine(): WasmEngine | null {
-  return wasmEngine;
+export function getEngine(): Engine | null {
+  return engine;
 }
 
 // JS timer state (only thing JS must own)
@@ -31,7 +31,7 @@ let tickAccumulator: number = 0;
 // ============ Playback Loop ============
 
 function playbackLoop(): void {
-  if (!wasmEngine || !wasmEngine.getIsPlaying() || wasmEngine.getIsExternalPlayback()) return;
+  if (!engine || !engine.getIsPlaying() || wasmEngine.getIsExternalPlayback()) return;
 
   const now = performance.now();
   const elapsed = now - lastFrameTime;
@@ -53,26 +53,30 @@ function playbackLoop(): void {
 // ============ Public API ============
 
 export function play(): void {
-  if (!wasmReady() || playbackTimerId) return;
+  if (!engineReady() || playbackTimerId) return;
 
-  wasmEngine!.setIsPlaying(true);
-  wasmEngine!.setIsExternalPlayback(false);
-  wasmEngine!.seedRng();
+  engine!.setIsPlaying(true);
+  engine!.setIsExternalPlayback(false);
+  engine!.seedRng();
 
-  const resumeTick = wasmEngine!.getResumeTick();
+  const resumeTick = engine!.getResumeTick();
   if (resumeTick >= 0) {
-    wasmEngine!.initFromTick(resumeTick);
-    wasmEngine!.setResumeTick(-1);
+    engine!.initFromTick(resumeTick);
+    engine!.setResumeTick(-1);
   } else {
-    wasmEngine!.init();
+    engine!.init();
   }
 
-  lastFrameTime = performance.now();
-  tickAccumulator = 0;
-
-  wasmEngine!.tick();
-  markDirty();
-  playbackTimerId = setTimeout(playbackLoop, 1);
+  if (engine!.isTeensy) {
+    // Teensy drives ticks via PIT timer — no JS tick loop needed
+    markDirty();
+  } else {
+    lastFrameTime = performance.now();
+    tickAccumulator = 0;
+    engine!.tick();
+    markDirty();
+    playbackTimerId = setTimeout(playbackLoop, 1);
+  }
 }
 
 export function stop(): void {
@@ -80,12 +84,12 @@ export function stop(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (wasmReady()) {
-    const t = wasmEngine!.getCurrentTick();
-    if (t >= 0) wasmEngine!.setResumeTick(t);
-    wasmEngine!.stop();
-    wasmEngine!.setIsPlaying(false);
-    wasmEngine!.setIsExternalPlayback(false);
+  if (engineReady()) {
+    const t = engine!.getCurrentTick();
+    if (t >= 0) engine!.setResumeTick(t);
+    engine!.stop();
+    engine!.setIsPlaying(false);
+    engine!.setIsExternalPlayback(false);
   }
   markDirty();
 }
@@ -95,32 +99,32 @@ export function resetPosition(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (wasmReady()) {
-    wasmEngine!.stop();
-    wasmEngine!.init();
-    wasmEngine!.setIsPlaying(false);
-    wasmEngine!.setIsExternalPlayback(false);
-    wasmEngine!.setResumeTick(-1);
+  if (engineReady()) {
+    engine!.stop();
+    engine!.init();
+    engine!.setIsPlaying(false);
+    engine!.setIsExternalPlayback(false);
+    engine!.setResumeTick(-1);
   }
   markDirty();
 }
 
 export function setBpm(bpm: number): void {
-  if (wasmReady()) {
-    wasmEngine!.setBpm(bpm);
+  if (engineReady()) {
+    engine!.setBpm(bpm);
   }
   markDirty();
 }
 
 export function setSwing(swing: number): void {
-  if (wasmReady()) {
-    wasmEngine!.setSwing(swing);
+  if (engineReady()) {
+    engine!.setSwing(swing);
   }
   markDirty();
 }
 
 export function togglePlay(): void {
-  if (wasmReady() && wasmEngine!.getIsPlaying()) {
+  if (engineReady() && engine!.getIsPlaying()) {
     stop();
   } else {
     play();
@@ -132,22 +136,22 @@ export function togglePlay(): void {
 const TICKS_PER_MIDI_CLOCK = TICKS_PER_QUARTER / 24;
 
 export function playExternal(): void {
-  if (!wasmReady()) return;
+  if (!engineReady()) return;
   if (playbackTimerId) {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  wasmEngine!.setIsPlaying(true);
-  wasmEngine!.setIsExternalPlayback(true);
-  wasmEngine!.seedRng();
-  wasmEngine!.init();
+  engine!.setIsPlaying(true);
+  engine!.setIsExternalPlayback(true);
+  engine!.seedRng();
+  engine!.init();
   markDirty();
 }
 
 export function externalTick(): void {
-  if (!wasmReady() || !wasmEngine!.getIsPlaying()) return;
+  if (!engineReady() || !engine!.getIsPlaying()) return;
   for (let i = 0; i < TICKS_PER_MIDI_CLOCK; i++) {
-    wasmEngine!.tick();
+    engine!.tick();
   }
 }
 
@@ -156,10 +160,10 @@ export function stopExternal(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (wasmReady()) {
-    wasmEngine!.stop();
-    wasmEngine!.setIsPlaying(false);
-    wasmEngine!.setIsExternalPlayback(false);
+  if (engineReady()) {
+    engine!.stop();
+    engine!.setIsPlaying(false);
+    engine!.setIsExternalPlayback(false);
   }
   markDirty();
 }

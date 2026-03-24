@@ -1,11 +1,11 @@
 import { memo, useRef, useEffect } from "react";
-import type { WasmEngine } from "../engine/WasmEngine";
+import type { Engine } from "../engine/types";
 import { markDirty } from "../store/renderStore";
 
 interface TouchStripProps {
   orientation: "vertical" | "horizontal";
   strip: number; // 0=vertical, 1=horizontal
-  wasmEngine: WasmEngine;
+  wasmEngine: Engine;
   length?: number;
   thickness?: number;
 }

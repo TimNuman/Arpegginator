@@ -1,6 +1,7 @@
 import type { StepTriggerExtras } from "../actions/playbackActions";
 import { markDirty } from "../store/renderStore";
 import { OledRenderer } from "./OledRenderer";
+import type { Engine } from "./types";
 
 // ============ WASM Module Types ============
 
@@ -119,7 +120,8 @@ async function loadRustWasm(
   return new RustWasmAdapter(instance);
 }
 
-export class WasmEngine {
+export class WasmEngine implements Engine {
+  readonly isTeensy = false;
   private module: WasmModule | null = null;
 
   // Struct layout info (queried from WASM at load time)
