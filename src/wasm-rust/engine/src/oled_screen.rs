@@ -649,12 +649,13 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
     let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
     let e_color = if p_alt && p_meta { GFX_YELLOW } else { GFX_VALUE };
-    let mut loop_val = FmtBuf::<12>::new();
-    let _ = write!(loop_val, "{}-{}", s_buf.as_str(), e_buf.as_str());
+    let mut s_part = FmtBuf::<8>::new();
+    let _ = write!(s_part, "{}-", s_buf.as_str());
     let col2_x = PAD_X + HALF_W + 6;
     gfx_aa_text(PAD_X, ROW_Y[1], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
     draw_segs_right(PAD_X + HALF_W - 4, ROW_Y[1], &[
-        TextSeg { text: &loop_val, color: s_color },
+        TextSeg { text: &s_part, color: s_color },
+        TextSeg { text: &e_buf, color: e_color },
     ], &FONT_AA_SMALL_BOLD);
     let loop_len = loop_data.length;
     let pos_tick = if s.is_playing != 0 && loop_len > 0 {
