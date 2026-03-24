@@ -90,7 +90,7 @@ mod protocol {
     pub const CMD_STRIP_START: u8 = 0x1B;  // + strip, pos(2×7b), shift, time_ms(3×7b)
     pub const CMD_STRIP_MOVE: u8 = 0x1C;   // + strip, pos(2×7b), time_ms(3×7b)
     pub const CMD_STRIP_END: u8 = 0x1D;    // + strip
-    pub const CMD_RESET: u8 = 0x1E;       // reset tick to 0, clear active notes (doesn't stop/start)
+    pub const CMD_RESET: u8 = 0x1E;       // stop playback + reset tick to 0
     pub const CMD_PLAY_FROM_TICK: u8 = 0x1F; // + tick as 5×7-bit — resume playback from position
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;     // reboot into bootloader for flashing
@@ -503,10 +503,12 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 }
             }
             protocol::CMD_RESET => {
-                // Reset position only — don't touch is_playing or PIT
+                // Stop playback + reset tick to 0
                 engine_core::engine_core_stop(state);
-                engine_core::engine_core_play_init(state);
+                state.is_playing = 0;
+                state.current_tick = -1;
                 state.resume_tick = -1;
+                pit.disable();
             }
             protocol::CMD_PLAY_FROM_TICK => {
                 if payload.len() >= 5 {

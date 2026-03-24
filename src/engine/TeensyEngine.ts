@@ -261,7 +261,7 @@ export class TeensyEngine implements Engine {
 
   init(): void {
     this.wasm.init();
-    this.send(proto.encodeReset());
+    this.send(proto.encodePlayFromTick(0));
   }
 
   initFromTick(tick: number): void {
@@ -298,9 +298,8 @@ export class TeensyEngine implements Engine {
 
   setIsPlaying(playing: boolean): void {
     this.wasm.setIsPlaying(playing);
-    if (playing) {
-      this.send(proto.encodePlay());
-    } else {
+    // Play is handled by init()/initFromTick() — only send stop here
+    if (!playing) {
       this.send(proto.encodeStop());
     }
   }
