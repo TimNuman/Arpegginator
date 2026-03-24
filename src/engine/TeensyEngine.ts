@@ -154,10 +154,11 @@ export class TeensyEngine implements Engine {
     this.connected = true;
     this.onConnectionChange?.(true);
 
-    // Sync current state to Teensy so both engines match
+    // Request state FROM Teensy (it's the source of truth)
+    this.send(proto.encodeGetState());
+    // Also sync browser state TO Teensy as fallback (for fresh Teensy)
     this.syncStateToTeensy();
 
-    // Ping to verify
     this.send(proto.encodePing());
     console.log("Teensy connected via Web MIDI");
   }
@@ -237,6 +238,16 @@ export class TeensyEngine implements Engine {
         break;
 
       case "state":
+        // Apply Teensy's state to local WASM engine
+        console.log("[Teensy] state dump:", response);
+        this.wasm.setBpm(response.bpm);
+        this.wasm.setSwing(response.swing);
+        this.wasm.setZoom(response.zoom);
+        this.wasm.setIsPlaying(response.isPlaying);
+        for (let ch = 0; ch < 6; ch++) {
+          this.wasm.setRowOffset(ch, response.rowOffsets[ch]);
+        }
+        this.wasm.writeChannelTypes(response.channelTypes);
         markDirty();
         break;
     }

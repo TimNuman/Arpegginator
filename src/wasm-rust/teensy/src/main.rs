@@ -85,6 +85,7 @@ mod protocol {
     pub const CMD_SET_UI_MODE: u8 = 0x16;    // + mode
     pub const CMD_SET_SELECTED_EVENT: u8 = 0x17; // + idx as 2×7-bit + sign
     pub const CMD_SET_MODIFY_SUB_MODE: u8 = 0x18; // + sm
+    pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_PING: u8 = 0x7E;
 
     // Responses (Teensy → browser)
@@ -463,6 +464,40 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 if !payload.is_empty() {
                     state.modify_sub_mode = payload[0];
                 }
+            }
+            protocol::CMD_GET_STATE => {
+                // Send full state dump back to browser
+                let bpm_x100 = (state.bpm * 100.0) as u16;
+                let zoom = state.zoom as u16;
+                let mut sysex = [0u8; 40];
+                let mut i = 0;
+                sysex[i] = SYSEX_MFR; i += 1;
+                sysex[i] = protocol::RSP_STATE; i += 1;
+                // is_playing
+                sysex[i] = state.is_playing; i += 1;
+                // bpm × 100 as 3×7-bit
+                sysex[i] = (bpm_x100 & 0x7F) as u8; i += 1;
+                sysex[i] = ((bpm_x100 >> 7) & 0x7F) as u8; i += 1;
+                sysex[i] = ((bpm_x100 >> 14) & 0x03) as u8; i += 1;
+                // swing
+                sysex[i] = state.swing as u8; i += 1;
+                // zoom as 3×7-bit
+                sysex[i] = (zoom & 0x7F) as u8; i += 1;
+                sysex[i] = ((zoom >> 7) & 0x7F) as u8; i += 1;
+                sysex[i] = ((zoom >> 14) & 0x03) as u8; i += 1;
+                // current channel
+                sysex[i] = state.current_channel; i += 1;
+                // channel types (6 bytes)
+                for ch in 0..engine_core::NUM_CHANNELS {
+                    sysex[i] = state.channel_types[ch]; i += 1;
+                }
+                // row offsets (6 × 2 bytes, offset×1000 as 2×7-bit)
+                for ch in 0..engine_core::NUM_CHANNELS {
+                    let off = (state.row_offsets[ch] * 1000.0) as u16;
+                    sysex[i] = (off & 0x7F) as u8; i += 1;
+                    sysex[i] = ((off >> 7) & 0x7F) as u8; i += 1;
+                }
+                let _ = midi.send_sysex(&sysex[..i]);
             }
             _ => {}
         }

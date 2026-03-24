@@ -25,6 +25,7 @@ export const CMD_SET_CURRENT_CHANNEL = 0x15; // + ch
 export const CMD_SET_UI_MODE = 0x16; // + mode
 export const CMD_SET_SELECTED_EVENT = 0x17; // + idx as 2×7-bit (signed)
 export const CMD_SET_MODIFY_SUB_MODE = 0x18; // + sm
+export const CMD_GET_STATE = 0x20;
 export const CMD_PING = 0x7e;
 
 // ============ Responses (Teensy → browser) ============
@@ -143,6 +144,10 @@ export function encodeSetModifySubMode(sm: number): Uint8Array {
   return sysex(CMD_SET_MODIFY_SUB_MODE, sm);
 }
 
+export function encodeGetState(): Uint8Array {
+  return sysex(CMD_GET_STATE);
+}
+
 export function encodePing(): Uint8Array {
   return sysex(CMD_PING);
 }
@@ -167,6 +172,13 @@ export interface PongResponse {
 
 export interface StateResponse {
   type: "state";
+  bpm: number;
+  swing: number;
+  zoom: number;
+  currentChannel: number;
+  channelTypes: number[];
+  rowOffsets: number[];
+  isPlaying: boolean;
 }
 
 export type TeensyResponse = TickResponse | PongResponse | StateResponse;
@@ -213,8 +225,25 @@ export function decodeSysex(data: Uint8Array): TeensyResponse | null {
       return { type: "tick", tick };
     }
 
-    case RSP_STATE:
-      return { type: "state" };
+    case RSP_STATE: {
+      // Format: is_playing, bpm×100 (3b), swing, zoom (3b), current_ch, ch_types×6, row_offsets×6 (2b each)
+      // Total payload: 1+3+1+3+1+6+12 = 27 bytes
+      if (data.length < payloadStart + 27 + 1) return null;
+      const p = payloadStart;
+      const isPlaying = data[p] !== 0;
+      const bpmX100 = data[p+1] | (data[p+2] << 7) | ((data[p+3] & 0x03) << 14);
+      const bpm = bpmX100 / 100;
+      const swing = data[p+4];
+      const zoom = data[p+5] | (data[p+6] << 7) | ((data[p+7] & 0x03) << 14);
+      const currentChannel = data[p+8];
+      const channelTypes = Array.from(data.slice(p+9, p+15));
+      const rowOffsets: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const off = data[p+15+i*2] | (data[p+16+i*2] << 7);
+        rowOffsets.push(off / 1000);
+      }
+      return { type: "state", bpm, swing, zoom, currentChannel, channelTypes, rowOffsets, isPlaying };
+    }
 
     default:
       return null;
