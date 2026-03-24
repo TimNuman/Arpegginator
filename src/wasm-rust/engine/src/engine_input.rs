@@ -45,7 +45,7 @@ fn zoom_cycle(current: i32, direction: i8) -> i32 {
 
 // ============ Step Tables ============
 
-static SUB_ZOOM: [i32; 4] = [60, 90, 120, 180];
+static SUB_ZOOM: [i32; 5] = [30, 60, 90, 120, 180];
 static TRIPLETS: [i32; 5] = [40, 80, 160, 320, 640];
 const MAX_STEPS: usize = 128;
 
