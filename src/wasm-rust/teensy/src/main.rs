@@ -2,11 +2,13 @@
 //!
 //! - PIT0: sequencer tick timer (480 PPQN, configurable BPM)
 //! - LPUART4 (pins 8/7): hardware MIDI out at 31250 baud
-//! - USB CDC-ACM serial: bidirectional control from web UI via WebSerial API
+//! - USB composite device: CDC serial (WebSerial) + MIDI (DAW)
 
 #![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
+
+mod usb_midi;
 
 use teensy4_bsp as bsp;
 use teensy4_panic as _;
@@ -25,6 +27,9 @@ use embedded_hal::serial::Write as SerialWrite;
 use arp3_engine::engine_core::{self, EngineState, TICKS_PER_QUARTER};
 use arp3_engine::platform;
 
+// USB MIDI disabled for now — browser Web MIDI handles DAW routing
+// use usb_midi::MidiClass;
+
 // ============ Global Allocator ============
 
 use embedded_alloc::LlffHeap as Heap;
@@ -32,7 +37,7 @@ use embedded_alloc::LlffHeap as Heap;
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-const HEAP_SIZE: usize = 256 * 1024; // 256KB — EngineState is ~175KB
+const HEAP_SIZE: usize = 256 * 1024;
 static mut HEAP_MEM: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
 // ============ Constants ============
@@ -51,7 +56,8 @@ fn bpm_to_pit_reload(bpm: f32) -> u32 {
 
 // ============ USB Static Storage ============
 
-static EP_MEMORY: EndpointMemory<2048> = EndpointMemory::new();
+// Larger endpoint memory for composite device (serial + MIDI)
+static EP_MEMORY: EndpointMemory<4096> = EndpointMemory::new();
 static EP_STATE: EndpointState = EndpointState::max_endpoints();
 
 // ============ Serial Protocol ============
@@ -78,10 +84,8 @@ mod protocol {
 
 #[bsp::rt::entry]
 fn main() -> ! {
-    // Initialize heap
     unsafe { HEAP.init(core::ptr::addr_of!(HEAP_MEM) as usize, HEAP_SIZE); }
 
-    // Initialize BSP
     let board::Resources {
         mut gpio2,
         pins,
@@ -96,11 +100,10 @@ fn main() -> ! {
     // ---- MIDI UART (LPUART4 on pins 8/7) at 31250 baud ----
     let mut midi_uart: board::Lpuart4 = board::lpuart(lpuart4, pins.p8, pins.p7, 31250);
 
-    // ---- USB CDC-ACM Serial ----
+    // ---- USB Composite Device: CDC Serial + MIDI ----
     let bus_adapter = BusAdapter::with_speed(usb, &EP_MEMORY, &EP_STATE, Speed::LowFull);
     bus_adapter.set_interrupts(false);
 
-    // Configure GPT timer for USB protocol timing
     bus_adapter.gpt_mut(gpt::Instance::Gpt0, |gpt_timer| {
         gpt_timer.stop();
         gpt_timer.clear_elapsed();
@@ -115,6 +118,7 @@ fn main() -> ! {
         extern crate alloc;
         alloc::boxed::Box::leak(alloc::boxed::Box::new(UsbBusAllocator::new(bus_adapter)))
     };
+
     let mut usb_serial = SerialPort::new(usb_bus);
     let mut usb_device = UsbDeviceBuilder::new(usb_bus, USB_VID_PID)
         .product(USB_PRODUCT)
@@ -140,7 +144,7 @@ fn main() -> ! {
 
     // ---- Main Loop ----
     loop {
-        // 1. Poll USB frequently (required for enumeration)
+        // 1. Poll USB (both serial and MIDI classes)
         if usb_device.poll(&mut [&mut usb_serial]) {
             if usb_device.state() == UsbDeviceState::Configured {
                 if !usb_configured {
@@ -156,7 +160,6 @@ fn main() -> ! {
         if state.is_playing != 0 && pit0.is_elapsed() {
             pit0.clear_elapsed();
 
-            // Update PIT reload if BPM changed
             let new_reload = bpm_to_pit_reload(state.bpm);
             let current_reload = PIT_RELOAD.load(Ordering::Relaxed);
             if new_reload != current_reload {
@@ -167,12 +170,10 @@ fn main() -> ! {
             engine_core::engine_core_tick(&mut state);
             tick_counter = tick_counter.wrapping_add(1);
 
-            // Blink LED every beat
             if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
                 led.toggle();
             }
 
-            // Send tick update to USB host
             if usb_configured && tick_counter % 48 == 0 {
                 let tick = state.current_tick;
                 let msg = [
@@ -186,15 +187,17 @@ fn main() -> ! {
             }
         }
 
-        // 3. Drain MIDI event queue → UART
+        // 3. Drain MIDI event queue → UART + USB MIDI
         while let Some(ev) = platform::arm_platform::dequeue_midi() {
             match ev.kind {
                 0 => {
+                    // Note On → UART
                     let _ = nb::block!(midi_uart.write(0x90 | (ev.channel & 0x0F)));
                     let _ = nb::block!(midi_uart.write(ev.note & 0x7F));
                     let _ = nb::block!(midi_uart.write(ev.velocity & 0x7F));
                 }
                 1 => {
+                    // Note Off → UART
                     let _ = nb::block!(midi_uart.write(0x80 | (ev.channel & 0x0F)));
                     let _ = nb::block!(midi_uart.write(ev.note & 0x7F));
                     let _ = nb::block!(midi_uart.write(0));
