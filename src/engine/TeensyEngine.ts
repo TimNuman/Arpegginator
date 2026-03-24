@@ -148,6 +148,7 @@ export class TeensyEngine implements Engine {
 
   /** Send all current WASM engine state to Teensy so it matches */
   private syncStateToTeensy(): void {
+    try {
     const bpm = this.wasm.getBpm();
     const swing = this.wasm.getSwing();
     const zoom = this.wasm.getZoom();
@@ -172,6 +173,9 @@ export class TeensyEngine implements Engine {
     }
 
     console.log(`[Teensy sync] bpm=${bpm} zoom=${zoom} ch=${ch} types=[${types}] offsets=[${[0,1,2,3,4,5].map(i => this.wasm.getRowOffset(i).toFixed(3))}]`);
+    } catch (e) {
+      console.error('[Teensy sync] ERROR:', e);
+    }
   }
 
   disconnect(): void {
@@ -213,7 +217,7 @@ export class TeensyEngine implements Engine {
         break;
 
       case "pong":
-        console.log("Teensy: pong via MIDI");
+        console.log("Teensy: pong via MIDI", response);
         break;
 
       case "state":

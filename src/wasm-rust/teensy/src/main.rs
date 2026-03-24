@@ -118,6 +118,11 @@ mod protocol {
     }
 }
 
+// ============ Diagnostic Counters ============
+static mut SYSEX_COUNT: u8 = 0;
+static mut LAST_CMD: u8 = 0;
+static mut LAST_READ_LEN: u8 = 0;
+
 // ============ Entry Point ============
 
 #[bsp::rt::entry]
@@ -181,6 +186,10 @@ fn main() -> ! {
     let mut tick_counter: u32 = 0;
     let mut idle_counter: u32 = 0;
     let mut midi_rx_buf = [0u8; 64];
+    // Persistent buffer to accumulate USB MIDI packets across reads
+    // (SysEx messages can span multiple USB reads)
+    let mut accum_buf = [0u8; 256];
+    let mut accum_len: usize = 0;
 
     // ---- Main Loop ----
     loop {
@@ -256,17 +265,36 @@ fn main() -> ! {
             }
         }
 
-        // 4. Read USB MIDI packets (SysEx commands from browser)
+        // 4. Read ALL pending USB MIDI packets, accumulate across reads
         if usb_configured {
-            if let Ok(count) = usb_midi.read(&mut midi_rx_buf) {
-                if count > 0 {
-                    process_midi_input(
-                        &midi_rx_buf[..count],
-                        &mut state,
-                        &mut pit0,
-                        &usb_midi,
-                    );
+            // Drain all available USB reads into accumulation buffer
+            loop {
+                let space = accum_buf.len() - accum_len;
+                if space < 64 { break; } // prevent overflow
+                match usb_midi.read(&mut midi_rx_buf) {
+                    Ok(count) if count > 0 => {
+                        unsafe { LAST_READ_LEN = count as u8; }
+                        accum_buf[accum_len..accum_len + count]
+                            .copy_from_slice(&midi_rx_buf[..count]);
+                        accum_len += count;
+                    }
+                    _ => break,
                 }
+            }
+
+            // Process complete SysEx messages from accumulated buffer
+            if accum_len > 0 {
+                let consumed = process_midi_input(
+                    &accum_buf[..accum_len],
+                    &mut state,
+                    &mut pit0,
+                    &usb_midi,
+                );
+                // Shift unconsumed bytes to front
+                if consumed > 0 && consumed < accum_len {
+                    accum_buf.copy_within(consumed..accum_len, 0);
+                }
+                accum_len -= consumed;
             }
         }
 
@@ -282,19 +310,20 @@ fn main() -> ! {
 
 // ============ MIDI Input Processing ============
 
+/// Process SysEx messages from accumulated USB MIDI data.
+/// Returns number of bytes consumed (so caller can shift remainder).
 fn process_midi_input<B: usb_device::bus::UsbBus>(
     buf: &[u8],
     state: &mut EngineState,
     pit: &mut bsp::hal::pit::Pit<0>,
     midi: &MidiClass<B>,
-) {
-    // Process all SysEx messages in the USB packet
+) -> usize {
     let mut offset = 0;
     while offset < buf.len() {
         let remaining = &buf[offset..];
         let (data, data_len, consumed) = match usb_midi::parse_sysex_from_usb(remaining) {
             Some(r) => r,
-            None => break,
+            None => break, // incomplete SysEx — wait for more data
         };
         offset += consumed;
 
@@ -302,11 +331,22 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
         if data[0] != SYSEX_MFR { continue; }
 
         let cmd = data[1];
+        unsafe { SYSEX_COUNT = SYSEX_COUNT.wrapping_add(1); LAST_CMD = cmd; }
         let payload = &data[2..data_len];
 
         match cmd {
             protocol::CMD_PING => {
-                let sysex = [SYSEX_MFR, protocol::RSP_PONG];
+                let off = (state.row_offsets[0] * 1000.0) as u16;
+                let sc = state.scale_count;
+                let szi = state.scale_zero_index;
+                let (sx_cnt, last, last_rd) = unsafe { (SYSEX_COUNT, LAST_CMD, LAST_READ_LEN) };
+                let sysex = [
+                    SYSEX_MFR, protocol::RSP_PONG,
+                    (off & 0x7F) as u8, ((off >> 7) & 0x7F) as u8,
+                    (sc & 0x7F) as u8, ((sc >> 7) & 0x7F) as u8,
+                    (szi & 0x7F) as u8, ((szi >> 7) & 0x7F) as u8,
+                    sx_cnt, last, last_rd,
+                ];
                 let _ = midi.send_sysex(&sysex);
             }
             protocol::CMD_PLAY => {
@@ -426,4 +466,5 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             _ => {}
         }
     }
+    offset
 }

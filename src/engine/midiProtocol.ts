@@ -105,6 +105,16 @@ export function encodeSetRowOffset(ch: number, offset: number): Uint8Array {
   return sysex(CMD_SET_ROW_OFFSET, ch, val & 0x7f, (val >> 7) & 0x7f);
 }
 
+/** Encode all 6 row offsets in a single SysEx message */
+export function encodeSetAllRowOffsets(offsets: number[]): Uint8Array {
+  const data: number[] = [CMD_SET_ROW_OFFSET, 0x7f]; // 0x7F = "all channels" flag
+  for (let i = 0; i < 6; i++) {
+    const val = Math.round((offsets[i] ?? 0) * 1000);
+    data.push(val & 0x7f, (val >> 7) & 0x7f);
+  }
+  return sysex(...data);
+}
+
 export function encodeSetChannelTypes(types: number[]): Uint8Array {
   return sysex(CMD_SET_CHANNEL_TYPES, ...types.slice(0, 6));
 }
@@ -146,6 +156,12 @@ export interface TickResponse {
 
 export interface PongResponse {
   type: "pong";
+  rowOffset0?: number;
+  scaleCount?: number;
+  scaleZeroIndex?: number;
+  sysexCount?: number;
+  lastCmd?: number;
+  lastReadLen?: number;
 }
 
 export interface StateResponse {
@@ -171,8 +187,21 @@ export function decodeSysex(data: Uint8Array): TeensyResponse | null {
   const payloadStart = 3;
 
   switch (cmd) {
-    case RSP_PONG:
-      return { type: "pong" };
+    case RSP_PONG: {
+      const pong: PongResponse = { type: "pong" };
+      // Diagnostic data if present
+      if (data.length >= payloadStart + 6 + 1) {
+        pong.rowOffset0 = ((data[payloadStart] | (data[payloadStart + 1] << 7)) / 1000);
+        pong.scaleCount = data[payloadStart + 2] | (data[payloadStart + 3] << 7);
+        pong.scaleZeroIndex = data[payloadStart + 4] | (data[payloadStart + 5] << 7);
+      }
+      if (data.length >= payloadStart + 9 + 1) {
+        pong.sysexCount = data[payloadStart + 6];
+        pong.lastCmd = data[payloadStart + 7];
+        pong.lastReadLen = data[payloadStart + 8];
+      }
+      return pong;
+    }
 
     case RSP_TICK: {
       if (data.length < payloadStart + 5 + 1) return null;
