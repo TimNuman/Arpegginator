@@ -65,6 +65,36 @@ function App() {
   const [wasmEngine, setWasmEngine] = useState<Engine | null>(null);
   const [teensyConnected, setTeensyConnected] = useState(false);
 
+  const tryAutoConnectTeensy = useCallback(async (wasmEng: WasmEngine) => {
+    try {
+      if (!navigator.requestMIDIAccess) return;
+      // Request MIDI access (may prompt user once for sysex permission)
+      const access = await navigator.requestMIDIAccess({ sysex: true });
+      // Check if Arp3 Sequencer is present
+      let found = false;
+      for (const [, port] of access.outputs) {
+        if (port.name?.includes("Arp3")) { found = true; break; }
+      }
+      if (!found) {
+        console.log("[startup] No Teensy found, using WASM engine");
+        return;
+      }
+
+      console.log("[startup] Arp3 Sequencer found, auto-connecting...");
+      const teensy = new TeensyEngine(wasmEng);
+      teensy.onConnectionChange = (connected) => {
+        setTeensyConnected(connected);
+      };
+      await teensy.connect();
+      engineRef.current = teensy;
+      setWasmEngine(teensy);
+      actions.setEngine(teensy);
+      setTeensyConnected(true);
+    } catch (e) {
+      console.log("[startup] Teensy auto-connect failed, using WASM:", e);
+    }
+  }, []);
+
   useEffect(() => {
     console.log("[startup] Loading WASM engine...");
     const engine = new WasmEngine();
@@ -86,6 +116,9 @@ function App() {
             " ready, isEnabled=" +
             isEnabled,
         );
+
+        // Auto-connect to Teensy if one is present
+        tryAutoConnectTeensy(engine);
       })
       .catch((err) => {
         console.warn("WASM engine not available:", err);
@@ -394,30 +427,39 @@ function App() {
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
         />
-        {"serial" in navigator && (
-          <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
+        <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
+          <Box
+            component="button"
+            onClick={handleConnectTeensy}
+            sx={{
+              background: "transparent",
+              border: "none",
+              color: teensyConnected ? "#6c6" : "#555",
+              cursor: "pointer",
+              fontSize: "10px",
+              letterSpacing: "1px",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "2px 8px",
+              "&:hover": {
+                color: teensyConnected ? "#8e8" : "#888",
+              },
+            }}
+          >
             <Box
-              component="button"
-              onClick={handleConnectTeensy}
+              component="span"
               sx={{
-                background: teensyConnected ? "#1a3a1a" : "#1a1a2a",
-                border: `1px solid ${teensyConnected ? "#4a8a4a" : "#3a3a5a"}`,
-                color: teensyConnected ? "#6c6" : "#888",
-                borderRadius: "4px",
-                px: 2,
-                py: 0.5,
-                cursor: "pointer",
-                fontSize: "12px",
-                letterSpacing: "1px",
-                "&:hover": {
-                  borderColor: teensyConnected ? "#6c6" : "#66f",
-                },
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: teensyConnected ? "#6c6" : "#444",
+                boxShadow: teensyConnected ? "0 0 4px #6c6" : "none",
               }}
-            >
-              {teensyConnected ? "TEENSY CONNECTED" : "CONNECT TEENSY"}
-            </Box>
+            />
+            {teensyConnected ? "TEENSY" : "WASM"}
           </Box>
-        )}
+        </Box>
         <Grid wasmEngine={wasmEngine} />
       </Box>
     </ThemeProvider>
