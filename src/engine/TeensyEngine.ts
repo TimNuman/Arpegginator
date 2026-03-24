@@ -148,24 +148,30 @@ export class TeensyEngine implements Engine {
 
   /** Send all current WASM engine state to Teensy so it matches */
   private syncStateToTeensy(): void {
-    // BPM and swing
-    this.send(proto.encodeSetBpm(this.wasm.getBpm()));
-    this.send(proto.encodeSetSwing(this.wasm.getSwing()));
+    const bpm = this.wasm.getBpm();
+    const swing = this.wasm.getSwing();
+    const zoom = this.wasm.getZoom();
+    const ch = this.wasm.getCurrentChannel();
 
-    // Zoom
-    this.send(proto.encodeSetZoom(this.wasm.getZoom()));
+    this.send(proto.encodeSetBpm(bpm));
+    this.send(proto.encodeSetSwing(swing));
+    this.send(proto.encodeSetZoom(zoom));
+    this.send(proto.encodeSetCurrentChannel(ch));
 
     // Channel types
     const types: number[] = [];
-    for (let ch = 0; ch < 6; ch++) {
-      types.push(this.wasm.getChannelType(ch));
+    for (let i = 0; i < 6; i++) {
+      types.push(this.wasm.getChannelType(i));
     }
     this.send(proto.encodeSetChannelTypes(types));
 
-    // Row offsets
-    for (let ch = 0; ch < 6; ch++) {
-      this.send(proto.encodeSetRowOffset(ch, this.wasm.getRowOffset(ch)));
+    // Row offsets for all channels
+    for (let i = 0; i < 6; i++) {
+      const offset = this.wasm.getRowOffset(i);
+      this.send(proto.encodeSetRowOffset(i, offset));
     }
+
+    console.log(`[Teensy sync] bpm=${bpm} zoom=${zoom} ch=${ch} types=[${types}] offsets=[${[0,1,2,3,4,5].map(i => this.wasm.getRowOffset(i).toFixed(3))}]`);
   }
 
   disconnect(): void {

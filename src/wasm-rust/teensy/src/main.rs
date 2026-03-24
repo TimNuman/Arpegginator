@@ -288,10 +288,18 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
     pit: &mut bsp::hal::pit::Pit<0>,
     midi: &MidiClass<B>,
 ) {
-    // Try to parse SysEx from USB MIDI packets
-    if let Some((data, data_len, _consumed)) = usb_midi::parse_sysex_from_usb(buf) {
-        if data_len < 2 { return; }
-        if data[0] != SYSEX_MFR { return; } // Not our SysEx
+    // Process all SysEx messages in the USB packet
+    let mut offset = 0;
+    while offset < buf.len() {
+        let remaining = &buf[offset..];
+        let (data, data_len, consumed) = match usb_midi::parse_sysex_from_usb(remaining) {
+            Some(r) => r,
+            None => break,
+        };
+        offset += consumed;
+
+        if data_len < 2 { continue; }
+        if data[0] != SYSEX_MFR { continue; }
 
         let cmd = data[1];
         let payload = &data[2..data_len];
