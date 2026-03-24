@@ -261,6 +261,7 @@ export class TeensyEngine implements Engine {
 
   init(): void {
     this.wasm.init();
+    this.send(proto.encodeReset());
   }
 
   initFromTick(tick: number): void {

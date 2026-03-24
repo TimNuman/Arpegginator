@@ -30,6 +30,7 @@ export const CMD_ARROW_PRESS = 0x1a; // + direction, mods
 export const CMD_STRIP_START = 0x1b; // + strip, pos(2×7b), shift, time_ms(3×7b)
 export const CMD_STRIP_MOVE = 0x1c; // + strip, pos(2×7b), time_ms(3×7b)
 export const CMD_STRIP_END = 0x1d; // + strip
+export const CMD_RESET = 0x1e; // no payload — stop + reset tick to 0
 export const CMD_GET_STATE = 0x20;
 export const CMD_PING = 0x7e;
 
@@ -144,6 +145,10 @@ export function encodeStripMove(
 
 export function encodeStripEnd(strip: number): Uint8Array {
   return sysex(CMD_STRIP_END, strip);
+}
+
+export function encodeReset(): Uint8Array {
+  return sysex(CMD_RESET);
 }
 
 export function encodeClearPattern(): Uint8Array {

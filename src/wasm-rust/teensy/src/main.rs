@@ -90,6 +90,7 @@ mod protocol {
     pub const CMD_STRIP_START: u8 = 0x1B;  // + strip, pos(2×7b), shift, time_ms(3×7b)
     pub const CMD_STRIP_MOVE: u8 = 0x1C;   // + strip, pos(2×7b), time_ms(3×7b)
     pub const CMD_STRIP_END: u8 = 0x1D;    // + strip
+    pub const CMD_RESET: u8 = 0x1E;       // stop + reset tick to 0
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;     // reboot into bootloader for flashing
     pub const CMD_PING: u8 = 0x7E;
@@ -506,6 +507,13 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 if !payload.is_empty() {
                     arp3_engine::engine_strip::engine_strip_end(state, payload[0]);
                 }
+            }
+            protocol::CMD_RESET => {
+                engine_core::engine_core_stop(state);
+                state.is_playing = 0;
+                state.current_tick = -1;
+                state.resume_tick = -1;
+                pit.disable();
             }
             protocol::CMD_REBOOT => {
                 // Reboot into HalfKay bootloader for flashing
