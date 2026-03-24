@@ -162,6 +162,7 @@ export interface PongResponse {
   sysexCount?: number;
   lastCmd?: number;
   lastReadLen?: number;
+  isPlaying?: number;
 }
 
 export interface StateResponse {
@@ -199,6 +200,9 @@ export function decodeSysex(data: Uint8Array): TeensyResponse | null {
         pong.sysexCount = data[payloadStart + 6];
         pong.lastCmd = data[payloadStart + 7];
         pong.lastReadLen = data[payloadStart + 8];
+      }
+      if (data.length >= payloadStart + 10 + 1) {
+        pong.isPlaying = data[payloadStart + 9];
       }
       return pong;
     }

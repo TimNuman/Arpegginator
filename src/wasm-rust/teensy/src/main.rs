@@ -346,6 +346,7 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     (sc & 0x7F) as u8, ((sc >> 7) & 0x7F) as u8,
                     (szi & 0x7F) as u8, ((szi >> 7) & 0x7F) as u8,
                     sx_cnt, last, last_rd,
+                    state.is_playing,
                 ];
                 let _ = midi.send_sysex(&sysex);
             }
