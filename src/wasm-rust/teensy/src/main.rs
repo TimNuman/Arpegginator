@@ -86,6 +86,7 @@ mod protocol {
     pub const CMD_SET_SELECTED_EVENT: u8 = 0x17; // + idx as 2×7-bit + sign
     pub const CMD_SET_MODIFY_SUB_MODE: u8 = 0x18; // + sm
     pub const CMD_GET_STATE: u8 = 0x20;
+    pub const CMD_REBOOT: u8 = 0x21;     // reboot into bootloader for flashing
     pub const CMD_PING: u8 = 0x7E;
 
     // Responses (Teensy → browser)
@@ -463,6 +464,16 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             protocol::CMD_SET_MODIFY_SUB_MODE => {
                 if !payload.is_empty() {
                     state.modify_sub_mode = payload[0];
+                }
+            }
+            protocol::CMD_REBOOT => {
+                // Reboot into HalfKay bootloader for flashing
+                // Write magic value to SRC_GPR5 and trigger system reset
+                unsafe {
+                    // SRC_GPR5 = 0x400F8028, magic = 0xEB00_0004 (Teensy bootloader flag)
+                    core::ptr::write_volatile(0x400F_8028 as *mut u32, 0xEB00_0004);
+                    // Trigger system reset via SCB AIRCR
+                    cortex_m::peripheral::SCB::sys_reset();
                 }
             }
             protocol::CMD_GET_STATE => {
