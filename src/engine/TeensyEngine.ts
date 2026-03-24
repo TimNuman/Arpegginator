@@ -201,8 +201,9 @@ export class TeensyEngine implements Engine {
   }
 
   tick(): void {
-    // Also tick local WASM engine for browser audio callbacks
-    this.wasm.tick();
+    // No-op: Teensy drives ticks via PIT timer.
+    // Local WASM engine gets tick position from Teensy SysEx reports.
+    // No browser audio — Teensy sends MIDI directly to DAW.
   }
 
   stop(): void {
@@ -324,20 +325,22 @@ export class TeensyEngine implements Engine {
 
   buttonPress(row: number, col: number, modifiers: number): void {
     this.wasm.buttonPress(row, col, modifiers);
-    // Don't send to Teensy — pattern editing is local-only.
-    // Teensy gets pattern data via bulk sync (TODO).
+    this.send(proto.encodeButtonPress(row, col, modifiers));
   }
 
   arrowPress(direction: number, modifiers: number): void {
     this.wasm.arrowPress(direction, modifiers);
+    // Arrow is UI-only (scroll/selection) — no need to send to Teensy
   }
 
   keyAction(actionId: number): void {
     this.wasm.keyAction(actionId);
+    this.send(proto.encodeKeyAction(actionId));
   }
 
   clearPattern(): void {
     this.wasm.clearPattern();
+    // TODO: send pattern clear to Teensy
   }
 
   // ============ Touch Strip (local only) ============
