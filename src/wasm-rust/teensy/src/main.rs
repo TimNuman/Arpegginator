@@ -193,7 +193,18 @@ fn main() -> ! {
 
     let mut tick_counter: u32 = 0;
     let mut preview_note: Option<(u8, u8)> = None; // (channel, midi_note) for deferred note-off
-    let mut preview_off_counter: u32 = 0;
+    let mut preview_off_at: u32 = 0; // DWT cycle count when note-off should fire
+
+    // Enable DWT cycle counter for microsecond-level timing
+    unsafe {
+        let dwt = &*cortex_m::peripheral::DWT::PTR;
+        let dcb = &*cortex_m::peripheral::DCB::PTR;
+        // Enable trace
+        dcb.demcr.modify(|r| r | (1 << 24));
+        // Enable cycle counter
+        dwt.cyccnt.write(0);
+        dwt.ctrl.modify(|r| r | 1);
+    }
     let mut midi_rx_buf = [0u8; 64];
     // Persistent buffer to accumulate USB MIDI packets across reads
     // (SysEx messages can span multiple USB reads)
@@ -282,21 +293,24 @@ fn main() -> ! {
                         if usb_configured {
                             let _ = usb_midi.note_on(ev.channel, note, ev.velocity);
                         }
-                        // Schedule note-off after ~1/16th note
+                        // Schedule note-off after 1/16th note
                         preview_note = Some((ev.channel, note));
-                        // Approx main-loop iterations for 1/16th note:
-                        // 1/16th = 15000/bpm ms. Loop runs ~10M iter/sec.
-                        // counter = 10_000 * 15000 / bpm = 150_000_000 / bpm
-                        preview_off_counter = (150_000_000.0 / state.bpm) as u32;
+                        // 1/16th note in ms = 15000/bpm. CPU runs at 600MHz.
+                        // cycles = 600_000 * 15000 / bpm = 9_000_000_000 / bpm
+                        let sixteenth_cycles = (9_000_000_000.0 / state.bpm) as u32;
+                        let now = unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() };
+                        preview_off_at = now.wrapping_add(sixteenth_cycles);
                     }
                 }
                 _ => {}
             }
         }
 
-        // Deferred preview note-off
+        // Deferred preview note-off (DWT cycle counter)
         if let Some((ch, note)) = preview_note {
-            if preview_off_counter == 0 {
+            let now = unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() };
+            if now.wrapping_sub(preview_off_at) < 0x8000_0000 {
+                // Time has passed the deadline
                 let _ = nb::block!(midi_uart.write(0x80 | (ch & 0x0F)));
                 let _ = nb::block!(midi_uart.write(note & 0x7F));
                 let _ = nb::block!(midi_uart.write(0));
@@ -304,8 +318,6 @@ fn main() -> ! {
                     let _ = usb_midi.note_off(ch, note);
                 }
                 preview_note = None;
-            } else {
-                preview_off_counter -= 1;
             }
         }
 
