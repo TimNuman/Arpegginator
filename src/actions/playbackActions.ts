@@ -68,9 +68,13 @@ export function play(): void {
   }
 
   if (engine!.isTeensy) {
-    // Teensy drives ticks — no JS tick loop needed.
-    // Playhead position comes from Teensy SysEx tick reports.
+    // Also run local tick loop for grid rendering (active note highlights).
+    // Teensy drives actual MIDI output; local engine just mirrors for display.
+    lastFrameTime = performance.now();
+    tickAccumulator = 0;
+    engine!.tick();
     markDirty();
+    playbackTimerId = setTimeout(playbackLoop, 1);
   } else {
     lastFrameTime = performance.now();
     tickAccumulator = 0;

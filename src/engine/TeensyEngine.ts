@@ -27,9 +27,22 @@ export class TeensyEngine implements Engine {
     this.wasm = existingWasm;
   }
 
-  // Callbacks — proxy to inner WASM engine so browser audio works
+  // Callbacks — suppress step trigger and note off (Teensy handles MIDI output).
+  // Only forward preview note for audible feedback when placing notes while stopped.
+  private _onStepTrigger:
+    | ((
+        channel: number,
+        midiNote: number,
+        tick: number,
+        noteLengthTicks: number,
+        velocity: number,
+        extras?: StepTriggerExtras,
+      ) => void)
+    | null = null;
+  private _onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
+
   get onStepTrigger() {
-    return this.wasm.onStepTrigger;
+    return this._onStepTrigger;
   }
   set onStepTrigger(
     cb:
@@ -43,14 +56,17 @@ export class TeensyEngine implements Engine {
         ) => void)
       | null,
   ) {
-    this.wasm.onStepTrigger = cb;
+    this._onStepTrigger = cb;
+    // Don't forward to wasm — Teensy handles MIDI output during playback
+    this.wasm.onStepTrigger = null;
   }
 
   get onNoteOff() {
-    return this.wasm.onNoteOff;
+    return this._onNoteOff;
   }
   set onNoteOff(cb: ((channel: number, midiNote: number) => void) | null) {
-    this.wasm.onNoteOff = cb;
+    this._onNoteOff = cb;
+    this.wasm.onNoteOff = null;
   }
 
   get onPlayPreviewNote() {
@@ -241,9 +257,9 @@ export class TeensyEngine implements Engine {
   }
 
   tick(): void {
-    // No-op: Teensy drives ticks via PIT timer.
-    // Local WASM engine gets tick position from Teensy SysEx reports.
-    // No browser audio — Teensy sends MIDI directly to DAW.
+    // Tick local WASM engine for grid rendering (active note highlights).
+    // MIDI output goes to DAW from Teensy, not from browser.
+    this.wasm.tick();
   }
 
   stop(): void {
@@ -398,9 +414,15 @@ export class TeensyEngine implements Engine {
   }
   stripMove(strip: number, pos: number, timeMs: number): void {
     this.wasm.stripMove(strip, pos, timeMs);
+    // Sync row offset to Teensy as user scrolls
+    const ch = this.wasm.getCurrentChannel();
+    this.send(proto.encodeSetRowOffset(ch, this.wasm.getRowOffset(ch)));
   }
   stripEnd(strip: number): void {
     this.wasm.stripEnd(strip);
+    // Final sync of row offset
+    const ch = this.wasm.getCurrentChannel();
+    this.send(proto.encodeSetRowOffset(ch, this.wasm.getRowOffset(ch)));
   }
 
   // ============ OLED (local) ============
