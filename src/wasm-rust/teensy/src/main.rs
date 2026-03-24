@@ -262,6 +262,7 @@ fn main() -> ! {
         }
 
         // 3. Drain MIDI event queue → UART + USB MIDI
+        let mut new_preview_started = false;
         while let Some(ev) = platform::arm_platform::dequeue_midi() {
             match ev.kind {
                 0 => {
@@ -285,24 +286,25 @@ fn main() -> ! {
                     }
                 }
                 2 => {
+                    // Kill old preview notes on first preview of a new batch
+                    if !new_preview_started && preview_count > 0 {
+                        for i in 0..preview_count {
+                            let (pch, pn) = preview_notes[i];
+                            let _ = nb::block!(midi_uart.write(0x80 | (pch & 0x0F)));
+                            let _ = nb::block!(midi_uart.write(pn & 0x7F));
+                            let _ = nb::block!(midi_uart.write(0));
+                            if usb_configured {
+                                let _ = usb_midi.note_off(pch, pn);
+                            }
+                        }
+                        preview_count = 0;
+                    }
+                    new_preview_started = true;
+
                     // Preview note: ev.note is scale row, convert to MIDI
                     let midi_note = engine_core::note_to_midi(ev.note as i16, &state);
                     if midi_note >= 0 {
                         let note = midi_note as u8;
-                        // Kill any existing preview notes first (new chord replaces old)
-                        if preview_count > 0 && ev.length_ticks != 0 {
-                            // First note of a new preview — kill old previews
-                            for i in 0..preview_count {
-                                let (pch, pn) = preview_notes[i];
-                                let _ = nb::block!(midi_uart.write(0x80 | (pch & 0x0F)));
-                                let _ = nb::block!(midi_uart.write(pn & 0x7F));
-                                let _ = nb::block!(midi_uart.write(0));
-                                if usb_configured {
-                                    let _ = usb_midi.note_off(pch, pn);
-                                }
-                            }
-                            preview_count = 0;
-                        }
                         // Note On
                         let _ = nb::block!(midi_uart.write(0x90 | (ev.channel & 0x0F)));
                         let _ = nb::block!(midi_uart.write(note & 0x7F));
