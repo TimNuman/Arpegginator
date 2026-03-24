@@ -380,7 +380,9 @@ fn main() -> ! {
             }
         }
 
-        // (LED only changes in tick loop via toggle)
+        // 5. Recompute grid (updates rendered_notes cache, needed for button press hit-testing)
+        // Only does work when dirty flag is set, so cheap to call every iteration.
+        arp3_engine::engine_ui::engine_compute_grid(&mut state, 0.0);
     }
 }
 
