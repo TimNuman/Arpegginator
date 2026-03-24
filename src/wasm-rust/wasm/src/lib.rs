@@ -620,6 +620,9 @@ pub extern "C" fn engine_get_current_pattern_length_ticks() -> i32 {
 pub extern "C" fn engine_get_current_tick() -> i32 { state_ref().current_tick }
 
 #[no_mangle]
+pub extern "C" fn engine_set_current_tick(tick: i32) { state().current_tick = tick; }
+
+#[no_mangle]
 pub extern "C" fn engine_get_current_pattern(ch: u8) -> u8 {
     if (ch as usize) < NUM_CHANNELS { state_ref().current_patterns[ch as usize] } else { 0 }
 }

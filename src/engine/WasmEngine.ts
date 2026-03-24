@@ -198,6 +198,7 @@ export class WasmEngine implements Engine {
 
   // Current tick getter
   private _getCurrentTick!: () => number;
+  private _setCurrentTick!: (t: number) => void;
 
   // Callbacks
   onStepTrigger:
@@ -358,6 +359,9 @@ export class WasmEngine implements Engine {
     this._getScaleCount = cw("engine_get_scale_count", "number", []);
     this._getScaleZeroIndex = cw("engine_get_scale_zero_index", "number", []);
     this._getCurrentTick = cw("engine_get_current_tick", "number", []);
+    this._setCurrentTick = cw("engine_set_current_tick", null, [
+      "number",
+    ]) as unknown as (t: number) => void;
 
     // Grid output
     this._getButtonValuesBuffer = cw(
@@ -582,6 +586,9 @@ export class WasmEngine implements Engine {
   }
   getCurrentTick(): number {
     return this._getCurrentTick();
+  }
+  setCurrentTick(tick: number): void {
+    this._setCurrentTick(tick);
   }
 
   // Constants from WASM (single source of truth)

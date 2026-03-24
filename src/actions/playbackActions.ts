@@ -68,8 +68,13 @@ export function play(): void {
   }
 
   if (engine!.isTeensy) {
-    // Teensy drives ticks via PIT timer — no JS tick loop needed
+    // Run JS tick loop for browser audio + playhead
+    // Teensy simultaneously drives hardware MIDI via PIT timer
+    lastFrameTime = performance.now();
+    tickAccumulator = 0;
+    engine!.tick();
     markDirty();
+    playbackTimerId = setTimeout(playbackLoop, 1);
   } else {
     lastFrameTime = performance.now();
     tickAccumulator = 0;

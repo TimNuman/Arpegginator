@@ -23,21 +23,40 @@ export class TeensyEngine implements Engine {
   private readLoopActive = false;
   private connected = false;
 
-  // Callbacks (matching Engine interface)
-  onStepTrigger:
-    | ((
-        channel: number,
-        midiNote: number,
-        tick: number,
-        noteLengthTicks: number,
-        velocity: number,
-        extras?: StepTriggerExtras,
-      ) => void)
-    | null = null;
-  onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
-  onPlayPreviewNote:
-    | ((channel: number, row: number, lengthTicks: number) => void)
-    | null = null;
+  // Callbacks — proxy to inner WASM engine so browser audio works
+  get onStepTrigger() {
+    return this.wasm.onStepTrigger;
+  }
+  set onStepTrigger(
+    cb:
+      | ((
+          channel: number,
+          midiNote: number,
+          tick: number,
+          noteLengthTicks: number,
+          velocity: number,
+          extras?: StepTriggerExtras,
+        ) => void)
+      | null,
+  ) {
+    this.wasm.onStepTrigger = cb;
+  }
+
+  get onNoteOff() {
+    return this.wasm.onNoteOff;
+  }
+  set onNoteOff(cb: ((channel: number, midiNote: number) => void) | null) {
+    this.wasm.onNoteOff = cb;
+  }
+
+  get onPlayPreviewNote() {
+    return this.wasm.onPlayPreviewNote;
+  }
+  set onPlayPreviewNote(
+    cb: ((channel: number, row: number, lengthTicks: number) => void) | null,
+  ) {
+    this.wasm.onPlayPreviewNote = cb;
+  }
 
   // Connection status callback
   onConnectionChange: ((connected: boolean) => void) | null = null;
@@ -174,19 +193,14 @@ export class TeensyEngine implements Engine {
   private handleResponse(response: proto.TeensyResponse): void {
     switch (response.type) {
       case "tick":
-        // Update local WASM engine's understanding of current tick
-        // We set playing state so computeGrid renders the playhead correctly
+        // Update local WASM engine's current tick so the playhead moves
+        this.wasm.setCurrentTick(response.tick);
         this.wasm.setIsPlaying(true);
         markDirty();
         break;
 
       case "state":
-        // Sync local engine state from Teensy
-        if (response.isPlaying) {
-          this.wasm.setIsPlaying(true);
-        } else {
-          this.wasm.setIsPlaying(false);
-        }
+        this.wasm.setIsPlaying(response.isPlaying);
         this.wasm.setBpm(response.bpm);
         this.wasm.setSwing(response.swing);
         markDirty();
@@ -213,7 +227,8 @@ export class TeensyEngine implements Engine {
   }
 
   tick(): void {
-    // No-op: Teensy drives ticks via PIT timer
+    // Also tick the local WASM engine so browser audio callbacks fire
+    this.wasm.tick();
   }
 
   stop(): void {
