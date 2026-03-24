@@ -658,8 +658,9 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         TextSeg { text: &e_buf, color: e_color },
     ], &FONT_AA_SMALL_BOLD);
     let loop_len = loop_data.length;
-    let pos_tick = if s.is_playing != 0 && loop_len > 0 {
-        ((s.current_tick - loop_data.start) % loop_len + loop_len) % loop_len
+    let raw_tick = if s.resume_tick >= 0 { s.resume_tick } else { s.current_tick };
+    let pos_tick = if loop_len > 0 && raw_tick >= 0 {
+        ((raw_tick - loop_data.start) % loop_len + loop_len) % loop_len
     } else {
         0
     };
