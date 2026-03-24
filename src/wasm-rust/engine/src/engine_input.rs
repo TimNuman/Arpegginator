@@ -221,17 +221,18 @@ pub fn engine_find_event_at(s: &EngineState, row: i16, tick: i32) -> i16 {
     find_rendered_event(s, row, tick, s.zoom).0
 }
 
-fn play_event_preview(s: &EngineState, ev: &NoteEvent, length_ticks: i32) {
+fn play_event_preview(s: &EngineState, ev: &NoteEvent) {
     if s.is_playing != 0 { return; }
     let ch = s.current_channel;
+    let len = ev.length;
     if ev.chord_amount <= 1 {
-        crate::platform::platform_play_preview_note(ch, ev.row, length_ticks);
+        crate::platform::platform_play_preview_note(ch, ev.row, len);
         return;
     }
     let mut offsets = [0i8; MAX_CHORD_SIZE];
     let count = get_chord_offsets(s, ev, &mut offsets, 0);
     (0..count).for_each(|c| {
-        crate::platform::platform_play_preview_note(ch, ev.row + offsets[c] as i16, length_ticks);
+        crate::platform::platform_play_preview_note(ch, ev.row + offsets[c] as i16, len);
     });
 }
 
@@ -365,7 +366,7 @@ fn handle_pattern_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8)
     }
 }
 
-fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
+fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, _tpc: i32) {
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
@@ -401,7 +402,7 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     engine_update_has_notes(s, ch as u8, pat_idx as u8);
     engine_mark_dirty(s, ch as u8);
     let ev = s.event_pool.slots[new_handle as usize].clone();
-    play_event_preview(s, &ev, tpc);
+    play_event_preview(s, &ev);
 }
 
 fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
@@ -466,7 +467,7 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         s.selected_event_idx = new_idx;
         engine_mark_dirty(s, ch as u8);
         let ev = s.event_pool.slots[h as usize].clone();
-        play_event_preview(s, &ev, tpc);
+        play_event_preview(s, &ev);
         return;
     }
 
@@ -571,7 +572,7 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     s.selected_event_idx = new_idx;
     engine_mark_dirty(s, ch as u8);
     let ev = s.event_pool.slots[h as usize].clone();
-    play_event_preview(s, &ev, tpc);
+    play_event_preview(s, &ev);
 }
 
 fn pattern_press_disable(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
@@ -636,7 +637,7 @@ fn pattern_press_length(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         ev.length = new_len;
         engine_mark_dirty(s, ch as u8);
         let ev = s.event_pool.slots[h as usize].clone();
-        play_event_preview(s, &ev, tpc);
+        play_event_preview(s, &ev);
     }
 }
 
@@ -652,7 +653,7 @@ fn pattern_press_bare(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
         if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
         s.selected_event_idx = disabled_idx;
         let ev = s.event_pool.slots[h as usize].clone();
-        play_event_preview(s, &ev, tpc);
+        play_event_preview(s, &ev);
         return;
     }
 
@@ -684,7 +685,7 @@ fn pattern_press_bare(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
             let pat_idx = s.current_patterns[ch] as usize;
             let h = s.patterns[ch][pat_idx].event_handles[new_idx as usize];
             let ev = s.event_pool.slots[h as usize].clone();
-            play_event_preview(s, &ev, tpc);
+            play_event_preview(s, &ev);
         }
         return;
     }
@@ -692,9 +693,13 @@ fn pattern_press_bare(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     // Click on empty: create new note
     if s.selected_event_idx >= 0 { engine_place_event(s, s.selected_event_idx as u16); }
     let new_idx = engine_toggle_event(s, row, tick, tpc);
-    if new_idx >= 0 { s.selected_event_idx = new_idx; }
-    if s.is_playing == 0 {
-        crate::platform::platform_play_preview_note(s.current_channel, row, tpc);
+    if new_idx >= 0 {
+        s.selected_event_idx = new_idx;
+        let ch = s.current_channel as usize;
+        let pat = s.current_patterns[ch] as usize;
+        let h = s.patterns[ch][pat].event_handles[new_idx as usize];
+        let ev = s.event_pool.slots[h as usize].clone();
+        play_event_preview(s, &ev);
     }
 }
 
@@ -777,7 +782,7 @@ fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
             let pat_idx = s.current_patterns[ch] as usize;
             let h = s.patterns[ch][pat_idx].event_handles[idx as usize];
             let ev = s.event_pool.slots[h as usize].clone();
-            play_event_preview(s, &ev, tpc);
+            play_event_preview(s, &ev);
         }
         return;
     }
@@ -1096,7 +1101,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 }
                 follow_note(s, follow_row, new_pos);
                 let ev = s.event_pool.slots[h as usize].clone();
-                play_event_preview(s, &ev, tpc);
+                play_event_preview(s, &ev);
             }
         }
         EditGroup::Inversion => { // Shift: inversion (U/D), length (L/R)
@@ -1125,7 +1130,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                     follow_note(s, follow_row, pos);
                 }
                 let ev = s.event_pool.slots[h as usize].clone();
-                play_event_preview(s, &ev, tpc);
+                play_event_preview(s, &ev);
             } else if dir == DIR_LEFT || dir == DIR_RIGHT {
                 let h = s.patterns[ch][pat_idx].event_handles[sel as usize];
                 let ev = &s.event_pool.slots[h as usize];
@@ -1134,7 +1139,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 let new_len = step_to(steps.as_slice(), ev.length, dir == DIR_RIGHT);
                 engine_set_event_length(s, sel, new_len);
                 let ev = s.event_pool.slots[h as usize].clone();
-                play_event_preview(s, &ev, new_len);
+                play_event_preview(s, &ev);
             }
         }
         EditGroup::Stack => { // Cmd: stack amount (U/D), repeat amount (L/R)
@@ -1143,7 +1148,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 follow_chord_edge(s, dir);
                 let h = s.patterns[ch][pat_idx].event_handles[sel as usize];
                 let ev = s.event_pool.slots[h as usize].clone();
-                play_event_preview(s, &ev, tpc);
+                play_event_preview(s, &ev);
             } else if dir == DIR_LEFT || dir == DIR_RIGHT {
                 let h = s.patterns[ch][pat_idx].event_handles[sel as usize];
                 let ev = &s.event_pool.slots[h as usize];
@@ -1161,7 +1166,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 follow_chord_edge(s, dir);
                 let h = s.patterns[ch][pat_idx].event_handles[sel as usize];
                 let ev = s.event_pool.slots[h as usize].clone();
-                play_event_preview(s, &ev, tpc);
+                play_event_preview(s, &ev);
             } else if dir == DIR_LEFT || dir == DIR_RIGHT {
                 let steps = build_step_table_with_triplets(tpc, 1920);
                 let h = s.patterns[ch][pat_idx].event_handles[sel as usize];
@@ -1186,7 +1191,7 @@ fn handle_arrow_pattern(s: &mut EngineState, dir: u8, mods: u8) {
                 engine_cycle_chord_voicing(s, sel, if dir == DIR_UP { 1 } else { -1 });
                 follow_chord_edge(s, dir);
                 let ev = s.event_pool.slots[h as usize].clone();
-                play_event_preview(s, &ev, tpc);
+                play_event_preview(s, &ev);
             } else if (dir == DIR_LEFT || dir == DIR_RIGHT) && ev.chord_amount > 1 && ev.arp_style != ARP_CHORD {
                 engine_adjust_arp_voices(s, sel, if dir == DIR_RIGHT { 1 } else { -1 });
             }
