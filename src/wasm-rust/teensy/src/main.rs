@@ -468,13 +468,8 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             }
             protocol::CMD_REBOOT => {
                 // Reboot into HalfKay bootloader for flashing
-                // Write magic value to SRC_GPR5 and trigger system reset
-                unsafe {
-                    // SRC_GPR5 = 0x400F8028, magic = 0xEB00_0004 (Teensy bootloader flag)
-                    core::ptr::write_volatile(0x400F_8028 as *mut u32, 0xEB00_0004);
-                    // Trigger system reset via SCB AIRCR
-                    cortex_m::peripheral::SCB::sys_reset();
-                }
+                // bkpt #251 is caught by the Teensy ROM bootloader
+                unsafe { core::arch::asm!("bkpt #251"); }
             }
             protocol::CMD_GET_STATE => {
                 // Send full state dump back to browser
