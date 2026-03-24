@@ -69,7 +69,7 @@ mod protocol {
     pub const SYSEX_MFR: u8 = 0x7D;
 
     // Commands (browser → Teensy)
-    pub const CMD_PLAY: u8 = 0x01;
+    pub const CMD_PLAY: u8 = 0x01;         // + tick as 5×7-bit
     pub const CMD_STOP: u8 = 0x02;
     pub const CMD_SET_BPM: u8 = 0x03;       // + 4 bytes: BPM × 100 as u32 (avoids float encoding in 7-bit SysEx)
     pub const CMD_SET_SWING: u8 = 0x04;      // + 2 bytes: swing value (50-75)
@@ -91,7 +91,6 @@ mod protocol {
     pub const CMD_STRIP_MOVE: u8 = 0x1C;   // + strip, pos(2×7b), time_ms(3×7b)
     pub const CMD_STRIP_END: u8 = 0x1D;    // + strip
     pub const CMD_RESET: u8 = 0x1E;       // stop playback + reset tick to 0
-    pub const CMD_PLAY_FROM_TICK: u8 = 0x1F; // + tick as 5×7-bit — resume playback from position
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;     // reboot into bootloader for flashing
     pub const CMD_PING: u8 = 0x7E;
@@ -353,7 +352,12 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 let _ = midi.send_sysex(&sysex);
             }
             protocol::CMD_PLAY => {
-                engine_core::engine_core_play_init(state);
+                let tick = if payload.len() >= 5 { protocol::decode_i32(payload) } else { 0 };
+                if tick > 0 {
+                    engine_core::engine_core_play_init_from_tick(state, tick);
+                } else {
+                    engine_core::engine_core_play_init(state);
+                }
                 state.is_playing = 1;
                 let reload = bpm_to_pit_reload(state.bpm);
                 PIT_RELOAD.store(reload, Ordering::Relaxed);
@@ -509,17 +513,6 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 state.current_tick = -1;
                 state.resume_tick = -1;
                 pit.disable();
-            }
-            protocol::CMD_PLAY_FROM_TICK => {
-                if payload.len() >= 5 {
-                    let tick = protocol::decode_i32(payload);
-                    engine_core::engine_core_play_init_from_tick(state, tick);
-                    state.is_playing = 1;
-                    let reload = bpm_to_pit_reload(state.bpm);
-                    PIT_RELOAD.store(reload, Ordering::Relaxed);
-                    pit.set_load_timer_value(reload);
-                    pit.enable();
-                }
             }
             protocol::CMD_REBOOT => {
                 // Reboot into HalfKay bootloader for flashing

@@ -9,7 +9,7 @@ export const SYSEX_MFR = 0x7d;
 
 // ============ Commands (browser → Teensy) ============
 
-export const CMD_PLAY = 0x01;
+export const CMD_PLAY = 0x01; // + tick as 5×7-bit — play from tick position
 export const CMD_STOP = 0x02;
 export const CMD_SET_BPM = 0x03; // + BPM×100 as 3×7-bit
 export const CMD_SET_SWING = 0x04; // + swing value (50-75)
@@ -30,8 +30,7 @@ export const CMD_ARROW_PRESS = 0x1a; // + direction, mods
 export const CMD_STRIP_START = 0x1b; // + strip, pos(2×7b), shift, time_ms(3×7b)
 export const CMD_STRIP_MOVE = 0x1c; // + strip, pos(2×7b), time_ms(3×7b)
 export const CMD_STRIP_END = 0x1d; // + strip
-export const CMD_RESET = 0x1e; // reset tick to 0, clear active notes
-export const CMD_PLAY_FROM_TICK = 0x1f; // + tick as 5×7-bit — play from specific position
+export const CMD_RESET = 0x1e; // stop playback + reset tick to 0
 export const CMD_GET_STATE = 0x20;
 export const CMD_PING = 0x7e;
 
@@ -65,8 +64,16 @@ function sysex(...data: number[]): Uint8Array {
   return new Uint8Array([0xf0, SYSEX_MFR, ...data, 0xf7]);
 }
 
-export function encodePlay(): Uint8Array {
-  return sysex(CMD_PLAY);
+export function encodePlay(tick: number = 0): Uint8Array {
+  const t = tick & 0xffffffff;
+  return sysex(
+    CMD_PLAY,
+    t & 0x7f,
+    (t >> 7) & 0x7f,
+    (t >> 14) & 0x7f,
+    (t >> 21) & 0x7f,
+    (t >> 28) & 0x0f,
+  );
 }
 
 export function encodeStop(): Uint8Array {
@@ -150,18 +157,6 @@ export function encodeStripEnd(strip: number): Uint8Array {
 
 export function encodeReset(): Uint8Array {
   return sysex(CMD_RESET);
-}
-
-export function encodePlayFromTick(tick: number): Uint8Array {
-  const t = tick & 0xffffffff;
-  return sysex(
-    CMD_PLAY_FROM_TICK,
-    t & 0x7f,
-    (t >> 7) & 0x7f,
-    (t >> 14) & 0x7f,
-    (t >> 21) & 0x7f,
-    (t >> 28) & 0x0f,
-  );
 }
 
 export function encodeClearPattern(): Uint8Array {

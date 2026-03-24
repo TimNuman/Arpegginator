@@ -261,12 +261,12 @@ export class TeensyEngine implements Engine {
 
   init(): void {
     this.wasm.init();
-    this.send(proto.encodePlayFromTick(0));
+    this.send(proto.encodePlay(0));
   }
 
   initFromTick(tick: number): void {
     this.wasm.initFromTick(tick);
-    this.send(proto.encodePlayFromTick(tick));
+    this.send(proto.encodePlay(tick));
   }
 
   tick(): void {
