@@ -190,6 +190,7 @@ fn main() -> ! {
     let reload = bpm_to_pit_reload(DEFAULT_BPM);
     PIT_RELOAD.store(reload, Ordering::Relaxed);
     pit0.set_load_timer_value(reload);
+    pit0.enable(); // Always running — used for both sequencer ticks and preview note timing
 
     let mut tick_counter: u32 = 0;
     let mut preview_note: Option<(u8, u8)> = None; // (channel, midi_note) for deferred note-off
@@ -214,8 +215,8 @@ fn main() -> ! {
             }
         }
 
-        // 2. Process sequencer tick
-        if state.is_playing != 0 && pit0.is_elapsed() {
+        // 2. Process PIT tick (always running for preview note timing)
+        if pit0.is_elapsed() {
             pit0.clear_elapsed();
 
             let new_reload = bpm_to_pit_reload(state.bpm);
@@ -225,12 +226,19 @@ fn main() -> ! {
                 pit0.set_load_timer_value(new_reload);
             }
 
-            engine_core::engine_core_tick(&mut state);
-            tick_counter = tick_counter.wrapping_add(1);
+            // Decrement preview note-off counter
+            if preview_off_counter > 0 {
+                preview_off_counter -= 1;
+            }
 
-            // Toggle LED on each beat boundary
-            if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
-                led.toggle();
+            if state.is_playing != 0 {
+                engine_core::engine_core_tick(&mut state);
+                tick_counter = tick_counter.wrapping_add(1);
+
+                // Toggle LED on each beat boundary
+                if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
+                    led.toggle();
+                }
             }
 
             // Send tick update via SysEx every 48 ticks (~10x per beat)
@@ -285,7 +293,8 @@ fn main() -> ! {
                         // Schedule note-off after ~200ms worth of ticks
                         // Store for deferred note-off
                         preview_note = Some((ev.channel, note));
-                        preview_off_counter = 100_000; // ~200ms at main loop speed
+                        // 1/16th note in PIT ticks = TICKS_PER_QUARTER / 4
+                        preview_off_counter = (TICKS_PER_QUARTER as u32) / 4;
                     }
                 }
                 _ => {}
@@ -397,12 +406,10 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 let reload = bpm_to_pit_reload(state.bpm);
                 PIT_RELOAD.store(reload, Ordering::Relaxed);
                 pit.set_load_timer_value(reload);
-                pit.enable();
             }
             protocol::CMD_STOP => {
                 engine_core::engine_core_stop(state);
                 state.is_playing = 0;
-                pit.disable();
             }
             protocol::CMD_SET_BPM => {
                 if payload.len() >= 4 {
@@ -547,7 +554,6 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 state.is_playing = 0;
                 state.current_tick = -1;
                 state.resume_tick = -1;
-                pit.disable();
             }
             protocol::CMD_REBOOT => {
                 // Reboot into HalfKay bootloader for flashing
