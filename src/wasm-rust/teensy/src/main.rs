@@ -78,6 +78,13 @@ mod protocol {
     pub const CMD_SET_SOLO: u8 = 0x07;       // + ch, soloed
     pub const CMD_BUTTON_PRESS: u8 = 0x10;   // + row, col, mods
     pub const CMD_KEY_ACTION: u8 = 0x11;     // + action_id
+    pub const CMD_SET_ROW_OFFSET: u8 = 0x12; // + ch, offset×1000 as 2×7-bit
+    pub const CMD_SET_CHANNEL_TYPES: u8 = 0x13; // + 6 bytes
+    pub const CMD_SET_ZOOM: u8 = 0x14;       // + zoom as 3×7-bit
+    pub const CMD_SET_CURRENT_CHANNEL: u8 = 0x15; // + ch
+    pub const CMD_SET_UI_MODE: u8 = 0x16;    // + mode
+    pub const CMD_SET_SELECTED_EVENT: u8 = 0x17; // + idx as 2×7-bit + sign
+    pub const CMD_SET_MODIFY_SUB_MODE: u8 = 0x18; // + sm
     pub const CMD_PING: u8 = 0x7E;
 
     // Responses (Teensy → browser)
@@ -360,6 +367,52 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             protocol::CMD_KEY_ACTION => {
                 if !payload.is_empty() {
                     arp3_engine::engine_input::engine_key_action(state, payload[0]);
+                }
+            }
+            protocol::CMD_SET_ROW_OFFSET => {
+                if payload.len() >= 3 {
+                    let ch = payload[0];
+                    let val = (payload[1] as u16) | ((payload[2] as u16) << 7);
+                    let offset = val as f32 / 1000.0;
+                    if (ch as usize) < engine_core::NUM_CHANNELS {
+                        state.row_offsets[ch as usize] = offset;
+                        state.target_row_offsets[ch as usize] = offset;
+                    }
+                }
+            }
+            protocol::CMD_SET_CHANNEL_TYPES => {
+                for (i, &t) in payload.iter().enumerate().take(engine_core::NUM_CHANNELS) {
+                    state.channel_types[i] = t;
+                }
+            }
+            protocol::CMD_SET_ZOOM => {
+                if payload.len() >= 3 {
+                    let zoom = (payload[0] as i32)
+                        | ((payload[1] as i32) << 7)
+                        | ((payload[2] as i32 & 0x03) << 14);
+                    state.zoom = zoom;
+                }
+            }
+            protocol::CMD_SET_CURRENT_CHANNEL => {
+                if !payload.is_empty() && (payload[0] as usize) < engine_core::NUM_CHANNELS {
+                    state.current_channel = payload[0];
+                }
+            }
+            protocol::CMD_SET_UI_MODE => {
+                if !payload.is_empty() {
+                    state.ui_mode = payload[0];
+                }
+            }
+            protocol::CMD_SET_SELECTED_EVENT => {
+                if payload.len() >= 3 {
+                    let unsigned = (payload[0] as i16) | ((payload[1] as i16) << 7);
+                    let idx = if payload[2] != 0 { -unsigned } else { unsigned };
+                    state.selected_event_idx = idx;
+                }
+            }
+            protocol::CMD_SET_MODIFY_SUB_MODE => {
+                if !payload.is_empty() {
+                    state.modify_sub_mode = payload[0];
                 }
             }
             _ => {}

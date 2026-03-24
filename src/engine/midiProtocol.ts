@@ -18,6 +18,13 @@ export const CMD_SET_MUTE = 0x06; // + ch, muted
 export const CMD_SET_SOLO = 0x07; // + ch, soloed
 export const CMD_BUTTON_PRESS = 0x10; // + row, col, mods
 export const CMD_KEY_ACTION = 0x11; // + action_id
+export const CMD_SET_ROW_OFFSET = 0x12; // + ch, offset×1000 as 2×7-bit
+export const CMD_SET_CHANNEL_TYPES = 0x13; // + 6 bytes
+export const CMD_SET_ZOOM = 0x14; // + zoom as 3×7-bit
+export const CMD_SET_CURRENT_CHANNEL = 0x15; // + ch
+export const CMD_SET_UI_MODE = 0x16; // + mode
+export const CMD_SET_SELECTED_EVENT = 0x17; // + idx as 2×7-bit (signed)
+export const CMD_SET_MODIFY_SUB_MODE = 0x18; // + sm
 export const CMD_PING = 0x7e;
 
 // ============ Responses (Teensy → browser) ============
@@ -90,6 +97,40 @@ export function encodeButtonPress(
 
 export function encodeKeyAction(actionId: number): Uint8Array {
   return sysex(CMD_KEY_ACTION, actionId);
+}
+
+export function encodeSetRowOffset(ch: number, offset: number): Uint8Array {
+  // offset is 0.0-1.0, encode as ×1000 in 2×7-bit
+  const val = Math.round(offset * 1000);
+  return sysex(CMD_SET_ROW_OFFSET, ch, val & 0x7f, (val >> 7) & 0x7f);
+}
+
+export function encodeSetChannelTypes(types: number[]): Uint8Array {
+  return sysex(CMD_SET_CHANNEL_TYPES, ...types.slice(0, 6));
+}
+
+export function encodeSetZoom(zoom: number): Uint8Array {
+  const [b0, b1, b2] = encodeU16(zoom);
+  return sysex(CMD_SET_ZOOM, b0, b1, b2);
+}
+
+export function encodeSetCurrentChannel(ch: number): Uint8Array {
+  return sysex(CMD_SET_CURRENT_CHANNEL, ch);
+}
+
+export function encodeSetUiMode(mode: number): Uint8Array {
+  return sysex(CMD_SET_UI_MODE, mode);
+}
+
+export function encodeSetSelectedEvent(idx: number): Uint8Array {
+  // idx is i16 (-1 = no selection). Encode as unsigned + sign bit
+  const unsigned = idx < 0 ? (-idx) : idx;
+  const sign = idx < 0 ? 1 : 0;
+  return sysex(CMD_SET_SELECTED_EVENT, unsigned & 0x7f, (unsigned >> 7) & 0x7f, sign);
+}
+
+export function encodeSetModifySubMode(sm: number): Uint8Array {
+  return sysex(CMD_SET_MODIFY_SUB_MODE, sm);
 }
 
 export function encodePing(): Uint8Array {

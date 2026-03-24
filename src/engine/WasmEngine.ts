@@ -155,6 +155,9 @@ export class WasmEngine implements Engine {
   // UI state getters
   private _getCurrentChannel!: () => number;
   private _getBpm!: () => number;
+  private _getSwing!: () => number;
+  private _getZoom!: () => number;
+  private _getRowOffset!: (ch: number) => number;
   private _getIsPlaying!: () => number;
   private _setIsExternalPlayback!: (ext: number) => void;
   private _getIsExternalPlayback!: () => number;
@@ -323,6 +326,9 @@ export class WasmEngine implements Engine {
     // UI state getters
     this._getCurrentChannel = cw("engine_get_current_channel", "number", []);
     this._getBpm = cw("engine_get_bpm", "number", []);
+    this._getSwing = cw("engine_get_swing", "number", []);
+    this._getZoom = cw("engine_get_zoom", "number", []);
+    this._getRowOffset = cw("engine_get_row_offset", "number", ["number"]);
     this._getIsPlaying = cw("engine_get_is_playing", "number", []);
     this._setIsExternalPlayback = cw("engine_set_is_external_playback", null, [
       "number",
@@ -543,6 +549,15 @@ export class WasmEngine implements Engine {
   }
   getBpm(): number {
     return this._getBpm();
+  }
+  getSwing(): number {
+    return this._getSwing();
+  }
+  getZoom(): number {
+    return this._getZoom();
+  }
+  getRowOffset(ch: number): number {
+    return this._getRowOffset(ch);
   }
   getIsPlaying(): boolean {
     return this._getIsPlaying() !== 0;

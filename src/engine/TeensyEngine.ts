@@ -138,9 +138,34 @@ export class TeensyEngine implements Engine {
     this.connected = true;
     this.onConnectionChange?.(true);
 
+    // Sync current state to Teensy so both engines match
+    this.syncStateToTeensy();
+
     // Ping to verify
     this.send(proto.encodePing());
     console.log("Teensy connected via Web MIDI");
+  }
+
+  /** Send all current WASM engine state to Teensy so it matches */
+  private syncStateToTeensy(): void {
+    // BPM and swing
+    this.send(proto.encodeSetBpm(this.wasm.getBpm()));
+    this.send(proto.encodeSetSwing(this.wasm.getSwing()));
+
+    // Zoom
+    this.send(proto.encodeSetZoom(this.wasm.getZoom()));
+
+    // Channel types
+    const types: number[] = [];
+    for (let ch = 0; ch < 6; ch++) {
+      types.push(this.wasm.getChannelType(ch));
+    }
+    this.send(proto.encodeSetChannelTypes(types));
+
+    // Row offsets
+    for (let ch = 0; ch < 6; ch++) {
+      this.send(proto.encodeSetRowOffset(ch, this.wasm.getRowOffset(ch)));
+    }
   }
 
   disconnect(): void {
@@ -251,10 +276,12 @@ export class TeensyEngine implements Engine {
 
   setZoom(ticksPerCol: number): void {
     this.wasm.setZoom(ticksPerCol);
+    this.send(proto.encodeSetZoom(ticksPerCol));
   }
 
   setRowOffset(ch: number, offset: number): void {
     this.wasm.setRowOffset(ch, offset);
+    this.send(proto.encodeSetRowOffset(ch, offset));
   }
 
   setModifiersHeld(mods: number): void {
@@ -263,6 +290,7 @@ export class TeensyEngine implements Engine {
 
   writeChannelTypes(types: number[]): void {
     this.wasm.writeChannelTypes(types);
+    this.send(proto.encodeSetChannelTypes(types));
   }
 
   // ============ State Getters (local) ============
