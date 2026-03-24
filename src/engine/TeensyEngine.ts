@@ -1,26 +1,25 @@
-// TeensyEngine.ts — Engine backend that wraps WasmEngine + WebSerial to Teensy 4.1
+// TeensyEngine.ts — Engine backend using Web MIDI to communicate with Teensy 4.1
 //
 // Architecture:
 // - Local WasmEngine handles all rendering (computeGrid, readGridBuffers, OLED)
-// - State mutations go to BOTH local WasmEngine AND Teensy via serial
-// - Teensy drives tick timing (PIT timer) and MIDI output
-// - Tick position flows back from Teensy to update local engine for display
+// - State mutations go to BOTH local WasmEngine AND Teensy via SysEx
+// - Teensy drives tick timing (PIT timer) and outputs MIDI to DAW
+// - Tick position flows back from Teensy via SysEx to update local engine
+// - Browser also runs local tick loop for audio preview callbacks
 
 import type { StepTriggerExtras } from "../actions/playbackActions";
 import { markDirty } from "../store/renderStore";
 import type { OledRenderer } from "./OledRenderer";
 import type { Engine } from "./types";
 import { WasmEngine } from "./WasmEngine";
-import * as proto from "./serialProtocol";
+import * as proto from "./midiProtocol";
 
 export class TeensyEngine implements Engine {
   readonly isTeensy = true;
 
   private wasm = new WasmEngine();
-  private port: SerialPort | null = null;
-  private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
-  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  private readLoopActive = false;
+  private midiOutput: MIDIOutput | null = null;
+  private midiInput: MIDIInput | null = null;
   private connected = false;
 
   // Callbacks — proxy to inner WASM engine so browser audio works
@@ -71,68 +70,92 @@ export class TeensyEngine implements Engine {
     return this.wasm.isReady() && this.connected;
   }
 
-  /** Open WebSerial port picker and connect to Teensy */
+  /** Connect to Teensy via Web MIDI — looks for "Arp3 Sequencer" device */
   async connect(): Promise<void> {
-    if (!("serial" in navigator)) {
-      throw new Error("WebSerial API not available. Use Chrome or Edge.");
+    if (!navigator.requestMIDIAccess) {
+      throw new Error("Web MIDI API not available. Use Chrome or Edge.");
     }
 
-    try {
-      this.port = await navigator.serial.requestPort();
-      await this.port.open({ baudRate: 115200 });
+    const access = await navigator.requestMIDIAccess({ sysex: true });
 
-      if (this.port.writable) {
-        this.writer = this.port.writable.getWriter();
+    // Find Arp3 Sequencer in MIDI ports
+    let output: MIDIOutput | null = null;
+    let input: MIDIInput | null = null;
+
+    for (const [, port] of access.outputs) {
+      if (port.name?.includes("Arp3")) {
+        output = port;
+        break;
       }
-      if (this.port.readable) {
-        this.reader = this.port.readable.getReader();
-      }
-
-      this.connected = true;
-      this.onConnectionChange?.(true);
-      this.startReadLoop();
-
-      // Ping to verify connection
-      await this.send(proto.encodePing());
-      console.log("Teensy connected via WebSerial");
-    } catch (e) {
-      this.connected = false;
-      this.onConnectionChange?.(false);
-      throw e;
     }
+    for (const [, port] of access.inputs) {
+      if (port.name?.includes("Arp3")) {
+        input = port;
+        break;
+      }
+    }
+
+    if (!output) {
+      throw new Error(
+        'Arp3 Sequencer not found. Make sure Teensy is plugged in.',
+      );
+    }
+
+    this.midiOutput = output;
+    this.midiInput = input;
+
+    // Listen for SysEx messages from Teensy
+    if (input) {
+      input.onmidimessage = (event: MIDIMessageEvent) => {
+        if (!event.data) return;
+        const data = new Uint8Array(event.data);
+        // SysEx messages start with F0
+        if (data[0] === 0xf0) {
+          const response = proto.decodeSysex(data);
+          if (response) {
+            this.handleResponse(response);
+          }
+        }
+      };
+    }
+
+    // Listen for disconnection
+    access.onstatechange = (event: MIDIConnectionEvent) => {
+      if (
+        event.port &&
+        event.port.name?.includes("Arp3") &&
+        event.port.state === "disconnected"
+      ) {
+        this.handleDisconnect();
+      }
+    };
+
+    this.connected = true;
+    this.onConnectionChange?.(true);
+
+    // Ping to verify
+    this.send(proto.encodePing());
+    console.log("Teensy connected via Web MIDI");
   }
 
   disconnect(): void {
-    this.readLoopActive = false;
+    if (this.midiInput) {
+      this.midiInput.onmidimessage = null;
+    }
+    this.midiOutput = null;
+    this.midiInput = null;
     this.connected = false;
-
-    if (this.reader) {
-      this.reader.cancel().catch(() => {});
-      this.reader.releaseLock();
-      this.reader = null;
-    }
-    if (this.writer) {
-      this.writer.close().catch(() => {});
-      this.writer.releaseLock();
-      this.writer = null;
-    }
-    if (this.port) {
-      this.port.close().catch(() => {});
-      this.port = null;
-    }
-
     this.onConnectionChange?.(false);
     console.log("Teensy disconnected");
   }
 
-  // ============ Serial I/O ============
+  // ============ MIDI I/O ============
 
-  private async send(data: Uint8Array): Promise<void> {
-    if (!this.writer) return;
+  private send(data: Uint8Array): void {
+    if (!this.midiOutput) return;
     try {
-      await this.writer.write(data);
+      this.midiOutput.send(data);
     } catch {
-      // Connection lost
       this.handleDisconnect();
     }
   }
@@ -145,74 +168,25 @@ export class TeensyEngine implements Engine {
     }
   }
 
-  private startReadLoop(): void {
-    if (this.readLoopActive) return;
-    this.readLoopActive = true;
-
-    const rxBuf = new Uint8Array(1024);
-    let rxLen = 0;
-
-    const loop = async () => {
-      while (this.readLoopActive && this.reader) {
-        try {
-          const { value, done } = await this.reader.read();
-          if (done) break;
-          if (!value) continue;
-
-          // Append to buffer
-          const space = rxBuf.length - rxLen;
-          const toCopy = Math.min(value.length, space);
-          rxBuf.set(value.subarray(0, toCopy), rxLen);
-          rxLen += toCopy;
-
-          // Process responses
-          let offset = 0;
-          while (offset < rxLen) {
-            const result = proto.decodeResponse(rxBuf, offset, rxLen - offset);
-            if (!result) break;
-            const [response, consumed] = result;
-            offset += consumed;
-            this.handleResponse(response);
-          }
-
-          // Shift unconsumed bytes to front
-          if (offset > 0 && offset < rxLen) {
-            rxBuf.copyWithin(0, offset, rxLen);
-          }
-          rxLen -= offset;
-        } catch {
-          break;
-        }
-      }
-      this.handleDisconnect();
-    };
-
-    loop();
-  }
-
   private handleResponse(response: proto.TeensyResponse): void {
     switch (response.type) {
       case "tick":
-        // Update local WASM engine's current tick so the playhead moves
         this.wasm.setCurrentTick(response.tick);
         this.wasm.setIsPlaying(true);
         markDirty();
         break;
 
-      case "state":
-        this.wasm.setIsPlaying(response.isPlaying);
-        this.wasm.setBpm(response.bpm);
-        this.wasm.setSwing(response.swing);
-        markDirty();
+      case "pong":
+        console.log("Teensy: pong via MIDI");
         break;
 
-      case "pong":
-        console.log("Teensy: pong");
+      case "state":
+        markDirty();
         break;
     }
   }
 
-  // ============ Playback (Teensy drives timing) ============
+  // ============ Playback ============
 
   fullInit(): void {
     this.wasm.fullInit();
@@ -227,7 +201,7 @@ export class TeensyEngine implements Engine {
   }
 
   tick(): void {
-    // Also tick the local WASM engine so browser audio callbacks fire
+    // Also tick local WASM engine for browser audio callbacks
     this.wasm.tick();
   }
 
@@ -289,6 +263,9 @@ export class TeensyEngine implements Engine {
 
   getBpm(): number {
     return this.wasm.getBpm();
+  }
+  getSwing(): number {
+    return this.wasm.getSwing();
   }
   getIsPlaying(): boolean {
     return this.wasm.getIsPlaying();
@@ -352,7 +329,6 @@ export class TeensyEngine implements Engine {
 
   arrowPress(direction: number, modifiers: number): void {
     this.wasm.arrowPress(direction, modifiers);
-    // No serial command for arrow — it's UI-only (scroll/selection)
   }
 
   keyAction(actionId: number): void {
@@ -362,10 +338,9 @@ export class TeensyEngine implements Engine {
 
   clearPattern(): void {
     this.wasm.clearPattern();
-    // TODO: send pattern clear to Teensy when protocol supports it
   }
 
-  // ============ Touch Strip (local only — UI scrolling) ============
+  // ============ Touch Strip (local only) ============
 
   stripStart(
     strip: number,

@@ -1,8 +1,9 @@
 //! Arp3 Teensy 4.1 Firmware
 //!
-//! - PIT0: sequencer tick timer (480 PPQN, configurable BPM)
-//! - LPUART4 (pins 8/7): hardware MIDI out at 31250 baud
-//! - USB composite device: CDC serial (WebSerial) + MIDI (DAW)
+//! USB MIDI device — appears in DAWs as "Arp3 Sequencer"
+//! Control protocol uses SysEx (F0 7D ... F7) via Web MIDI from browser
+//! Note output is standard MIDI — goes directly to Ableton/DAW
+//! Also outputs on LPUART4 (pins 8/7) at 31250 baud for hardware MIDI
 
 #![no_std]
 #![no_main]
@@ -20,15 +21,13 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use usb_device::bus::UsbBusAllocator;
 use usb_device::device::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid};
-use usbd_serial::SerialPort;
 
 use embedded_hal::serial::Write as SerialWrite;
 
 use arp3_engine::engine_core::{self, EngineState, TICKS_PER_QUARTER};
 use arp3_engine::platform;
 
-// USB MIDI disabled for now — browser Web MIDI handles DAW routing
-// use usb_midi::MidiClass;
+use usb_midi::MidiClass;
 
 // ============ Global Allocator ============
 
@@ -46,6 +45,9 @@ const DEFAULT_BPM: f32 = 120.0;
 const USB_VID_PID: UsbVidPid = UsbVidPid(0x16C0, 0x0483);
 const USB_PRODUCT: &str = "Arp3 Sequencer";
 
+// SysEx manufacturer ID: 0x7D = "educational/development use" (no registration needed)
+const SYSEX_MFR: u8 = 0x7D;
+
 // ============ Tick State ============
 
 static PIT_RELOAD: AtomicU32 = AtomicU32::new(0);
@@ -56,28 +58,57 @@ fn bpm_to_pit_reload(bpm: f32) -> u32 {
 
 // ============ USB Static Storage ============
 
-// Larger endpoint memory for composite device (serial + MIDI)
-static EP_MEMORY: EndpointMemory<4096> = EndpointMemory::new();
+static EP_MEMORY: EndpointMemory<2048> = EndpointMemory::new();
 static EP_STATE: EndpointState = EndpointState::max_endpoints();
 
-// ============ Serial Protocol ============
+// ============ SysEx Protocol ============
+// All SysEx messages: F0 7D <cmd> [data...] F7
+// The usb_midi layer handles F0/F7 framing; we only deal with the inner bytes.
 
 mod protocol {
+    pub const SYSEX_MFR: u8 = 0x7D;
+
+    // Commands (browser → Teensy)
     pub const CMD_PLAY: u8 = 0x01;
     pub const CMD_STOP: u8 = 0x02;
-    pub const CMD_SET_BPM: u8 = 0x03;
-    pub const CMD_SET_SWING: u8 = 0x04;
-    pub const CMD_SET_PATTERN: u8 = 0x05;
-    pub const CMD_SET_MUTE: u8 = 0x06;
-    pub const CMD_SET_SOLO: u8 = 0x07;
-    pub const CMD_BUTTON_PRESS: u8 = 0x10;
-    pub const CMD_KEY_ACTION: u8 = 0x11;
-    pub const CMD_PING: u8 = 0xFE;
-    pub const CMD_GET_STATE: u8 = 0xFF;
+    pub const CMD_SET_BPM: u8 = 0x03;       // + 4 bytes: BPM × 100 as u32 (avoids float encoding in 7-bit SysEx)
+    pub const CMD_SET_SWING: u8 = 0x04;      // + 2 bytes: swing value (50-75)
+    pub const CMD_SET_PATTERN: u8 = 0x05;    // + ch, pat
+    pub const CMD_SET_MUTE: u8 = 0x06;       // + ch, muted
+    pub const CMD_SET_SOLO: u8 = 0x07;       // + ch, soloed
+    pub const CMD_BUTTON_PRESS: u8 = 0x10;   // + row, col, mods
+    pub const CMD_KEY_ACTION: u8 = 0x11;     // + action_id
+    pub const CMD_PING: u8 = 0x7E;
 
-    pub const RSP_PONG: u8 = 0xFE;
-    pub const RSP_TICK: u8 = 0x80;
-    pub const RSP_STATE: u8 = 0x81;
+    // Responses (Teensy → browser)
+    pub const RSP_PONG: u8 = 0x7E;
+    pub const RSP_TICK: u8 = 0x40;           // + 4 bytes: tick as 7-bit encoded
+    pub const RSP_STATE: u8 = 0x41;          // + state dump
+
+    // Encode i32 as 5 × 7-bit bytes (SysEx can only carry 0-127 per byte)
+    pub fn encode_i32(val: i32, out: &mut [u8; 5]) {
+        let v = val as u32;
+        out[0] = (v & 0x7F) as u8;
+        out[1] = ((v >> 7) & 0x7F) as u8;
+        out[2] = ((v >> 14) & 0x7F) as u8;
+        out[3] = ((v >> 21) & 0x7F) as u8;
+        out[4] = ((v >> 28) & 0x0F) as u8;
+    }
+
+    pub fn decode_i32(data: &[u8]) -> i32 {
+        if data.len() < 5 { return 0; }
+        let v = (data[0] as u32)
+            | ((data[1] as u32) << 7)
+            | ((data[2] as u32) << 14)
+            | ((data[3] as u32) << 21)
+            | ((data[4] as u32) << 28);
+        v as i32
+    }
+
+    pub fn decode_u16(data: &[u8]) -> u16 {
+        if data.len() < 3 { return 0; }
+        (data[0] as u16) | ((data[1] as u16) << 7) | ((data[2] as u16 & 0x03) << 14)
+    }
 }
 
 // ============ Entry Point ============
@@ -100,7 +131,7 @@ fn main() -> ! {
     // ---- MIDI UART (LPUART4 on pins 8/7) at 31250 baud ----
     let mut midi_uart: board::Lpuart4 = board::lpuart(lpuart4, pins.p8, pins.p7, 31250);
 
-    // ---- USB Composite Device: CDC Serial + MIDI ----
+    // ---- USB MIDI Device ----
     let bus_adapter = BusAdapter::with_speed(usb, &EP_MEMORY, &EP_STATE, Speed::LowFull);
     bus_adapter.set_interrupts(false);
 
@@ -119,10 +150,14 @@ fn main() -> ! {
         alloc::boxed::Box::leak(alloc::boxed::Box::new(UsbBusAllocator::new(bus_adapter)))
     };
 
-    let mut usb_serial = SerialPort::new(usb_bus);
+    let mut usb_midi = MidiClass::new(usb_bus);
+
+    // MIDI device — no device_class override needed (class is in interface descriptors)
     let mut usb_device = UsbDeviceBuilder::new(usb_bus, USB_VID_PID)
         .product(USB_PRODUCT)
-        .device_class(usbd_serial::USB_CLASS_CDC)
+        .device_class(0x00)      // Defined at interface level
+        .device_sub_class(0x00)
+        .device_protocol(0x00)
         .build();
     let mut usb_configured = false;
 
@@ -136,16 +171,14 @@ fn main() -> ! {
     PIT_RELOAD.store(reload, Ordering::Relaxed);
     pit0.set_load_timer_value(reload);
 
-    // ---- Buffers ----
-    let mut serial_buf = [0u8; 256];
-    let mut serial_buf_len: usize = 0;
     let mut tick_counter: u32 = 0;
     let mut idle_counter: u32 = 0;
+    let mut midi_rx_buf = [0u8; 64];
 
     // ---- Main Loop ----
     loop {
-        // 1. Poll USB (both serial and MIDI classes)
-        if usb_device.poll(&mut [&mut usb_serial]) {
+        // 1. Poll USB
+        if usb_device.poll(&mut [&mut usb_midi]) {
             if usb_device.state() == UsbDeviceState::Configured {
                 if !usb_configured {
                     usb_device.bus().configure();
@@ -170,20 +203,22 @@ fn main() -> ! {
             engine_core::engine_core_tick(&mut state);
             tick_counter = tick_counter.wrapping_add(1);
 
+            // Blink LED every beat
             if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
                 led.toggle();
             }
 
+            // Send tick update via SysEx every 48 ticks (~10x per beat)
             if usb_configured && tick_counter % 48 == 0 {
-                let tick = state.current_tick;
-                let msg = [
+                let mut tick_bytes = [0u8; 5];
+                protocol::encode_i32(state.current_tick, &mut tick_bytes);
+                let sysex_data = [
+                    SYSEX_MFR,
                     protocol::RSP_TICK,
-                    (tick & 0xFF) as u8,
-                    ((tick >> 8) & 0xFF) as u8,
-                    ((tick >> 16) & 0xFF) as u8,
-                    ((tick >> 24) & 0xFF) as u8,
+                    tick_bytes[0], tick_bytes[1], tick_bytes[2],
+                    tick_bytes[3], tick_bytes[4],
                 ];
-                let _ = usb_serial.write(&msg);
+                let _ = usb_midi.send_sysex(&sysex_data);
             }
         }
 
@@ -195,41 +230,36 @@ fn main() -> ! {
                     let _ = nb::block!(midi_uart.write(0x90 | (ev.channel & 0x0F)));
                     let _ = nb::block!(midi_uart.write(ev.note & 0x7F));
                     let _ = nb::block!(midi_uart.write(ev.velocity & 0x7F));
+                    // Note On → USB MIDI
+                    if usb_configured {
+                        let _ = usb_midi.note_on(ev.channel, ev.note, ev.velocity);
+                    }
                 }
                 1 => {
                     // Note Off → UART
                     let _ = nb::block!(midi_uart.write(0x80 | (ev.channel & 0x0F)));
                     let _ = nb::block!(midi_uart.write(ev.note & 0x7F));
                     let _ = nb::block!(midi_uart.write(0));
+                    // Note Off → USB MIDI
+                    if usb_configured {
+                        let _ = usb_midi.note_off(ev.channel, ev.note);
+                    }
                 }
                 _ => {}
             }
         }
 
-        // 4. Read USB serial commands
+        // 4. Read USB MIDI packets (SysEx commands from browser)
         if usb_configured {
-            let mut buf = [0u8; 64];
-            match usb_serial.read(&mut buf) {
-                Ok(count) if count > 0 => {
-                    let space = serial_buf.len() - serial_buf_len;
-                    let to_copy = count.min(space);
-                    serial_buf[serial_buf_len..serial_buf_len + to_copy]
-                        .copy_from_slice(&buf[..to_copy]);
-                    serial_buf_len += to_copy;
-
-                    let consumed = process_serial_commands(
-                        &serial_buf[..serial_buf_len],
+            if let Ok(count) = usb_midi.read(&mut midi_rx_buf) {
+                if count > 0 {
+                    process_midi_input(
+                        &midi_rx_buf[..count],
                         &mut state,
                         &mut pit0,
-                        &mut usb_serial,
+                        &usb_midi,
                     );
-                    let unconsumed = serial_buf_len - consumed;
-                    if unconsumed > 0 {
-                        serial_buf.copy_within(consumed..serial_buf_len, 0);
-                    }
-                    serial_buf_len = unconsumed;
                 }
-                _ => {}
             }
         }
 
@@ -243,24 +273,26 @@ fn main() -> ! {
     }
 }
 
-// ============ Serial Command Processing ============
+// ============ MIDI Input Processing ============
 
-fn process_serial_commands<B: usb_device::bus::UsbBus>(
+fn process_midi_input<B: usb_device::bus::UsbBus>(
     buf: &[u8],
     state: &mut EngineState,
     pit: &mut bsp::hal::pit::Pit<0>,
-    serial: &mut SerialPort<'static, B>,
-) -> usize {
-    let mut pos = 0;
+    midi: &MidiClass<B>,
+) {
+    // Try to parse SysEx from USB MIDI packets
+    if let Some((data, data_len, _consumed)) = usb_midi::parse_sysex_from_usb(buf) {
+        if data_len < 2 { return; }
+        if data[0] != SYSEX_MFR { return; } // Not our SysEx
 
-    while pos < buf.len() {
-        let remaining = buf.len() - pos;
-        let cmd = buf[pos];
+        let cmd = data[1];
+        let payload = &data[2..data_len];
 
         match cmd {
             protocol::CMD_PING => {
-                let _ = serial.write(&[protocol::RSP_PONG]);
-                pos += 1;
+                let sysex = [SYSEX_MFR, protocol::RSP_PONG];
+                let _ = midi.send_sysex(&sysex);
             }
             protocol::CMD_PLAY => {
                 engine_core::engine_core_play_init(state);
@@ -269,96 +301,68 @@ fn process_serial_commands<B: usb_device::bus::UsbBus>(
                 PIT_RELOAD.store(reload, Ordering::Relaxed);
                 pit.set_load_timer_value(reload);
                 pit.enable();
-                pos += 1;
             }
             protocol::CMD_STOP => {
                 engine_core::engine_core_stop(state);
                 state.is_playing = 0;
                 pit.disable();
-                pos += 1;
             }
             protocol::CMD_SET_BPM => {
-                if remaining < 5 { break; }
-                let bytes = [buf[pos+1], buf[pos+2], buf[pos+3], buf[pos+4]];
-                let bpm = f32::from_le_bytes(bytes);
-                if bpm >= 20.0 && bpm <= 300.0 {
-                    state.bpm = bpm;
+                if payload.len() >= 4 {
+                    // BPM × 100 as u16, encoded in 7-bit
+                    let bpm_x100 = (payload[0] as u16)
+                        | ((payload[1] as u16) << 7)
+                        | (((payload[2] & 0x03) as u16) << 14);
+                    let bpm = bpm_x100 as f32 / 100.0;
+                    if bpm >= 20.0 && bpm <= 300.0 {
+                        state.bpm = bpm;
+                    }
                 }
-                pos += 5;
             }
             protocol::CMD_SET_SWING => {
-                if remaining < 5 { break; }
-                let bytes = [buf[pos+1], buf[pos+2], buf[pos+3], buf[pos+4]];
-                let swing = i32::from_le_bytes(bytes);
-                state.swing = swing.clamp(50, 75);
-                pos += 5;
+                if !payload.is_empty() {
+                    let swing = payload[0] as i32;
+                    state.swing = swing.clamp(50, 75);
+                }
             }
             protocol::CMD_SET_PATTERN => {
-                if remaining < 3 { break; }
-                let ch = buf[pos+1];
-                let pat = buf[pos+2];
-                if (ch as usize) < engine_core::NUM_CHANNELS && pat < 8 {
-                    state.queued_patterns[ch as usize] = pat as i8;
+                if payload.len() >= 2 {
+                    let ch = payload[0];
+                    let pat = payload[1];
+                    if (ch as usize) < engine_core::NUM_CHANNELS && pat < 8 {
+                        state.queued_patterns[ch as usize] = pat as i8;
+                    }
                 }
-                pos += 3;
             }
             protocol::CMD_SET_MUTE => {
-                if remaining < 3 { break; }
-                let ch = buf[pos+1];
-                let muted = buf[pos+2];
-                if (ch as usize) < engine_core::NUM_CHANNELS {
-                    state.muted[ch as usize] = muted;
+                if payload.len() >= 2 {
+                    let ch = payload[0];
+                    if (ch as usize) < engine_core::NUM_CHANNELS {
+                        state.muted[ch as usize] = payload[1];
+                    }
                 }
-                pos += 3;
             }
             protocol::CMD_SET_SOLO => {
-                if remaining < 3 { break; }
-                let ch = buf[pos+1];
-                let soloed = buf[pos+2];
-                if (ch as usize) < engine_core::NUM_CHANNELS {
-                    state.soloed[ch as usize] = soloed;
+                if payload.len() >= 2 {
+                    let ch = payload[0];
+                    if (ch as usize) < engine_core::NUM_CHANNELS {
+                        state.soloed[ch as usize] = payload[1];
+                    }
                 }
-                pos += 3;
             }
             protocol::CMD_BUTTON_PRESS => {
-                if remaining < 4 { break; }
-                let row = buf[pos+1];
-                let col = buf[pos+2];
-                let mods = buf[pos+3];
-                arp3_engine::engine_input::engine_button_press(state, row, col, mods);
-                pos += 4;
+                if payload.len() >= 3 {
+                    arp3_engine::engine_input::engine_button_press(
+                        state, payload[0], payload[1], payload[2],
+                    );
+                }
             }
             protocol::CMD_KEY_ACTION => {
-                if remaining < 2 { break; }
-                let action = buf[pos+1];
-                arp3_engine::engine_input::engine_key_action(state, action);
-                pos += 2;
+                if !payload.is_empty() {
+                    arp3_engine::engine_input::engine_key_action(state, payload[0]);
+                }
             }
-            protocol::CMD_GET_STATE => {
-                send_state_dump(state, serial);
-                pos += 1;
-            }
-            _ => {
-                pos += 1;
-            }
+            _ => {}
         }
     }
-
-    pos
-}
-
-fn send_state_dump<B: usb_device::bus::UsbBus>(
-    state: &EngineState,
-    serial: &mut SerialPort<'static, B>,
-) {
-    let mut msg = [0u8; 32];
-    msg[0] = protocol::RSP_STATE;
-    msg[1] = state.is_playing;
-    msg[2..6].copy_from_slice(&state.bpm.to_le_bytes());
-    msg[6..10].copy_from_slice(&state.current_tick.to_le_bytes());
-    msg[10..14].copy_from_slice(&state.swing.to_le_bytes());
-    msg[14..20].copy_from_slice(&state.current_patterns);
-    msg[20..26].copy_from_slice(&state.muted);
-    msg[26..32].copy_from_slice(&state.soloed);
-    let _ = serial.write(&msg);
 }
