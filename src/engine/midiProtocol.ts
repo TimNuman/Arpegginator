@@ -25,6 +25,8 @@ export const CMD_SET_CURRENT_CHANNEL = 0x15; // + ch
 export const CMD_SET_UI_MODE = 0x16; // + mode
 export const CMD_SET_SELECTED_EVENT = 0x17; // + idx as 2×7-bit (signed)
 export const CMD_SET_MODIFY_SUB_MODE = 0x18; // + sm
+export const CMD_CLEAR_PATTERN = 0x19; // no payload — clears current channel's current pattern
+export const CMD_ARROW_PRESS = 0x1a; // + direction, mods
 export const CMD_GET_STATE = 0x20;
 export const CMD_PING = 0x7e;
 
@@ -98,6 +100,17 @@ export function encodeButtonPress(
 
 export function encodeKeyAction(actionId: number): Uint8Array {
   return sysex(CMD_KEY_ACTION, actionId);
+}
+
+export function encodeArrowPress(
+  direction: number,
+  mods: number,
+): Uint8Array {
+  return sysex(CMD_ARROW_PRESS, direction, mods);
+}
+
+export function encodeClearPattern(): Uint8Array {
+  return sysex(CMD_CLEAR_PATTERN);
 }
 
 export function encodeSetRowOffset(ch: number, offset: number): Uint8Array {

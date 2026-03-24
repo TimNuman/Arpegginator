@@ -400,7 +400,7 @@ export class TeensyEngine implements Engine {
 
   arrowPress(direction: number, modifiers: number): void {
     this.wasm.arrowPress(direction, modifiers);
-    // Arrow is UI-only (scroll/selection) — no need to send to Teensy
+    this.send(proto.encodeArrowPress(direction, modifiers));
   }
 
   keyAction(actionId: number): void {
@@ -410,7 +410,7 @@ export class TeensyEngine implements Engine {
 
   clearPattern(): void {
     this.wasm.clearPattern();
-    // TODO: send pattern clear to Teensy
+    this.send(proto.encodeClearPattern());
   }
 
   // ============ Touch Strip (local only) ============

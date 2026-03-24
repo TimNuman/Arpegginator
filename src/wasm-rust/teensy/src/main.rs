@@ -85,6 +85,8 @@ mod protocol {
     pub const CMD_SET_UI_MODE: u8 = 0x16;    // + mode
     pub const CMD_SET_SELECTED_EVENT: u8 = 0x17; // + idx as 2×7-bit + sign
     pub const CMD_SET_MODIFY_SUB_MODE: u8 = 0x18; // + sm
+    pub const CMD_CLEAR_PATTERN: u8 = 0x19;
+    pub const CMD_ARROW_PRESS: u8 = 0x1A;   // + direction, mods
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;     // reboot into bootloader for flashing
     pub const CMD_PING: u8 = 0x7E;
@@ -464,6 +466,16 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             protocol::CMD_SET_MODIFY_SUB_MODE => {
                 if !payload.is_empty() {
                     state.modify_sub_mode = payload[0];
+                }
+            }
+            protocol::CMD_CLEAR_PATTERN => {
+                arp3_engine::engine_edit::engine_clear_pattern(state);
+            }
+            protocol::CMD_ARROW_PRESS => {
+                if payload.len() >= 2 {
+                    arp3_engine::engine_input::engine_arrow_press(
+                        state, payload[0], payload[1],
+                    );
                 }
             }
             protocol::CMD_REBOOT => {
