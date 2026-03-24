@@ -343,35 +343,21 @@ function App() {
     }
 
     try {
-      const teensy = new TeensyEngine();
+      // Wrap the existing WASM engine — keeps all patterns and state
+      const currentWasm = engineRef.current;
+      if (!currentWasm || !currentWasm.isReady()) return;
+
+      // If already a TeensyEngine, grab its inner WASM engine
+      const wasmToWrap = currentWasm instanceof TeensyEngine
+        ? (currentWasm as any).wasm as WasmEngine
+        : currentWasm as WasmEngine;
+
+      const teensy = new TeensyEngine(wasmToWrap);
       teensy.onConnectionChange = (connected) => {
         setTeensyConnected(connected);
-        if (!connected) {
-          // Teensy disconnected — fall back to its internal WASM engine
-          // (it's still usable, just not connected to hardware)
-        }
       };
-      await teensy.load();
-      teensy.fullInit();
-      teensy.writeChannelTypes([0, 0, 0, 0, 1, 1]);
-      teensy.setZoom(120);
-      teensy.setBpm(bpm);
 
-      // Compute initial row offsets
-      {
-        const sc = teensy.getScaleCount();
-        const szi = teensy.getScaleZeroIndex();
-        const vr = teensy.getVisibleRows();
-        const melodicMax = Math.max(0, sc - vr);
-        const melodicOff = melodicMax > 0 ? 1 - szi / melodicMax : 0.5;
-        const drumMax = Math.max(0, 128 - vr);
-        const drumOff = drumMax > 0 ? 1 - 36 / drumMax : 0.5;
-        for (let ch = 0; ch < 6; ch++) {
-          teensy.setRowOffset(ch, ch >= 4 ? drumOff : melodicOff);
-        }
-      }
-
-      await teensy.connect(); // Opens WebSerial port picker
+      await teensy.connect(); // Opens Web MIDI permission prompt
 
       engineRef.current = teensy;
       setWasmEngine(teensy);

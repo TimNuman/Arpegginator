@@ -17,10 +17,15 @@ import * as proto from "./midiProtocol";
 export class TeensyEngine implements Engine {
   readonly isTeensy = true;
 
-  private wasm = new WasmEngine();
+  private wasm: WasmEngine;
   private midiOutput: MIDIOutput | null = null;
   private midiInput: MIDIInput | null = null;
   private connected = false;
+
+  /** Wrap an existing WasmEngine — keeps all patterns and state intact */
+  constructor(existingWasm: WasmEngine) {
+    this.wasm = existingWasm;
+  }
 
   // Callbacks — proxy to inner WASM engine so browser audio works
   get onStepTrigger() {
