@@ -226,12 +226,9 @@ fn main() -> ! {
             engine_core::engine_core_tick(&mut state);
             tick_counter = tick_counter.wrapping_add(1);
 
-            // Flash LED on each beat
-            let beat_pos = tick_counter % (TICKS_PER_QUARTER as u32);
-            if beat_pos < 48 {
-                led.set();
-            } else {
-                led.clear();
+            // Toggle LED on each beat boundary
+            if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
+                led.toggle();
             }
 
             // Send tick update via SysEx every 48 ticks (~10x per beat)
@@ -308,10 +305,7 @@ fn main() -> ! {
             }
         }
 
-        // 5. LED off when not playing
-        if state.is_playing == 0 {
-            led.clear();
-        }
+        // (LED only changes in tick loop via toggle)
     }
 }
 
