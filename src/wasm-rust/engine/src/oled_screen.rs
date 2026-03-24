@@ -866,13 +866,17 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], &length_str, row_lr_color(1), &FONT_AA_SMALL_BOLD);
 
     // ---- Row 2: RPT [amount]  SPC [space] ----
+    // Cmd: L/R edits RPT amount (highlight RPT only)
+    // Cmd+Shift: L/R edits RPT space (highlight SPC only)
     let mut rpt_amt_str = FmtBuf::<8>::new();
     let _ = write!(rpt_amt_str, "{}", ev.repeat_amount);
     let rpt_space_str = ticks_to_canonical_name(ev.repeat_space);
+    let rpt_color = if eg == EditGroup::Stack { GFX_RED } else { GFX_VALUE };
+    let spc_color = if eg == EditGroup::Spacing { GFX_RED } else { GFX_VALUE };
     gfx_aa_text(PAD_X, ROW_Y5[2], "RPT", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[2], &rpt_amt_str, row_lr_color(2), &FONT_AA_SMALL_BOLD);
+    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[2], &rpt_amt_str, rpt_color, &FONT_AA_SMALL_BOLD);
     gfx_aa_text(col2_x, ROW_Y5[2], "SPC", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[2], &rpt_space_str, row_lr_color(2), &FONT_AA_SMALL_BOLD);
+    gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[2], &rpt_space_str, spc_color, &FONT_AA_SMALL_BOLD);
 
     // ---- Row 3: STK [amount]  SPC [space] ----
     gfx_aa_text(PAD_X, ROW_Y5[3], "STK", GFX_LABEL, &FONT_AA_SMALL);
