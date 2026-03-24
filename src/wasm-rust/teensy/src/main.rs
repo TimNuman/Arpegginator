@@ -192,6 +192,8 @@ fn main() -> ! {
     pit0.set_load_timer_value(reload);
 
     let mut tick_counter: u32 = 0;
+    let mut preview_note: Option<(u8, u8)> = None; // (channel, midi_note) for deferred note-off
+    let mut preview_off_counter: u32 = 0;
     let mut midi_rx_buf = [0u8; 64];
     // Persistent buffer to accumulate USB MIDI packets across reads
     // (SysEx messages can span multiple USB reads)
@@ -268,7 +270,40 @@ fn main() -> ! {
                         let _ = usb_midi.note_off(ev.channel, ev.note);
                     }
                 }
+                2 => {
+                    // Preview note: ev.note is scale row, convert to MIDI
+                    let midi_note = engine_core::note_to_midi(ev.note as i16, &state);
+                    if midi_note >= 0 {
+                        let note = midi_note as u8;
+                        // Note On
+                        let _ = nb::block!(midi_uart.write(0x90 | (ev.channel & 0x0F)));
+                        let _ = nb::block!(midi_uart.write(note & 0x7F));
+                        let _ = nb::block!(midi_uart.write(ev.velocity & 0x7F));
+                        if usb_configured {
+                            let _ = usb_midi.note_on(ev.channel, note, ev.velocity);
+                        }
+                        // Schedule note-off after ~200ms worth of ticks
+                        // Store for deferred note-off
+                        preview_note = Some((ev.channel, note));
+                        preview_off_counter = 100_000; // ~200ms at main loop speed
+                    }
+                }
                 _ => {}
+            }
+        }
+
+        // Deferred preview note-off
+        if let Some((ch, note)) = preview_note {
+            if preview_off_counter == 0 {
+                let _ = nb::block!(midi_uart.write(0x80 | (ch & 0x0F)));
+                let _ = nb::block!(midi_uart.write(note & 0x7F));
+                let _ = nb::block!(midi_uart.write(0));
+                if usb_configured {
+                    let _ = usb_midi.note_off(ch, note);
+                }
+                preview_note = None;
+            } else {
+                preview_off_counter -= 1;
             }
         }
 
