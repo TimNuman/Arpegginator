@@ -192,7 +192,6 @@ fn main() -> ! {
     pit0.set_load_timer_value(reload);
 
     let mut tick_counter: u32 = 0;
-    let mut idle_counter: u32 = 0;
     let mut midi_rx_buf = [0u8; 64];
     // Persistent buffer to accumulate USB MIDI packets across reads
     // (SysEx messages can span multiple USB reads)
@@ -227,11 +226,11 @@ fn main() -> ! {
             engine_core::engine_core_tick(&mut state);
             tick_counter = tick_counter.wrapping_add(1);
 
-            // Flash LED on each beat: ON for first 48 ticks (~10% of beat), OFF rest
-            let beat_tick = tick_counter % (TICKS_PER_QUARTER as u32);
-            if beat_tick == 0 {
+            // Flash LED on each beat
+            let beat_pos = tick_counter % (TICKS_PER_QUARTER as u32);
+            if beat_pos < 48 {
                 led.set();
-            } else if beat_tick == 48 {
+            } else {
                 led.clear();
             }
 
@@ -309,12 +308,9 @@ fn main() -> ! {
             }
         }
 
-        // 5. Idle LED blink when not playing
+        // 5. LED off when not playing
         if state.is_playing == 0 {
-            idle_counter = idle_counter.wrapping_add(1);
-            if idle_counter % 200_000 == 0 {
-                led.toggle();
-            }
+            led.clear();
         }
     }
 }
