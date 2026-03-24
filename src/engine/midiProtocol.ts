@@ -30,7 +30,8 @@ export const CMD_ARROW_PRESS = 0x1a; // + direction, mods
 export const CMD_STRIP_START = 0x1b; // + strip, pos(2×7b), shift, time_ms(3×7b)
 export const CMD_STRIP_MOVE = 0x1c; // + strip, pos(2×7b), time_ms(3×7b)
 export const CMD_STRIP_END = 0x1d; // + strip
-export const CMD_RESET = 0x1e; // no payload — stop + reset tick to 0
+export const CMD_RESET = 0x1e; // reset tick to 0, clear active notes
+export const CMD_PLAY_FROM_TICK = 0x1f; // + tick as 5×7-bit — play from specific position
 export const CMD_GET_STATE = 0x20;
 export const CMD_PING = 0x7e;
 
@@ -149,6 +150,18 @@ export function encodeStripEnd(strip: number): Uint8Array {
 
 export function encodeReset(): Uint8Array {
   return sysex(CMD_RESET);
+}
+
+export function encodePlayFromTick(tick: number): Uint8Array {
+  const t = tick & 0xffffffff;
+  return sysex(
+    CMD_PLAY_FROM_TICK,
+    t & 0x7f,
+    (t >> 7) & 0x7f,
+    (t >> 14) & 0x7f,
+    (t >> 21) & 0x7f,
+    (t >> 28) & 0x0f,
+  );
 }
 
 export function encodeClearPattern(): Uint8Array {
