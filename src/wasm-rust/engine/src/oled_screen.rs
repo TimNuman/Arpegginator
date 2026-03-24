@@ -643,20 +643,8 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let pat_color = if alt_only { GFX_RED } else { GFX_VALUE };
     draw_row_two_col(ROW_Y[0], "CH", &ch_str, ch_color, "PAT", &pat_str, pat_color);
 
-    // ---- Row 1: LOOP x.x-y.y | POS z.z ----
+    // ---- Row 1: POS z.z | LOOP x.x-y.y ----
     let loop_data = &s.loops[ch][pat];
-    let s_buf = tick_to_beat_display(loop_data.start);
-    let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
-    let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
-    let e_color = if p_alt && p_meta { GFX_YELLOW } else { GFX_VALUE };
-    let mut s_part = FmtBuf::<8>::new();
-    let _ = write!(s_part, "{}-", s_buf.as_str());
-    let col2_x = PAD_X + HALF_W + 6;
-    gfx_aa_text(PAD_X, ROW_Y[1], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
-    draw_segs_right(PAD_X + HALF_W - 4, ROW_Y[1], &[
-        TextSeg { text: &s_part, color: s_color },
-        TextSeg { text: &e_buf, color: e_color },
-    ], &FONT_AA_SMALL_BOLD);
     let loop_len = loop_data.length;
     let raw_tick = if s.resume_tick >= 0 { s.resume_tick } else { s.current_tick };
     let pos_tick = if loop_len > 0 && raw_tick >= 0 {
@@ -665,8 +653,20 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         0
     };
     let pos_buf = tick_to_beat_display(pos_tick);
-    gfx_aa_text(col2_x, ROW_Y[1], "POS", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(CONTENT_RIGHT, ROW_Y[1], pos_buf.as_str(), GFX_VALUE, &FONT_AA_SMALL_BOLD);
+    gfx_aa_text(PAD_X, ROW_Y[1], "POS", GFX_LABEL, &FONT_AA_SMALL);
+    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y[1], pos_buf.as_str(), GFX_VALUE, &FONT_AA_SMALL_BOLD);
+    let col2_x = PAD_X + HALF_W + 6;
+    let s_buf = tick_to_beat_display(loop_data.start);
+    let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
+    let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
+    let e_color = if p_alt && p_meta { GFX_YELLOW } else { GFX_VALUE };
+    let mut s_part = FmtBuf::<8>::new();
+    let _ = write!(s_part, "{}-", s_buf.as_str());
+    gfx_aa_text(col2_x, ROW_Y[1], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
+    draw_segs_right(CONTENT_RIGHT, ROW_Y[1], &[
+        TextSeg { text: &s_part, color: s_color },
+        TextSeg { text: &e_buf, color: e_color },
+    ], &FONT_AA_SMALL_BOLD);
 
     // ---- Row 2: KEY (or TYPE for drums) ----
     // Cmd-only (no alt) highlights key
