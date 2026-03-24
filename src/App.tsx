@@ -74,33 +74,8 @@ function App() {
         // Full init (resets UI state, generates chord shapes, sets default loops/patterns)
         engine.fullInit();
 
-        // Set channel types: channels 0-3 melodic, 4-5 drum
-        engine.writeChannelTypes([0, 0, 0, 0, 1, 1]);
-
-        // Set initial zoom (1/16 = 120 ticks per col)
-        engine.setZoom(120);
-
-        // Set initial BPM in WASM
-        engine.setBpm(120);
-
-        // Compute initial row offsets to position C4 at bottom for melodic channels
-        // Scale mapping is built by engine_core_init() in WASM (default: C Major)
-        {
-          const scaleCount = engine.getScaleCount();
-          const scaleZeroIndex = engine.getScaleZeroIndex();
-          const visibleRows = engine.getVisibleRows();
-          const melodicMaxRowOffset = Math.max(0, scaleCount - visibleRows);
-          const melodicOffset =
-            melodicMaxRowOffset > 0
-              ? 1 - scaleZeroIndex / melodicMaxRowOffset
-              : 0.5;
-          const drumMaxRowOffset = Math.max(0, 128 - visibleRows);
-          const drumOffset =
-            drumMaxRowOffset > 0 ? 1 - 36 / drumMaxRowOffset : 0.5;
-          for (let ch = 0; ch < 6; ch++) {
-            engine.setRowOffset(ch, ch >= 4 ? drumOffset : melodicOffset);
-          }
-        }
+        // Channel types, zoom, BPM, and row offsets are all set by
+        // engine_core_init() in Rust — no TS-side init needed.
 
         engineRef.current = engine;
         setWasmEngine(engine);
@@ -332,9 +307,8 @@ function App() {
       const fresh = new WasmEngine();
       await fresh.load();
       fresh.fullInit();
-      fresh.writeChannelTypes([0, 0, 0, 0, 1, 1]);
-      fresh.setZoom(120);
-      fresh.setBpm(bpm);
+      // Channel types, zoom, BPM set by engine_core_init in Rust
+      fresh.setBpm(bpm); // restore user's current BPM
       engineRef.current = fresh;
       setWasmEngine(fresh);
       actions.setEngine(fresh);

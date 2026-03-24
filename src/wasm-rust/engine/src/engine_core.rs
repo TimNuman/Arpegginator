@@ -1367,9 +1367,32 @@ pub fn engine_core_init(s: &mut EngineState) {
     if s.rng_state == 0 { s.rng_state = 12345; }
     s.rendered_dirty = [1; NUM_CHANNELS];
 
+    // Default channel types: 4 melodic + 2 drum
+    s.channel_types = [0, 0, 0, 0, ChannelType::Drum as u8, ChannelType::Drum as u8];
+
     s.scale_root = 0;
     s.scale_id_idx = 0;
     engine_rebuild_scale(s);
+
+    // Center scroll on middle C (scale_zero_index) for melodic channels,
+    // and on kick drum (note 36) for drum channels
+    let melodic_max = (s.scale_count as i32 - VISIBLE_ROWS as i32).max(0);
+    let melodic_offset = if melodic_max > 0 {
+        1.0 - s.scale_zero_index as f32 / melodic_max as f32
+    } else {
+        0.5
+    };
+    let drum_max = (128 - VISIBLE_ROWS as i32).max(0);
+    let drum_offset = if drum_max > 0 {
+        1.0 - 36.0 / drum_max as f32
+    } else {
+        0.5
+    };
+    for ch in 0..NUM_CHANNELS {
+        let off = if s.channel_types[ch] == ChannelType::Drum as u8 { drum_offset } else { melodic_offset };
+        s.row_offsets[ch] = off;
+        s.target_row_offsets[ch] = off;
+    }
 }
 
 pub fn engine_core_play_init(s: &mut EngineState) {
