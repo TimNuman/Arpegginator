@@ -324,7 +324,8 @@ export class TeensyEngine implements Engine {
 
   buttonPress(row: number, col: number, modifiers: number): void {
     this.wasm.buttonPress(row, col, modifiers);
-    this.send(proto.encodeButtonPress(row, col, modifiers));
+    // Don't send to Teensy — pattern editing is local-only.
+    // Teensy gets pattern data via bulk sync (TODO).
   }
 
   arrowPress(direction: number, modifiers: number): void {
@@ -333,7 +334,6 @@ export class TeensyEngine implements Engine {
 
   keyAction(actionId: number): void {
     this.wasm.keyAction(actionId);
-    this.send(proto.encodeKeyAction(actionId));
   }
 
   clearPattern(): void {
