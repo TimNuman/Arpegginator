@@ -227,9 +227,12 @@ fn main() -> ! {
             engine_core::engine_core_tick(&mut state);
             tick_counter = tick_counter.wrapping_add(1);
 
-            // Blink LED every beat
-            if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
-                led.toggle();
+            // Flash LED on each beat: ON for first 48 ticks (~10% of beat), OFF rest
+            let beat_tick = tick_counter % (TICKS_PER_QUARTER as u32);
+            if beat_tick == 0 {
+                led.set();
+            } else if beat_tick == 48 {
+                led.clear();
             }
 
             // Send tick update via SysEx every 48 ticks (~10x per beat)
