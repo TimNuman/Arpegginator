@@ -87,6 +87,9 @@ mod protocol {
     pub const CMD_SET_MODIFY_SUB_MODE: u8 = 0x18; // + sm
     pub const CMD_CLEAR_PATTERN: u8 = 0x19;
     pub const CMD_ARROW_PRESS: u8 = 0x1A;   // + direction, mods
+    pub const CMD_STRIP_START: u8 = 0x1B;  // + strip, pos(2×7b), shift, time_ms(3×7b)
+    pub const CMD_STRIP_MOVE: u8 = 0x1C;   // + strip, pos(2×7b), time_ms(3×7b)
+    pub const CMD_STRIP_END: u8 = 0x1D;    // + strip
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;     // reboot into bootloader for flashing
     pub const CMD_PING: u8 = 0x7E;
@@ -476,6 +479,32 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     arp3_engine::engine_input::engine_arrow_press(
                         state, payload[0], payload[1],
                     );
+                }
+            }
+            protocol::CMD_STRIP_START => {
+                if payload.len() >= 7 {
+                    let strip = payload[0];
+                    let pos = (payload[1] as i32) | ((payload[2] as i32) << 7);
+                    let shift = payload[3];
+                    let time = (payload[4] as u32) | ((payload[5] as u32) << 7) | ((payload[6] as u32) << 14);
+                    arp3_engine::engine_strip::engine_strip_start(
+                        state, strip, pos, shift, time as f32,
+                    );
+                }
+            }
+            protocol::CMD_STRIP_MOVE => {
+                if payload.len() >= 6 {
+                    let strip = payload[0];
+                    let pos = (payload[1] as i32) | ((payload[2] as i32) << 7);
+                    let time = (payload[3] as u32) | ((payload[4] as u32) << 7) | ((payload[5] as u32) << 14);
+                    arp3_engine::engine_strip::engine_strip_move(
+                        state, strip, pos, time as f32,
+                    );
+                }
+            }
+            protocol::CMD_STRIP_END => {
+                if !payload.is_empty() {
+                    arp3_engine::engine_strip::engine_strip_end(state, payload[0]);
                 }
             }
             protocol::CMD_REBOOT => {

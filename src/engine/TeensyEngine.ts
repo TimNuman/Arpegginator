@@ -413,7 +413,7 @@ export class TeensyEngine implements Engine {
     this.send(proto.encodeClearPattern());
   }
 
-  // ============ Touch Strip (local only) ============
+  // ============ Touch Strip (local + Teensy) ============
 
   stripStart(
     strip: number,
@@ -422,18 +422,15 @@ export class TeensyEngine implements Engine {
     timeMs: number,
   ): void {
     this.wasm.stripStart(strip, pos, shift, timeMs);
+    this.send(proto.encodeStripStart(strip, pos, shift, timeMs));
   }
   stripMove(strip: number, pos: number, timeMs: number): void {
     this.wasm.stripMove(strip, pos, timeMs);
-    // Sync row offset to Teensy as user scrolls
-    const ch = this.wasm.getCurrentChannel();
-    this.send(proto.encodeSetRowOffset(ch, this.wasm.getRowOffset(ch)));
+    this.send(proto.encodeStripMove(strip, pos, timeMs));
   }
   stripEnd(strip: number): void {
     this.wasm.stripEnd(strip);
-    // Final sync of row offset
-    const ch = this.wasm.getCurrentChannel();
-    this.send(proto.encodeSetRowOffset(ch, this.wasm.getRowOffset(ch)));
+    this.send(proto.encodeStripEnd(strip));
   }
 
   // ============ OLED (local) ============

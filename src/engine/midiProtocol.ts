@@ -27,6 +27,9 @@ export const CMD_SET_SELECTED_EVENT = 0x17; // + idx as 2×7-bit (signed)
 export const CMD_SET_MODIFY_SUB_MODE = 0x18; // + sm
 export const CMD_CLEAR_PATTERN = 0x19; // no payload — clears current channel's current pattern
 export const CMD_ARROW_PRESS = 0x1a; // + direction, mods
+export const CMD_STRIP_START = 0x1b; // + strip, pos(2×7b), shift, time_ms(3×7b)
+export const CMD_STRIP_MOVE = 0x1c; // + strip, pos(2×7b), time_ms(3×7b)
+export const CMD_STRIP_END = 0x1d; // + strip
 export const CMD_GET_STATE = 0x20;
 export const CMD_PING = 0x7e;
 
@@ -107,6 +110,40 @@ export function encodeArrowPress(
   mods: number,
 ): Uint8Array {
   return sysex(CMD_ARROW_PRESS, direction, mods);
+}
+
+export function encodeStripStart(
+  strip: number,
+  pos: number,
+  shift: boolean,
+  timeMs: number,
+): Uint8Array {
+  const t = Math.round(timeMs) & 0x1fffff; // 21 bits
+  return sysex(
+    CMD_STRIP_START,
+    strip,
+    pos & 0x7f, (pos >> 7) & 0x7f,
+    shift ? 1 : 0,
+    t & 0x7f, (t >> 7) & 0x7f, (t >> 14) & 0x7f,
+  );
+}
+
+export function encodeStripMove(
+  strip: number,
+  pos: number,
+  timeMs: number,
+): Uint8Array {
+  const t = Math.round(timeMs) & 0x1fffff;
+  return sysex(
+    CMD_STRIP_MOVE,
+    strip,
+    pos & 0x7f, (pos >> 7) & 0x7f,
+    t & 0x7f, (t >> 7) & 0x7f, (t >> 14) & 0x7f,
+  );
+}
+
+export function encodeStripEnd(strip: number): Uint8Array {
+  return sysex(CMD_STRIP_END, strip);
 }
 
 export function encodeClearPattern(): Uint8Array {
