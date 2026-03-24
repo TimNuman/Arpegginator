@@ -19,6 +19,7 @@ const PAD_X: i16 = 10;
 const CONTENT_RIGHT: i16 = 154; // 60% of display — right 40% reserved for future dial
 const CONTENT_W: i16 = CONTENT_RIGHT - PAD_X;
 const HALF_W: i16 = CONTENT_W / 2;
+const THIRD_W: i16 = CONTENT_W / 3;
 
 // Row Y positions (4 data rows + dots + bottom legend)
 const ROW_Y: [i16; 4] = [8, 28, 48, 68];
@@ -633,17 +634,23 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let p_alt = (mods & MOD_ALT) != 0;
     let p_shift = (mods & MOD_SHIFT) != 0;
 
-    // ---- Row 0: CH xx | PAT yy (two columns at 50%) ----
+    // ---- Row 0: CH xx | PAT yy (40% | 60%) ----
     let alt_only = p_alt && !p_meta && !p_shift;
+    let col1_right = PAD_X + CONTENT_W * 2 / 5 - 4;
+    let col2_x = PAD_X + CONTENT_W * 2 / 5 + 2;
+    let col2_right = PAD_X + CONTENT_W * 4 / 5 - 4;
     let mut ch_str = FmtBuf::<4>::new();
     let _ = write!(ch_str, "{:02}", ch + 1);
     let mut pat_str = FmtBuf::<4>::new();
     let _ = write!(pat_str, "{:02}", pat + 1);
     let ch_color = if alt_only { GFX_YELLOW } else { GFX_VALUE };
     let pat_color = if alt_only { GFX_RED } else { GFX_VALUE };
-    draw_row_two_col(ROW_Y[0], "CH", &ch_str, ch_color, "PAT", &pat_str, pat_color);
+    gfx_aa_text(PAD_X, ROW_Y[0], "CH", GFX_LABEL, &FONT_AA_SMALL);
+    gfx_aa_text_right(col1_right, ROW_Y[0], &ch_str, ch_color, &FONT_AA_SMALL_BOLD);
+    gfx_aa_text(col2_x, ROW_Y[0], "PAT", GFX_LABEL, &FONT_AA_SMALL);
+    gfx_aa_text_right(col2_right, ROW_Y[0], &pat_str, pat_color, &FONT_AA_SMALL_BOLD);
 
-    // ---- Row 1: POS z.z | LOOP x.x-y.y ----
+    // ---- Row 1: POS z.z (40%) | LOOP x.x-y.y (60%) ----
     let loop_data = &s.loops[ch][pat];
     let loop_len = loop_data.length;
     let raw_tick = if s.resume_tick >= 0 { s.resume_tick } else { s.current_tick };
@@ -654,8 +661,7 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     };
     let pos_buf = tick_to_beat_display(pos_tick);
     gfx_aa_text(PAD_X, ROW_Y[1], "POS", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y[1], pos_buf.as_str(), GFX_VALUE, &FONT_AA_SMALL_BOLD);
-    let col2_x = PAD_X + HALF_W + 6;
+    gfx_aa_text_right(col1_right, ROW_Y[1], pos_buf.as_str(), GFX_VALUE, &FONT_AA_SMALL_BOLD);
     let s_buf = tick_to_beat_display(loop_data.start);
     let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
     let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
