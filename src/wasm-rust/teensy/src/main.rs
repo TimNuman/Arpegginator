@@ -192,8 +192,11 @@ fn main() -> ! {
     pit0.set_load_timer_value(reload);
 
     let mut tick_counter: u32 = 0;
-    let mut preview_note: Option<(u8, u8)> = None; // (channel, midi_note) for deferred note-off
-    let mut preview_off_at: u32 = 0; // DWT cycle count when note-off should fire
+    // Preview notes: up to 8 simultaneous (chords), each with its own note-off deadline
+    const MAX_PREVIEW: usize = 8;
+    let mut preview_notes: [(u8, u8); MAX_PREVIEW] = [(0, 0); MAX_PREVIEW]; // (channel, midi_note)
+    let mut preview_count: usize = 0;
+    let mut preview_off_at: u32 = 0; // DWT cycle count when ALL preview notes off
 
     // Enable DWT cycle counter for microsecond-level timing
     unsafe {
@@ -286,6 +289,20 @@ fn main() -> ! {
                     let midi_note = engine_core::note_to_midi(ev.note as i16, &state);
                     if midi_note >= 0 {
                         let note = midi_note as u8;
+                        // Kill any existing preview notes first (new chord replaces old)
+                        if preview_count > 0 && ev.length_ticks != 0 {
+                            // First note of a new preview — kill old previews
+                            for i in 0..preview_count {
+                                let (pch, pn) = preview_notes[i];
+                                let _ = nb::block!(midi_uart.write(0x80 | (pch & 0x0F)));
+                                let _ = nb::block!(midi_uart.write(pn & 0x7F));
+                                let _ = nb::block!(midi_uart.write(0));
+                                if usb_configured {
+                                    let _ = usb_midi.note_off(pch, pn);
+                                }
+                            }
+                            preview_count = 0;
+                        }
                         // Note On
                         let _ = nb::block!(midi_uart.write(0x90 | (ev.channel & 0x0F)));
                         let _ = nb::block!(midi_uart.write(note & 0x7F));
@@ -293,13 +310,18 @@ fn main() -> ! {
                         if usb_configured {
                             let _ = usb_midi.note_on(ev.channel, note, ev.velocity);
                         }
-                        // Schedule note-off after 1/16th note
-                        preview_note = Some((ev.channel, note));
-                        // 1/16th note in ms = 15000/bpm. CPU runs at 600MHz.
-                        // cycles = 600_000 * 15000 / bpm = 9_000_000_000 / bpm
-                        let sixteenth_cycles = (9_000_000_000.0 / state.bpm) as u32;
+                        // Track for deferred note-off
+                        if preview_count < MAX_PREVIEW {
+                            preview_notes[preview_count] = (ev.channel, note);
+                            preview_count += 1;
+                        }
+                        // Schedule note-off based on length_ticks
+                        // length_ticks to ms: length_ticks / TICKS_PER_QUARTER * (60000/bpm)
+                        // cycles = ms * 600_000
+                        let ms = ev.length_ticks as f32 * 60_000.0 / (state.bpm * TICKS_PER_QUARTER as f32);
+                        let cycles = (ms * 600_000.0) as u32;
                         let now = unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() };
-                        preview_off_at = now.wrapping_add(sixteenth_cycles);
+                        preview_off_at = now.wrapping_add(cycles);
                     }
                 }
                 _ => {}
@@ -307,17 +329,19 @@ fn main() -> ! {
         }
 
         // Deferred preview note-off (DWT cycle counter)
-        if let Some((ch, note)) = preview_note {
+        if preview_count > 0 {
             let now = unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() };
             if now.wrapping_sub(preview_off_at) < 0x8000_0000 {
-                // Time has passed the deadline
-                let _ = nb::block!(midi_uart.write(0x80 | (ch & 0x0F)));
-                let _ = nb::block!(midi_uart.write(note & 0x7F));
-                let _ = nb::block!(midi_uart.write(0));
-                if usb_configured {
-                    let _ = usb_midi.note_off(ch, note);
+                for i in 0..preview_count {
+                    let (ch, note) = preview_notes[i];
+                    let _ = nb::block!(midi_uart.write(0x80 | (ch & 0x0F)));
+                    let _ = nb::block!(midi_uart.write(note & 0x7F));
+                    let _ = nb::block!(midi_uart.write(0));
+                    if usb_configured {
+                        let _ = usb_midi.note_off(ch, note);
+                    }
                 }
-                preview_note = None;
+                preview_count = 0;
             }
         }
 
