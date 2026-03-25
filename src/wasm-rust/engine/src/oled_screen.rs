@@ -19,7 +19,6 @@ const PAD_X: i16 = 10;
 const CONTENT_RIGHT: i16 = 154; // 60% of display — right 40% reserved for future dial
 const CONTENT_W: i16 = CONTENT_RIGHT - PAD_X;
 const HALF_W: i16 = CONTENT_W / 2;
-const THIRD_W: i16 = CONTENT_W / 3;
 
 // Row Y positions (4 data rows + dots + bottom legend)
 const ROW_Y: [i16; 4] = [8, 28, 48, 68];

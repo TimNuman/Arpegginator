@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rust": "cd src/wasm-rust && RUST_MIN_STACK=8388608 cargo test"
+    "test:rust": "cd src/wasm-rust && RUST_MIN_STACK=8388608 cargo test -p arp3-engine"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
