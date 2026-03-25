@@ -71,10 +71,7 @@ function App() {
       // Request MIDI access (may prompt user once for sysex permission)
       const access = await navigator.requestMIDIAccess({ sysex: true });
       // Check if Arp3 Sequencer is present
-      let found = false;
-      for (const [, port] of access.outputs) {
-        if (port.name?.includes("Arp3")) { found = true; break; }
-      }
+      const found = Array.from(access.outputs.values()).some(p => p.name?.includes("Arp3"));
       if (!found) {
         console.log("[startup] No Teensy found, using WASM engine");
         return;
@@ -285,11 +282,13 @@ function App() {
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;
-  stopExternalRef.current = () => {
-    for (const id of pendingTimeouts.current) {
-      clearTimeout(id);
-    }
+  const clearPendingTimeouts = () => {
+    pendingTimeouts.current.forEach(clearTimeout);
     pendingTimeouts.current.clear();
+  };
+
+  stopExternalRef.current = () => {
+    clearPendingTimeouts();
     actions.stopExternal();
     stopAllNotes();
   };
@@ -301,19 +300,13 @@ function App() {
   }, []);
 
   const handleStop = useCallback(() => {
-    for (const id of pendingTimeouts.current) {
-      clearTimeout(id);
-    }
-    pendingTimeouts.current.clear();
+    clearPendingTimeouts();
     actions.stop();
     stopAllNotes();
   }, [stopAllNotes]);
 
   const handleReset = useCallback(() => {
-    for (const id of pendingTimeouts.current) {
-      clearTimeout(id);
-    }
-    pendingTimeouts.current.clear();
+    clearPendingTimeouts();
     actions.resetPosition();
     stopAllNotes();
   }, [stopAllNotes]);
