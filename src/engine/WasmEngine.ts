@@ -418,9 +418,7 @@ export class WasmEngine implements Engine {
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
-    for (let i = 0; i <= 14; i++) {
-      this.fieldOffsets[i] = this._getFieldOffset(i);
-    }
+    this.fieldOffsets = Array.from({ length: 15 }, (_, i) => this._getFieldOffset(i));
 
     console.log(
       "WASM engine loaded (rust), version:",
@@ -504,22 +502,13 @@ export class WasmEngine implements Engine {
     const coView = new Uint32Array(mod.HEAPU8.buffer, coPtr, rows * cols);
     const gcView = new Uint32Array(mod.HEAPU8.buffer, gcPtr, rows * cols);
 
-    const buttonValues: number[][] = [];
-    const colorOverrides: number[][] = [];
-    const gridColors: number[][] = [];
-    for (let r = 0; r < rows; r++) {
-      const bvRow: number[] = [];
-      const coRow: number[] = [];
-      const gcRow: number[] = [];
-      for (let c = 0; c < cols; c++) {
-        bvRow.push(bvView[r * cols + c]);
-        coRow.push(coView[r * cols + c]);
-        gcRow.push(gcView[r * cols + c]);
-      }
-      buttonValues.push(bvRow);
-      colorOverrides.push(coRow);
-      gridColors.push(gcRow);
-    }
+    const toGrid = (view: { [i: number]: number }) =>
+      Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => view[r * cols + c])
+      );
+    const buttonValues = toGrid(bvView);
+    const colorOverrides = toGrid(coView);
+    const gridColors = toGrid(gcView);
     return { buttonValues, colorOverrides, gridColors };
   }
 

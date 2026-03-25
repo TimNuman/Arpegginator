@@ -17,10 +17,10 @@ export function encodeModifiers(state: {
   meta: boolean;
   alt: boolean;
 }): number {
-  let flags = 0;
-  if (state.ctrl) flags |= MOD_CTRL;
-  if (state.shift) flags |= MOD_SHIFT;
-  if (state.meta) flags |= MOD_META;
-  if (state.alt) flags |= MOD_ALT;
-  return flags;
+  return (
+    (state.ctrl ? MOD_CTRL : 0) |
+    (state.shift ? MOD_SHIFT : 0) |
+    (state.meta ? MOD_META : 0) |
+    (state.alt ? MOD_ALT : 0)
+  );
 }

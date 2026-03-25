@@ -225,11 +225,9 @@ function App() {
   );
 
   // Read transport state from WASM
-  const isPlaying = wasmEngine ? wasmEngine.getIsPlaying() : false;
-  const isExternalPlayback = wasmEngine
-    ? wasmEngine.getIsExternalPlayback()
-    : false;
-  const bpm = wasmEngine ? wasmEngine.getBpm() : 120;
+  const isPlaying = wasmEngine?.getIsPlaying() ?? false;
+  const isExternalPlayback = wasmEngine?.getIsExternalPlayback() ?? false;
+  const bpm = wasmEngine?.getBpm() ?? 120;
   const [swing, setSwingLocal] = useState(50);
 
   // Keep bpmRef in sync with actual BPM
@@ -327,8 +325,7 @@ function App() {
   const handleConnectTeensy = useCallback(async () => {
     if (teensyConnected) {
       // Disconnect and switch back to WASM
-      const current = engineRef.current;
-      if (current?.disconnect) current.disconnect();
+      engineRef.current?.disconnect?.();
       // Reload a fresh WASM engine
       const fresh = new WasmEngine();
       await fresh.load();

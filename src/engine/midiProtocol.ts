@@ -198,7 +198,7 @@ export function encodeSetUiMode(mode: number): Uint8Array {
 
 export function encodeSetSelectedEvent(idx: number): Uint8Array {
   // idx is i16 (-1 = no selection). Encode as unsigned + sign bit
-  const unsigned = idx < 0 ? (-idx) : idx;
+  const unsigned = Math.abs(idx);
   const sign = idx < 0 ? 1 : 0;
   return sysex(CMD_SET_SELECTED_EVENT, unsigned & 0x7f, (unsigned >> 7) & 0x7f, sign);
 }
@@ -300,11 +300,10 @@ export function decodeSysex(data: Uint8Array): TeensyResponse | null {
       const zoom = data[p+5] | (data[p+6] << 7) | ((data[p+7] & 0x03) << 14);
       const currentChannel = data[p+8];
       const channelTypes = Array.from(data.slice(p+9, p+15));
-      const rowOffsets: number[] = [];
-      for (let i = 0; i < 6; i++) {
+      const rowOffsets = Array.from({ length: 6 }, (_, i) => {
         const off = data[p+15+i*2] | (data[p+16+i*2] << 7);
-        rowOffsets.push(off / 1000);
-      }
+        return off / 1000;
+      });
       return { type: "state", bpm, swing, zoom, currentChannel, channelTypes, rowOffsets, isPlaying };
     }
 

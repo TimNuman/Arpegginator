@@ -164,10 +164,7 @@ export class TeensyEngine implements Engine {
     this.send(proto.encodeSetCurrentChannel(ch));
 
     // Channel types
-    const types: number[] = [];
-    for (let i = 0; i < 6; i++) {
-      types.push(this.wasm.getChannelType(i));
-    }
+    const types = Array.from({ length: 6 }, (_, i) => this.wasm.getChannelType(i));
     this.send(proto.encodeSetChannelTypes(types));
 
     // Row offsets for all channels
@@ -231,9 +228,9 @@ export class TeensyEngine implements Engine {
         this.wasm.setSwing(response.swing);
         this.wasm.setZoom(response.zoom);
         this.wasm.setIsPlaying(response.isPlaying);
-        for (let ch = 0; ch < 6; ch++) {
-          this.wasm.setRowOffset(ch, response.rowOffsets[ch]);
-        }
+        response.rowOffsets.forEach((offset, ch) => {
+          this.wasm.setRowOffset(ch, offset);
+        });
         this.wasm.writeChannelTypes(response.channelTypes);
         markDirty();
         break;
