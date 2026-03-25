@@ -100,21 +100,8 @@ export class TeensyEngine implements Engine {
     const access = await navigator.requestMIDIAccess({ sysex: true });
 
     // Find Arp3 Sequencer in MIDI ports
-    let output: MIDIOutput | null = null;
-    let input: MIDIInput | null = null;
-
-    for (const [, port] of access.outputs) {
-      if (port.name?.includes("Arp3")) {
-        output = port;
-        break;
-      }
-    }
-    for (const [, port] of access.inputs) {
-      if (port.name?.includes("Arp3")) {
-        input = port;
-        break;
-      }
-    }
+    const output = Array.from(access.outputs.values()).find(p => p.name?.includes("Arp3")) ?? null;
+    const input = Array.from(access.inputs.values()).find(p => p.name?.includes("Arp3")) ?? null;
 
     if (!output) {
       throw new Error(
@@ -177,10 +164,7 @@ export class TeensyEngine implements Engine {
     this.send(proto.encodeSetCurrentChannel(ch));
 
     // Channel types
-    const types: number[] = [];
-    for (let i = 0; i < 6; i++) {
-      types.push(this.wasm.getChannelType(i));
-    }
+    const types = Array.from({ length: 6 }, (_, i) => this.wasm.getChannelType(i));
     this.send(proto.encodeSetChannelTypes(types));
 
     // Row offsets for all channels
@@ -244,9 +228,9 @@ export class TeensyEngine implements Engine {
         this.wasm.setSwing(response.swing);
         this.wasm.setZoom(response.zoom);
         this.wasm.setIsPlaying(response.isPlaying);
-        for (let ch = 0; ch < 6; ch++) {
-          this.wasm.setRowOffset(ch, response.rowOffsets[ch]);
-        }
+        response.rowOffsets.forEach((offset, ch) => {
+          this.wasm.setRowOffset(ch, offset);
+        });
         this.wasm.writeChannelTypes(response.channelTypes);
         markDirty();
         break;
@@ -333,46 +317,46 @@ export class TeensyEngine implements Engine {
 
   // ============ State Getters (local) ============
 
-  getBpm(): number {
+  getBpm() {
     return this.wasm.getBpm();
   }
-  getSwing(): number {
+  getSwing() {
     return this.wasm.getSwing();
   }
-  getIsPlaying(): boolean {
+  getIsPlaying() {
     return this.wasm.getIsPlaying();
   }
-  getIsExternalPlayback(): boolean {
+  getIsExternalPlayback() {
     return this.wasm.getIsExternalPlayback();
   }
-  getResumeTick(): number {
+  getResumeTick() {
     return this.wasm.getResumeTick();
   }
-  getCurrentChannel(): number {
+  getCurrentChannel() {
     return this.wasm.getCurrentChannel();
   }
-  getCurrentTick(): number {
+  getCurrentTick() {
     return this.wasm.getCurrentTick();
   }
-  getVersion(): number {
+  getVersion() {
     return this.wasm.getVersion();
   }
-  getChannelType(ch: number): number {
+  getChannelType(ch: number) {
     return this.wasm.getChannelType(ch);
   }
-  noteToMidi(row: number): number {
+  noteToMidi(row: number) {
     return this.wasm.noteToMidi(row);
   }
-  getScaleCount(): number {
+  getScaleCount() {
     return this.wasm.getScaleCount();
   }
-  getScaleZeroIndex(): number {
+  getScaleZeroIndex() {
     return this.wasm.getScaleZeroIndex();
   }
-  getVisibleRows(): number {
+  getVisibleRows() {
     return this.wasm.getVisibleRows();
   }
-  getVisibleCols(): number {
+  getVisibleCols() {
     return this.wasm.getVisibleCols();
   }
 
@@ -381,14 +365,10 @@ export class TeensyEngine implements Engine {
   computeGrid(): void {
     this.wasm.computeGrid();
   }
-  readGridBuffers(): {
-    buttonValues: number[][];
-    colorOverrides: number[][];
-    gridColors: number[][];
-  } {
+  readGridBuffers() {
     return this.wasm.readGridBuffers();
   }
-  isAnimating(): boolean {
+  isAnimating() {
     return this.wasm.isAnimating();
   }
 

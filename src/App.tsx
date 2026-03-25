@@ -71,10 +71,7 @@ function App() {
       // Request MIDI access (may prompt user once for sysex permission)
       const access = await navigator.requestMIDIAccess({ sysex: true });
       // Check if Arp3 Sequencer is present
-      let found = false;
-      for (const [, port] of access.outputs) {
-        if (port.name?.includes("Arp3")) { found = true; break; }
-      }
+      const found = Array.from(access.outputs.values()).some(p => p.name?.includes("Arp3"));
       if (!found) {
         console.log("[startup] No Teensy found, using WASM engine");
         return;
@@ -228,11 +225,9 @@ function App() {
   );
 
   // Read transport state from WASM
-  const isPlaying = wasmEngine ? wasmEngine.getIsPlaying() : false;
-  const isExternalPlayback = wasmEngine
-    ? wasmEngine.getIsExternalPlayback()
-    : false;
-  const bpm = wasmEngine ? wasmEngine.getBpm() : 120;
+  const isPlaying = wasmEngine?.getIsPlaying() ?? false;
+  const isExternalPlayback = wasmEngine?.getIsExternalPlayback() ?? false;
+  const bpm = wasmEngine?.getBpm() ?? 120;
   const [swing, setSwingLocal] = useState(50);
 
   // Keep bpmRef in sync with actual BPM
@@ -285,11 +280,13 @@ function App() {
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;
-  stopExternalRef.current = () => {
-    for (const id of pendingTimeouts.current) {
-      clearTimeout(id);
-    }
+  const clearPendingTimeouts = () => {
+    pendingTimeouts.current.forEach(clearTimeout);
     pendingTimeouts.current.clear();
+  };
+
+  stopExternalRef.current = () => {
+    clearPendingTimeouts();
     actions.stopExternal();
     stopAllNotes();
   };
@@ -301,19 +298,13 @@ function App() {
   }, []);
 
   const handleStop = useCallback(() => {
-    for (const id of pendingTimeouts.current) {
-      clearTimeout(id);
-    }
-    pendingTimeouts.current.clear();
+    clearPendingTimeouts();
     actions.stop();
     stopAllNotes();
   }, [stopAllNotes]);
 
   const handleReset = useCallback(() => {
-    for (const id of pendingTimeouts.current) {
-      clearTimeout(id);
-    }
-    pendingTimeouts.current.clear();
+    clearPendingTimeouts();
     actions.resetPosition();
     stopAllNotes();
   }, [stopAllNotes]);
@@ -334,8 +325,7 @@ function App() {
   const handleConnectTeensy = useCallback(async () => {
     if (teensyConnected) {
       // Disconnect and switch back to WASM
-      const current = engineRef.current;
-      if (current?.disconnect) current.disconnect();
+      engineRef.current?.disconnect?.();
       // Reload a fresh WASM engine
       const fresh = new WasmEngine();
       await fresh.load();

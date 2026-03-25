@@ -126,7 +126,6 @@ export class WasmEngine implements Engine {
 
   // Struct layout info (queried from WASM at load time)
   private noteEventSize = 0;
-  private fieldOffsets: number[] = [];
   private subModeArraySize = 0;
 
   // Core functions
@@ -141,7 +140,6 @@ export class WasmEngine implements Engine {
   private _getChannelTypesBuffer!: () => number;
   private _setRngSeed!: (seed: number) => void;
   private _getNoteEventSize!: () => number;
-  private _getFieldOffset!: (fieldId: number) => number;
   private _getSubModeArraySize!: () => number;
 
   // UI state setters
@@ -295,7 +293,6 @@ export class WasmEngine implements Engine {
       "number",
     ]) as unknown as (seed: number) => void;
     this._getNoteEventSize = cw("engine_get_note_event_size", "number", []);
-    this._getFieldOffset = cw("engine_get_field_offset", "number", ["number"]);
     this._getSubModeArraySize = cw(
       "engine_get_sub_mode_array_size",
       "number",
@@ -418,10 +415,6 @@ export class WasmEngine implements Engine {
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
-    for (let i = 0; i <= 14; i++) {
-      this.fieldOffsets[i] = this._getFieldOffset(i);
-    }
-
     console.log(
       "WASM engine loaded (rust), version:",
       this.getVersion(),
@@ -504,22 +497,13 @@ export class WasmEngine implements Engine {
     const coView = new Uint32Array(mod.HEAPU8.buffer, coPtr, rows * cols);
     const gcView = new Uint32Array(mod.HEAPU8.buffer, gcPtr, rows * cols);
 
-    const buttonValues: number[][] = [];
-    const colorOverrides: number[][] = [];
-    const gridColors: number[][] = [];
-    for (let r = 0; r < rows; r++) {
-      const bvRow: number[] = [];
-      const coRow: number[] = [];
-      const gcRow: number[] = [];
-      for (let c = 0; c < cols; c++) {
-        bvRow.push(bvView[r * cols + c]);
-        coRow.push(coView[r * cols + c]);
-        gcRow.push(gcView[r * cols + c]);
-      }
-      buttonValues.push(bvRow);
-      colorOverrides.push(coRow);
-      gridColors.push(gcRow);
-    }
+    const toGrid = (view: { [i: number]: number }) =>
+      Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: cols }, (_, c) => view[r * cols + c])
+      );
+    const buttonValues = toGrid(bvView);
+    const colorOverrides = toGrid(coView);
+    const gridColors = toGrid(gcView);
     return { buttonValues, colorOverrides, gridColors };
   }
 
