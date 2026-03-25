@@ -158,7 +158,7 @@ scrolling. Good starting point if this is your first capacitive PCB.
 
 | Ref  | Part              | Package    | Qty | Notes                         |
 |------|-------------------|------------|-----|-------------------------------|
-| U1   | AT42QT2120-XU     | TSSOP-16   | 1   | Capacitive touch controller   |
+| U1   | AT42QT2120-MMH    | QFN-24     | 1   | Capacitive touch controller   |
 | C1   | 100 nF ceramic    | 0402/0603  | 1   | VDD decoupling                |
 | C2   | 10 uF ceramic     | 0805       | 1   | VDD bulk decoupling           |
 | R1   | 4.7 kOhm         | 0402/0603  | 1   | I2C SDA pull-up               |
