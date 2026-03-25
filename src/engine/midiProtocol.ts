@@ -22,9 +22,6 @@ export const CMD_SET_ROW_OFFSET = 0x12; // + ch, offset×1000 as 2×7-bit
 export const CMD_SET_CHANNEL_TYPES = 0x13; // + 6 bytes
 export const CMD_SET_ZOOM = 0x14; // + zoom as 3×7-bit
 export const CMD_SET_CURRENT_CHANNEL = 0x15; // + ch
-export const CMD_SET_UI_MODE = 0x16; // + mode
-export const CMD_SET_SELECTED_EVENT = 0x17; // + idx as 2×7-bit (signed)
-export const CMD_SET_MODIFY_SUB_MODE = 0x18; // + sm
 export const CMD_CLEAR_PATTERN = 0x19; // no payload — clears current channel's current pattern
 export const CMD_ARROW_PRESS = 0x1a; // + direction, mods
 export const CMD_STRIP_START = 0x1b; // + strip, pos(2×7b), shift, time_ms(3×7b)
@@ -169,16 +166,6 @@ export function encodeSetRowOffset(ch: number, offset: number): Uint8Array {
   return sysex(CMD_SET_ROW_OFFSET, ch, val & 0x7f, (val >> 7) & 0x7f);
 }
 
-/** Encode all 6 row offsets in a single SysEx message */
-export function encodeSetAllRowOffsets(offsets: number[]): Uint8Array {
-  const data: number[] = [CMD_SET_ROW_OFFSET, 0x7f]; // 0x7F = "all channels" flag
-  for (let i = 0; i < 6; i++) {
-    const val = Math.round((offsets[i] ?? 0) * 1000);
-    data.push(val & 0x7f, (val >> 7) & 0x7f);
-  }
-  return sysex(...data);
-}
-
 export function encodeSetChannelTypes(types: number[]): Uint8Array {
   return sysex(CMD_SET_CHANNEL_TYPES, ...types.slice(0, 6));
 }
@@ -192,20 +179,6 @@ export function encodeSetCurrentChannel(ch: number): Uint8Array {
   return sysex(CMD_SET_CURRENT_CHANNEL, ch);
 }
 
-export function encodeSetUiMode(mode: number): Uint8Array {
-  return sysex(CMD_SET_UI_MODE, mode);
-}
-
-export function encodeSetSelectedEvent(idx: number): Uint8Array {
-  // idx is i16 (-1 = no selection). Encode as unsigned + sign bit
-  const unsigned = Math.abs(idx);
-  const sign = idx < 0 ? 1 : 0;
-  return sysex(CMD_SET_SELECTED_EVENT, unsigned & 0x7f, (unsigned >> 7) & 0x7f, sign);
-}
-
-export function encodeSetModifySubMode(sm: number): Uint8Array {
-  return sysex(CMD_SET_MODIFY_SUB_MODE, sm);
-}
 
 export function encodeGetState(): Uint8Array {
   return sysex(CMD_GET_STATE);

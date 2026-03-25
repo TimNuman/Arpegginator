@@ -11,7 +11,7 @@ export interface KeyboardState {
   meta: boolean;
 }
 
-export interface UseKeyboardOptions {
+interface UseKeyboardOptions {
   /**
    * Called on keydown, return true to prevent default
    */
