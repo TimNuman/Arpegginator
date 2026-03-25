@@ -1,5 +1,5 @@
 // engine_strip.rs — Touchstrip input handling
-// Treats each strip as a physical element receiving raw 0-1024 positions.
+// Treats each strip as a physical element receiving raw 0-255 positions.
 // WASM owns scroll state, inertia physics, and scrub logic.
 
 use crate::engine_core::*;
@@ -9,9 +9,9 @@ const STRIP_HORIZONTAL: u8 = 1;
 
 const FRICTION: f32 = 0.97;
 const MIN_VELOCITY: f32 = 0.0004;
-const RANGE: f32 = 1024.0;
+const RANGE: f32 = 255.0;
 const VISIBLE_BUTTONS: f32 = 8.0; // strip spans 8 grid buttons
-const RAW_PER_BUTTON: f32 = RANGE / VISIBLE_BUTTONS; // 128 raw units = 1 grid button
+const RAW_PER_BUTTON: f32 = RANGE / VISIBLE_BUTTONS; // ~32 raw units = 1 grid button
 const FRAME_MS: f32 = 16.0; // ~60fps reference for velocity normalization
 
 // ============ Helpers ============

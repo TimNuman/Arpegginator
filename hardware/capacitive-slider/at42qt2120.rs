@@ -25,9 +25,9 @@ const EXPECTED_CHIP_ID: u8 = 0x3E;
 
 /// Events emitted by the slider driver, matching the strip engine protocol.
 pub enum SliderEvent {
-    /// Finger touched the slider at this position (0-1024)
+    /// Finger touched the slider at this position (0-255)
     Start(i32),
-    /// Finger moved to new position (0-1024)
+    /// Finger moved to new position (0-255)
     Move(i32),
     /// Finger lifted
     End,
@@ -104,8 +104,7 @@ impl At42qt2120 {
                 return None;
             }
 
-            // Map 0-255 to 0-1024 for the strip engine
-            let pos = (pos_buf[0] as i32) * 4;
+            let pos = pos_buf[0] as i32;
 
             if !self.was_touching {
                 self.was_touching = true;

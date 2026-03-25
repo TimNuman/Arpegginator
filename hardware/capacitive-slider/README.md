@@ -202,12 +202,11 @@ To configure keys 0-7 as a slider, write these registers at startup:
 | 0x1E-25  | 0x00   | Per-key detect integrator (0 = default 4)       |
 | 0x06     | (read) | Slider position: 0-255                          |
 
-The slider position register (0x06) returns 0-255. Map to 0-1024 for the
-Arpegginator engine:
+The slider position register (0x06) returns 0-255, which is used directly
+by the Arpegginator strip engine (native 0-255 range):
 
 ```rust
-let raw = i2c_read_reg(0x1C, 0x06);  // 0-255
-let pos = (raw as i32) * 4;           // 0-1020, close enough to 0-1024
+let pos = i2c_read_reg(0x1C, 0x06) as i32;  // 0-255, used as-is
 ```
 
 ## Teensy 4.1 Wiring
