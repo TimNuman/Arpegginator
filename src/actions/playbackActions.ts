@@ -67,21 +67,13 @@ export function play(): void {
     engine!.init();
   }
 
-  if (engine!.isTeensy) {
-    // Also run local tick loop for grid rendering (active note highlights).
-    // Teensy drives actual MIDI output; local engine just mirrors for display.
-    lastFrameTime = performance.now();
-    tickAccumulator = 0;
-    engine!.tick();
-    markDirty();
-    playbackTimerId = setTimeout(playbackLoop, 1);
-  } else {
-    lastFrameTime = performance.now();
-    tickAccumulator = 0;
-    engine!.tick();
-    markDirty();
-    playbackTimerId = setTimeout(playbackLoop, 1);
-  }
+  // Both WASM and Teensy run the local tick loop for grid rendering.
+  // Teensy drives actual MIDI output; local engine just mirrors for display.
+  lastFrameTime = performance.now();
+  tickAccumulator = 0;
+  engine!.tick();
+  markDirty();
+  playbackTimerId = setTimeout(playbackLoop, 1);
 }
 
 export function stop(): void {
