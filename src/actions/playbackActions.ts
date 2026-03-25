@@ -15,8 +15,9 @@ export function setEngine(e: Engine | null): void {
   engine = e;
 }
 
-function engineReady(): boolean {
-  return engine !== null && engine.isReady();
+/** Return the engine if it's loaded and ready, otherwise null. */
+function readyEngine(): Engine | null {
+  return engine?.isReady() ? engine : null;
 }
 
 export function getEngine(): Engine | null {
@@ -53,25 +54,26 @@ function playbackLoop(): void {
 // ============ Public API ============
 
 export function play(): void {
-  if (!engineReady() || playbackTimerId) return;
+  const e = readyEngine();
+  if (!e || playbackTimerId) return;
 
-  engine!.setIsPlaying(true);
-  engine!.setIsExternalPlayback(false);
-  engine!.seedRng();
+  e.setIsPlaying(true);
+  e.setIsExternalPlayback(false);
+  e.seedRng();
 
-  const resumeTick = engine!.getResumeTick();
+  const resumeTick = e.getResumeTick();
   if (resumeTick >= 0) {
-    engine!.initFromTick(resumeTick);
-    engine!.setResumeTick(-1);
+    e.initFromTick(resumeTick);
+    e.setResumeTick(-1);
   } else {
-    engine!.init();
+    e.init();
   }
 
   // Both WASM and Teensy run the local tick loop for grid rendering.
   // Teensy drives actual MIDI output; local engine just mirrors for display.
   lastFrameTime = performance.now();
   tickAccumulator = 0;
-  engine!.tick();
+  e.tick();
   markDirty();
   playbackTimerId = setTimeout(playbackLoop, 1);
 }
@@ -81,12 +83,13 @@ export function stop(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (engineReady()) {
-    const t = engine!.getCurrentTick();
-    if (t >= 0) engine!.setResumeTick(t);
-    engine!.stop();
-    engine!.setIsPlaying(false);
-    engine!.setIsExternalPlayback(false);
+  const e = readyEngine();
+  if (e) {
+    const t = e.getCurrentTick();
+    if (t >= 0) e.setResumeTick(t);
+    e.stop();
+    e.setIsPlaying(false);
+    e.setIsExternalPlayback(false);
   }
   markDirty();
 }
@@ -96,32 +99,29 @@ export function resetPosition(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (engineReady()) {
-    engine!.stop();
-    engine!.init();
-    engine!.setIsPlaying(false);
-    engine!.setIsExternalPlayback(false);
-    engine!.setResumeTick(-1);
+  const e = readyEngine();
+  if (e) {
+    e.stop();
+    e.init();
+    e.setIsPlaying(false);
+    e.setIsExternalPlayback(false);
+    e.setResumeTick(-1);
   }
   markDirty();
 }
 
 export function setBpm(bpm: number): void {
-  if (engineReady()) {
-    engine!.setBpm(bpm);
-  }
+  readyEngine()?.setBpm(bpm);
   markDirty();
 }
 
 export function setSwing(swing: number): void {
-  if (engineReady()) {
-    engine!.setSwing(swing);
-  }
+  readyEngine()?.setSwing(swing);
   markDirty();
 }
 
 export function togglePlay(): void {
-  if (engineReady() && engine!.getIsPlaying()) {
+  if (readyEngine()?.getIsPlaying()) {
     stop();
   } else {
     play();
@@ -133,22 +133,24 @@ export function togglePlay(): void {
 const TICKS_PER_MIDI_CLOCK = TICKS_PER_QUARTER / 24;
 
 export function playExternal(): void {
-  if (!engineReady()) return;
+  const e = readyEngine();
+  if (!e) return;
   if (playbackTimerId) {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  engine!.setIsPlaying(true);
-  engine!.setIsExternalPlayback(true);
-  engine!.seedRng();
-  engine!.init();
+  e.setIsPlaying(true);
+  e.setIsExternalPlayback(true);
+  e.seedRng();
+  e.init();
   markDirty();
 }
 
 export function externalTick(): void {
-  if (!engineReady() || !engine!.getIsPlaying()) return;
+  const e = readyEngine();
+  if (!e || !e.getIsPlaying()) return;
   for (let i = 0; i < TICKS_PER_MIDI_CLOCK; i++) {
-    engine!.tick();
+    e.tick();
   }
 }
 
@@ -157,10 +159,11 @@ export function stopExternal(): void {
     clearTimeout(playbackTimerId);
     playbackTimerId = null;
   }
-  if (engineReady()) {
-    engine!.stop();
-    engine!.setIsPlaying(false);
-    engine!.setIsExternalPlayback(false);
+  const e = readyEngine();
+  if (e) {
+    e.stop();
+    e.setIsPlaying(false);
+    e.setIsExternalPlayback(false);
   }
   markDirty();
 }
