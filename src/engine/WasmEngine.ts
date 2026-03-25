@@ -126,7 +126,6 @@ export class WasmEngine implements Engine {
 
   // Struct layout info (queried from WASM at load time)
   private noteEventSize = 0;
-  private fieldOffsets: number[] = [];
   private subModeArraySize = 0;
 
   // Core functions
@@ -141,7 +140,6 @@ export class WasmEngine implements Engine {
   private _getChannelTypesBuffer!: () => number;
   private _setRngSeed!: (seed: number) => void;
   private _getNoteEventSize!: () => number;
-  private _getFieldOffset!: (fieldId: number) => number;
   private _getSubModeArraySize!: () => number;
 
   // UI state setters
@@ -295,7 +293,6 @@ export class WasmEngine implements Engine {
       "number",
     ]) as unknown as (seed: number) => void;
     this._getNoteEventSize = cw("engine_get_note_event_size", "number", []);
-    this._getFieldOffset = cw("engine_get_field_offset", "number", ["number"]);
     this._getSubModeArraySize = cw(
       "engine_get_sub_mode_array_size",
       "number",
@@ -418,8 +415,6 @@ export class WasmEngine implements Engine {
     // Query struct layout
     this.noteEventSize = this._getNoteEventSize();
     this.subModeArraySize = this._getSubModeArraySize();
-    this.fieldOffsets = Array.from({ length: 15 }, (_, i) => this._getFieldOffset(i));
-
     console.log(
       "WASM engine loaded (rust), version:",
       this.getVersion(),
