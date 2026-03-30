@@ -20,8 +20,9 @@ ROWS = 8
 PITCH = 19.05  # standard keyboard unit (mm)
 
 MARGIN = 7.5
-BOARD_W = COLS * PITCH + 2 * MARGIN          # ~319.8 mm
-BOARD_H = ROWS * PITCH + 2 * MARGIN + 12.0   # +12 for connector area
+CONN_AREA_W = 3.0                               # extra width for connector fan-in routing
+BOARD_W = COLS * PITCH + 2 * MARGIN + CONN_AREA_W  # ~322.8 mm
+BOARD_H = ROWS * PITCH + 2 * MARGIN            # ~167.4 mm
 
 # Origin of cell (0,0) — top-left switch center
 ORIGIN_X = MARGIN + PITCH / 2
@@ -59,11 +60,13 @@ LED_PAD_W = 0.7
 LED_PAD_H = 0.7
 # Pin 1=VDD (TL), Pin 2=DOUT (TR), Pin 3=GND (BR), Pin 4=DIN (BL)
 
-# ── Connectors ────────────────────────────────────────────────────────
-CONN_Y = BOARD_H - 6.0       # near bottom edge
+# ── Connectors (right side, vertical) ────────────────────────────────
 CONN_PAD_DRILL = 1.0
 CONN_PAD_SIZE = 1.7
 CONN_PITCH_MM = 2.54
+CONN_X = BOARD_W - 2.0       # right side, 2mm from board edge
+J2_Y = MARGIN + 2.0          # J2 (rows) aligned to top
+J1_Y = J2_Y + (ROWS - 1) * CONN_PITCH_MM + 5.0  # J1 below J2
 
 
 # ── Net numbering ────────────────────────────────────────────────────
@@ -303,58 +306,56 @@ def led_footprint(row, col):
 
 
 def connectors():
-    """Two pin headers at the bottom: J1 for columns + power, J2 for rows."""
+    """Two pin headers on the right side, vertical: J1 for columns + power, J2 for rows."""
     parts = []
 
     # J1: 20-pin header — COL0..COL15 + VCC + GND + LED_DIN + spare
     j1_nets = [net_col(c) for c in range(COLS)] + [NET_VCC, NET_GND, NET_LED_DIN, 0]
-    j1_x_start = ORIGIN_X
     j1_pads = []
     for i, nid in enumerate(j1_nets):
-        px = i * CONN_PITCH_MM
+        py = i * CONN_PITCH_MM
         j1_pads.append(
             f'    (pad "{i+1}" thru_hole circle '
-            f'(at {fmt(px)} 0) '
+            f'(at 0 {fmt(py)}) '
             f'(size {fmt(CONN_PAD_SIZE)} {fmt(CONN_PAD_SIZE)}) '
             f'(drill {fmt(CONN_PAD_DRILL)}) '
             f'(layers "*.Cu" "*.Mask") '
             f'(net {nid} {nn(nid)}))')
 
     parts.append(f"""  (footprint "Arp3:PinHeader_1x20_P2.54mm" (layer "F.Cu")
-    (at {fmt(j1_x_start)} {fmt(CONN_Y)})
+    (at {fmt(CONN_X)} {fmt(J1_Y)})
     (descr "COL0-15, VCC, GND, LED_DIN, spare")
     (attr through_hole)
-    (fp_text reference "J1" (at {fmt(9 * CONN_PITCH_MM)} -2.5) (layer "F.SilkS")
+    (fp_text reference "J1" (at -2.5 {fmt(9 * CONN_PITCH_MM)}) (layer "F.SilkS")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
-    (fp_text value "COL+PWR" (at {fmt(9 * CONN_PITCH_MM)} 2.5) (layer "F.Fab")
+    (fp_text value "COL+PWR" (at 2.5 {fmt(9 * CONN_PITCH_MM)}) (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
 {chr(10).join(j1_pads)}
   )""")
 
     # J2: 8-pin header — ROW0..ROW7
-    j2_x_start = ORIGIN_X + 22 * CONN_PITCH_MM  # offset from J1
     j2_pads = []
     for i in range(ROWS):
         nid = net_row(i)
-        px = i * CONN_PITCH_MM
+        py = i * CONN_PITCH_MM
         j2_pads.append(
             f'    (pad "{i+1}" thru_hole circle '
-            f'(at {fmt(px)} 0) '
+            f'(at 0 {fmt(py)}) '
             f'(size {fmt(CONN_PAD_SIZE)} {fmt(CONN_PAD_SIZE)}) '
             f'(drill {fmt(CONN_PAD_DRILL)}) '
             f'(layers "*.Cu" "*.Mask") '
             f'(net {nid} {nn(nid)}))')
 
     parts.append(f"""  (footprint "Arp3:PinHeader_1x08_P2.54mm" (layer "F.Cu")
-    (at {fmt(j2_x_start)} {fmt(CONN_Y)})
+    (at {fmt(CONN_X)} {fmt(J2_Y)})
     (descr "ROW0-7")
     (attr through_hole)
-    (fp_text reference "J2" (at {fmt(3.5 * CONN_PITCH_MM)} -2.5) (layer "F.SilkS")
+    (fp_text reference "J2" (at -2.5 {fmt(3.5 * CONN_PITCH_MM)}) (layer "F.SilkS")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
-    (fp_text value "ROWS" (at {fmt(3.5 * CONN_PITCH_MM)} 2.5) (layer "F.Fab")
+    (fp_text value "ROWS" (at 2.5 {fmt(3.5 * CONN_PITCH_MM)}) (layer "F.Fab")
       (effects (font (size 0.6 0.6) (thickness 0.1)))
     )
 {chr(10).join(j2_pads)}
@@ -390,8 +391,8 @@ def ground_zone():
 
 
 def vcc_zone():
-    """VCC fill on F.Cu, limited to the connector area below the grid."""
-    grid_bottom = ORIGIN_Y + (ROWS - 1) * PITCH + PITCH / 2 + 2
+    """VCC fill on F.Cu, covering the right-side connector area."""
+    grid_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2 + 2
     return f"""  (zone (net {NET_VCC}) (net_name "VCC") (layer "F.Cu") (tstamp {uuid()})
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
@@ -399,8 +400,8 @@ def vcc_zone():
     (filled_areas_thickness no)
     (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
     (polygon (pts
-      (xy 0 {fmt(grid_bottom)}) (xy {fmt(BOARD_W)} {fmt(grid_bottom)})
-      (xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy 0 {fmt(BOARD_H)})
+      (xy {fmt(grid_right)} 0) (xy {fmt(BOARD_W)} 0)
+      (xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy {fmt(grid_right)} {fmt(BOARD_H)})
     ))
   )"""
 
@@ -558,26 +559,29 @@ def route_led_chain():
         if src_r == dst_r:
             # ── Intra-row: horizontal channel on B.Cu ──
             bus_y = src_cy + LED_DATA_BUS_DY  # cy - 2.0
-            lines.append(seg(dout_x, dout_y, dout_x, bus_y,
-                             TRACE_W, "B.Cu", chain_n))
-            lines.append(seg(dout_x, bus_y, din_x, bus_y,
-                             TRACE_W, "B.Cu", chain_n))
-            lines.append(seg(din_x, bus_y, din_x, din_y,
-                             TRACE_W, "B.Cu", chain_n))
+            lines += chamfer_route([
+                (dout_x, dout_y),
+                (dout_x, bus_y),
+                (din_x, bus_y),
+                (din_x, din_y),
+            ], TRACE_W, "B.Cu", chain_n)
         else:
             # ── Inter-row: route through board margin ──
             if src_c == COLS - 1:
-                # Right-side transition (even→odd row)
+                # Right-side transition (even→odd row) — F.Cu to avoid
+                # conflict with row connector fan-in traces on B.Cu
                 margin_x = src_cx + LED_INTERROW_MARGIN
+                layer = "F.Cu"
             else:
-                # Left-side transition (odd→even row)
+                # Left-side transition (odd→even row) — B.Cu
                 margin_x = src_cx - LED_INTERROW_MARGIN
-            lines.append(seg(dout_x, dout_y, margin_x, dout_y,
-                             TRACE_W, "B.Cu", chain_n))
-            lines.append(seg(margin_x, dout_y, margin_x, din_y,
-                             TRACE_W, "B.Cu", chain_n))
-            lines.append(seg(margin_x, din_y, din_x, din_y,
-                             TRACE_W, "B.Cu", chain_n))
+                layer = "B.Cu"
+            lines += chamfer_route([
+                (dout_x, dout_y),
+                (margin_x, dout_y),
+                (margin_x, din_y),
+                (din_x, din_y),
+            ], TRACE_W, layer, chain_n)
     return "\n".join(lines)
 
 
@@ -622,6 +626,157 @@ def route_led_vcc():
     return "\n".join(lines)
 
 
+# ── Connector routing (right side) ──────────────────────────────────
+
+CONN_FANIN_SPACING = 0.5  # spacing between fan-in traces
+CHAMFER = 0.6              # 45° chamfer distance at corners
+
+
+def chamfer_route(waypoints, width, layer, net_id, chamfer=CHAMFER):
+    """Generate trace segments with 45° chamfers at every corner.
+
+    Each 90° turn is replaced by two 45° bends: the route pulls back
+    `chamfer` mm along the incoming segment, crosses diagonally, then
+    continues `chamfer` mm into the outgoing segment.
+    """
+    pts = list(waypoints)
+    out = [pts[0]]
+
+    for i in range(1, len(pts) - 1):
+        px, py = pts[i - 1]
+        cx, cy = pts[i]
+        nx, ny = pts[i + 1]
+
+        # Incoming / outgoing unit vectors
+        dx1, dy1 = cx - px, cy - py
+        dx2, dy2 = nx - cx, ny - cy
+        len1 = (dx1**2 + dy1**2) ** 0.5
+        len2 = (dx2**2 + dy2**2) ** 0.5
+
+        if len1 == 0 or len2 == 0:
+            out.append((cx, cy))
+            continue
+
+        d = min(chamfer, len1 * 0.45, len2 * 0.45)
+        ux1, uy1 = dx1 / len1, dy1 / len1
+        ux2, uy2 = dx2 / len2, dy2 / len2
+
+        out.append((cx - ux1 * d, cy - uy1 * d))  # before corner
+        out.append((cx + ux2 * d, cy + uy2 * d))  # after corner
+
+    out.append(pts[-1])
+
+    segs = []
+    for i in range(len(out) - 1):
+        x1, y1 = out[i]
+        x2, y2 = out[i + 1]
+        segs.append(seg(x1, y1, x2, y2, width, layer, net_id))
+    return segs
+
+
+def route_conn_rows():
+    """B.Cu: fan-in from row buses to J2 connector pins on the right."""
+    lines = []
+    last_diode_x = ORIGIN_X + (COLS - 1) * PITCH + DIODE_OFFSET[0]
+    fanin_base_x = last_diode_x + 2.0
+
+    for r in range(ROWS):
+        n = net_row(r)
+        cy = ORIGIN_Y + r * PITCH
+        bus_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY   # row bus Y on B.Cu
+        pin_y = J2_Y + r * CONN_PITCH_MM
+        fanin_x = fanin_base_x + r * CONN_FANIN_SPACING
+
+        lines += chamfer_route([
+            (last_diode_x, bus_y),   # end of existing row bus
+            (fanin_x, bus_y),        # turn into fan-in channel
+            (fanin_x, pin_y),        # turn toward connector
+            (CONN_X, pin_y),         # connector pin
+        ], TRACE_W, "B.Cu", n)
+    return "\n".join(lines)
+
+
+def route_conn_cols():
+    """F.Cu: fan-in from column trunks to J1 connector pins on the right.
+
+    Each column trunk is extended upward above the grid to a horizontal bus,
+    then routed right to a vertical fan-in channel, then down to the pin.
+    """
+    lines = []
+    trunk_top_y = ORIGIN_Y + SW_PAD1[1]  # topmost point of column trunks
+
+    for c in range(COLS):
+        n = net_col(c)
+        cx = ORIGIN_X + c * PITCH
+        trunk_x = cx + COL_TRUNK_DX
+        bus_y = 4.0 + c * CONN_FANIN_SPACING          # horizontal bus Y
+        pin_y = J1_Y + c * CONN_PITCH_MM
+        fanin_x = CONN_X - 2.0 - c * CONN_FANIN_SPACING
+
+        lines += chamfer_route([
+            (trunk_x, trunk_top_y),  # top of column trunk
+            (trunk_x, bus_y),        # turn into horizontal bus
+            (fanin_x, bus_y),        # turn into fan-in channel
+            (fanin_x, pin_y),        # turn toward connector
+            (CONN_X, pin_y),         # connector pin
+        ], TRACE_W, "F.Cu", n)
+    return "\n".join(lines)
+
+
+def route_conn_power():
+    """F.Cu: traces from nearest LED VCC/GND pads to J1 power pins."""
+    lines = []
+    # Source: row 3, col 15 LED (closest to power pins)
+    src_cx, src_cy = cell_center(3, COLS - 1)
+    led_x = src_cx + LED_OFFSET[0]
+    led_y = src_cy + LED_OFFSET[1]
+
+    # VCC: LED pin 1 (top-left) → J1 pin 17
+    vcc_x = led_x - LED_PAD_DX
+    vcc_y = led_y - LED_PAD_DY
+    vcc_pin_y = J1_Y + 16 * CONN_PITCH_MM
+    # Route below column fan-in, above GND pad
+    vcc_mid_y = vcc_pin_y - 1.5
+    lines += chamfer_route([
+        (vcc_x, vcc_y),
+        (vcc_x, vcc_mid_y),
+        (CONN_X, vcc_mid_y),
+        (CONN_X, vcc_pin_y),
+    ], POWER_W, "F.Cu", NET_VCC)
+
+    # GND: LED pin 3 (bottom-right) → J1 pin 18
+    gnd_x = led_x + LED_PAD_DX
+    gnd_y = led_y + LED_PAD_DY
+    gnd_pin_y = J1_Y + 17 * CONN_PITCH_MM
+    lines += chamfer_route([
+        (gnd_x, gnd_y),
+        (gnd_x, gnd_pin_y),
+        (CONN_X, gnd_pin_y),
+    ], POWER_W, "F.Cu", NET_GND)
+
+    return "\n".join(lines)
+
+
+def route_conn_led_din():
+    """B.Cu: route LED_DIN from first LED's via to J1 pin, around the board."""
+    cx0, cy0 = cell_center(0, 0)
+    din_via_x = cx0 + LED_OFFSET[0] - LED_PAD_DX   # 15.825
+    din_via_y = cy0 + LED_OFFSET[1] + LED_PAD_DY    # 15.325
+    pin_y = J1_Y + 18 * CONN_PITCH_MM               # LED_DIN is pin 19
+
+    route_x = din_via_x - 2.0     # left of VCC vias at din_via_x
+    bottom_y = BOARD_H - 2.0
+
+    lines = chamfer_route([
+        (din_via_x, din_via_y),   # first LED DIN via
+        (route_x, din_via_y),     # jog left to clear VCC stubs
+        (route_x, bottom_y),      # down the left side
+        (CONN_X, bottom_y),       # right along the bottom
+        (CONN_X, pin_y),          # up to connector pin
+    ], TRACE_W, "B.Cu", NET_LED_DIN)
+    return "\n".join(lines)
+
+
 # ── Main output ───────────────────────────────────────────────────────
 
 def generate():
@@ -649,6 +804,10 @@ def generate():
     routing_led_chain = route_led_chain()
     routing_led_gnd = route_led_gnd()
     routing_led_vcc = route_led_vcc()
+    routing_conn_rows = route_conn_rows()
+    routing_conn_cols = route_conn_cols()
+    routing_conn_power = route_conn_power()
+    routing_conn_led_din = route_conn_led_din()
 
     return f"""(kicad_pcb (version 20240108) (generator "arp3_grid_gen")
 
@@ -724,6 +883,14 @@ def generate():
 {routing_led_gnd}
 
 {routing_led_vcc}
+
+{routing_conn_rows}
+
+{routing_conn_cols}
+
+{routing_conn_power}
+
+{routing_conn_led_din}
 
 {ground_zone()}
 
