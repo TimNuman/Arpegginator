@@ -317,19 +317,10 @@ def ground_zone():
 
 
 def keepout_zone():
-    """Keepout under slider area — no copper on B.Cu directly beneath electrodes."""
-    margin = 1.0
-    x0 = SLIDER_X0 - margin
-    x1 = SLIDER_X1 + margin
-    y0 = SLIDER_Y0 - margin
-    y1 = SLIDER_Y1 + margin
-    return f"""  (rule_area "slider_keepout" (id {_uuid()}) (hatch edge 0.5) (connect_pads (clearance 0)) (min_thickness 0.25) (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))
-    (layer "B.Cu")
-    (polygon (pts
-      (xy {fmt(x0)} {fmt(y0)}) (xy {fmt(x1)} {fmt(y0)})
-      (xy {fmt(x1)} {fmt(y1)}) (xy {fmt(x0)} {fmt(y1)})
-    ))
-  )"""
+    """Keepout note: no copper on B.Cu directly beneath slider electrodes.
+    KiCad keepout zones must be added manually via the PCB editor —
+    the file format for rule areas varies across KiCad versions."""
+    return ""
 
 
 def slider_silkscreen():
