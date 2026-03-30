@@ -19,13 +19,15 @@ COLS = 16
 ROWS = 8
 PITCH = 19.05  # standard keyboard unit (mm)
 
-MARGIN = 7.5
-CONN_AREA_W = 3.0                               # extra width for connector fan-in routing
-BOARD_W = COLS * PITCH + 2 * MARGIN + CONN_AREA_W  # ~322.8 mm
-BOARD_H = ROWS * PITCH + 2 * MARGIN            # ~167.4 mm
+MARGIN = 2.0                                    # minimal edge clearance
+SLIDER_W = PITCH                                # vertical slider width (1 button)
+CONN_AREA_W = 22.0                              # extra width for Teensy + MCP area
+EXTRA_ROW = 1                                   # row 9 (modifier keys + space + h-slider)
+BOARD_W = SLIDER_W + COLS * PITCH + 2 * MARGIN + CONN_AREA_W
+BOARD_H = (ROWS + EXTRA_ROW) * PITCH + 2 * MARGIN
 
-# Origin of cell (0,0) — top-left switch center
-ORIGIN_X = MARGIN + PITCH / 2
+# Origin of cell (0,0) — top-left switch center (shifted right for v-slider)
+ORIGIN_X = MARGIN + SLIDER_W + PITCH / 2
 ORIGIN_Y = MARGIN + PITCH / 2
 
 
@@ -60,13 +62,52 @@ LED_PAD_W = 0.7
 LED_PAD_H = 0.7
 # Pin 1=VDD (TL), Pin 2=DOUT (TR), Pin 3=GND (BR), Pin 4=DIN (BL)
 
-# ── Connectors (right side, vertical) ────────────────────────────────
-CONN_PAD_DRILL = 1.0
-CONN_PAD_SIZE = 1.7
-CONN_PITCH_MM = 2.54
-CONN_X = BOARD_W - 2.0       # right side, 2mm from board edge
-J2_Y = MARGIN + 2.0          # J2 (rows) aligned to top
-J1_Y = J2_Y + (ROWS - 1) * CONN_PITCH_MM + 5.0  # J1 below J2
+# ── MCP23017 I/O Expanders (QFN-28, 6×6mm) ─────────────────────────
+# QFN-28: 7 pins per side, 0.65mm pitch, pad center 3.0mm from chip center
+QFN_PAD_EDGE = 3.0              # pad center distance from chip center
+QFN_PAD_PITCH = 0.65            # pin pitch
+QFN_PAD_W = 0.35                # pad width (along edge)
+QFN_PAD_H = 0.8                 # pad height (perpendicular to edge)
+QFN_PINS_PER_SIDE = 7
+
+# QFN rotation: 0° (standard orientation on right side)
+QFN_ROTATION = 0
+
+# Teensy 4.1 header (2 rows of 24, 600mil DIP, USB at top, mounted on back)
+TEENSY_DX = 7.62               # half row spacing (15.24mm / 2)
+TEENSY_X = BOARD_W - MARGIN - TEENSY_DX - 1.0
+TEENSY_Y = MARGIN               # first pin aligned to top of board
+TEENSY_PITCH = 2.54
+TEENSY_PINS = 24
+TEENSY_PAD_DRILL = 1.0
+TEENSY_PAD_SIZE = 1.7
+TEENSY_LAST_Y = TEENSY_Y + (TEENSY_PINS - 1) * TEENSY_PITCH
+
+# U1 = column expander (right side, below Teensy)
+# U2 = row expander (right side, near bottom)
+U1_X = TEENSY_X - TEENSY_DX + 3.0   # near Teensy left header
+U1_Y = TEENSY_LAST_Y + 8.0
+U2_X = U1_X
+U2_Y = BOARD_H - 25.0
+
+# MPR121 touch ICs (QFN-20, 4×4mm, 0.5mm pitch)
+MPR_BODY = 4.0
+MPR_PITCH = 0.5
+MPR_PAD_W = 0.3
+MPR_PAD_H = 0.8
+MPR_EPAD = 2.6
+MPR_PINS_PER_SIDE = 5
+
+# Slider IC placement: near their respective sliders
+MPR_VSLIDER_X = MARGIN + SLIDER_W / 2        # center of vertical slider
+MPR_VSLIDER_Y = ORIGIN_Y + 8 * PITCH + 5.0   # below vertical slider, in row 9 area
+MPR_HSLIDER_X = ORIGIN_X + 12 * PITCH        # center of horizontal slider area
+MPR_HSLIDER_Y = ORIGIN_Y + 8 * PITCH + PITCH / 2 + 5.0  # below horizontal slider
+
+# 0603 passive pads (for decoupling caps and pull-up resistors)
+P0603_PAD_W = 0.8
+P0603_PAD_H = 0.9
+P0603_PAD_DX = 0.8             # half center-to-center
 
 
 # ── Net numbering ────────────────────────────────────────────────────
@@ -78,6 +119,8 @@ J1_Y = J2_Y + (ROWS - 1) * CONN_PITCH_MM + 5.0  # J1 below J2
 # 27     : LED_DIN  (data input to first LED)
 # 28-154 : LED_CHAIN_1..LED_CHAIN_127 (DOUT→DIN between consecutive LEDs)
 # 155-282: SW_0_0..SW_7_15 (switch pin 2 → diode anode)
+# 283    : I2C_SDA
+# 284    : I2C_SCL
 
 def net_col(c):        return 1 + c
 def net_row(r):        return 17 + r
@@ -86,7 +129,23 @@ NET_GND = 26
 NET_LED_DIN = 27
 def net_led_chain(n):  return 28 + n - 1   # n = 1..127
 def net_sw(r, c):      return 155 + r * COLS + c
-TOTAL_NETS = 155 + ROWS * COLS  # 283
+_BASE_EXTRA = 155 + ROWS * COLS       # 283
+NET_I2C_SDA = _BASE_EXTRA
+NET_I2C_SCL = _BASE_EXTRA + 1
+# Row 9 modifier keys (directly wired, no matrix)
+NET_KEY_SHIFT = _BASE_EXTRA + 2
+NET_KEY_CTRL  = _BASE_EXTRA + 3
+NET_KEY_OPT   = _BASE_EXTRA + 4
+NET_KEY_CMD   = _BASE_EXTRA + 5
+NET_KEY_SPACE = _BASE_EXTRA + 6
+# Vertical slider pads (8)
+def net_vslider(i): return _BASE_EXTRA + 7 + i   # i = 0..7
+# Horizontal slider pads (8)
+def net_hslider(i): return _BASE_EXTRA + 15 + i  # i = 0..7
+# MPR121 IRQ outputs
+NET_MPR_IRQ_V = _BASE_EXTRA + 23   # vertical slider IRQ
+NET_MPR_IRQ_H = _BASE_EXTRA + 24   # horizontal slider IRQ
+TOTAL_NETS = _BASE_EXTRA + 25
 
 
 def rc_to_chain(row, col):
@@ -140,6 +199,19 @@ def all_net_names():
     for r in range(ROWS):
         for c in range(COLS):
             nets.append((net_sw(r, c), f'"SW_{r}_{c}"'))
+    nets.append((NET_I2C_SDA, '"I2C_SDA"'))
+    nets.append((NET_I2C_SCL, '"I2C_SCL"'))
+    nets.append((NET_KEY_SHIFT, '"KEY_SHIFT"'))
+    nets.append((NET_KEY_CTRL, '"KEY_CTRL"'))
+    nets.append((NET_KEY_OPT, '"KEY_OPT"'))
+    nets.append((NET_KEY_CMD, '"KEY_CMD"'))
+    nets.append((NET_KEY_SPACE, '"KEY_SPACE"'))
+    for i in range(8):
+        nets.append((net_vslider(i), f'"VSLIDER{i}"'))
+    for i in range(8):
+        nets.append((net_hslider(i), f'"HSLIDER{i}"'))
+    nets.append((NET_MPR_IRQ_V, '"MPR_IRQ_V"'))
+    nets.append((NET_MPR_IRQ_H, '"MPR_IRQ_H"'))
     return nets
 
 
@@ -305,63 +377,531 @@ def led_footprint(row, col):
   )"""
 
 
-def connectors():
-    """Two pin headers on the right side, vertical: J1 for columns + power, J2 for rows."""
+def qfn_pin_pos(cx, cy, pin, rotation=0):
+    """Absolute (x, y) of a MCP23017 QFN-28 pad.
+
+    QFN-28: 7 pins/side, counterclockwise from pin 1 at bottom-left.
+    Bottom(1-7), Right(8-14), Top(15-21), Left(22-28).
+    Rotation in degrees applied after computing local offset.
+    """
+    import math
+    side = (pin - 1) // QFN_PINS_PER_SIDE
+    idx = (pin - 1) % QFN_PINS_PER_SIDE
+    linear = (idx - 3) * QFN_PAD_PITCH
+
+    if side == 0:    dx, dy = linear, QFN_PAD_EDGE
+    elif side == 1:  dx, dy = QFN_PAD_EDGE, -linear
+    elif side == 2:  dx, dy = -linear, -QFN_PAD_EDGE
+    else:            dx, dy = -QFN_PAD_EDGE, linear
+
+    if rotation != 0:
+        rad = math.radians(rotation)
+        cos_r, sin_r = math.cos(rad), math.sin(rad)
+        dx, dy = dx * cos_r - dy * sin_r, dx * sin_r + dy * cos_r
+
+    return (cx + dx, cy + dy)
+
+
+def col_pin_pos(c):
+    """Target position for COL c on U1 (rotated 45°).
+
+    Port A: GPA0(pin21) + GPA1-7(pins22-28) → COL0-7
+    Port B: GPB0-6(pins1-7) + GPB7(pin8) → COL8-15
+    """
+    if c == 0:    return qfn_pin_pos(U1_X, U1_Y, 21, QFN_ROTATION)
+    elif c <= 7:  return qfn_pin_pos(U1_X, U1_Y, 21 + c, QFN_ROTATION)
+    elif c <= 14: return qfn_pin_pos(U1_X, U1_Y, c - 7, QFN_ROTATION)
+    else:         return qfn_pin_pos(U1_X, U1_Y, 8, QFN_ROTATION)
+
+
+def row_pin_pos(r):
+    """Target position for ROW r on U2 (rotated 45°).
+
+    Port A: GPA0(pin21) + GPA1-7(pins22-28) → ROW0-7
+    """
+    if r == 0:  return qfn_pin_pos(U2_X, U2_Y, 21, QFN_ROTATION)
+    else:       return qfn_pin_pos(U2_X, U2_Y, 21 + r, QFN_ROTATION)
+
+
+def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
+    """Generate a MCP23017 QFN-28 footprint (6×6mm), optionally rotated."""
+    import math
+    half = 3.0
+    pads = []
+    for pin in range(1, 29):
+        px, py = qfn_pin_pos(cx, cy, pin, rotation)
+        nid = pin_nets.get(pin, 0)
+        side = (pin - 1) // QFN_PINS_PER_SIDE
+        # Base pad orientation, then add chip rotation
+        if side in (0, 2):
+            pad_angle = rotation
+        else:
+            pad_angle = rotation + 90
+        angle_str = f' {pad_angle}' if pad_angle != 0 else ''
+        pads.append(
+            f'    (pad "{pin}" smd rect '
+            f'(at {fmt(px - cx)} {fmt(py - cy)}{angle_str}) '
+            f'(size {fmt(QFN_PAD_W)} {fmt(QFN_PAD_H)}) '
+            f'(layers "F.Cu" "F.Paste" "F.Mask") '
+            f'(net {nid} {nn(nid)}))')
+    # Exposed pad (GND) — rotated with chip
+    ep_angle_str = f' {rotation}' if rotation != 0 else ''
+    pads.append(
+        f'    (pad "EP" smd rect (at 0 0{ep_angle_str}) (size 3.5 3.5) '
+        f'(layers "F.Cu" "F.Paste" "F.Mask") '
+        f'(net {NET_GND} {nn(NET_GND)}))')
+
+    # Rotated outline
+    rad = math.radians(rotation)
+    cos_r, sin_r = math.cos(rad), math.sin(rad)
+    corners = [(-half, -half), (half, -half), (half, half), (-half, half)]
+    rot_corners = [(x*cos_r - y*sin_r, x*sin_r + y*cos_r) for x, y in corners]
+    outline = []
+    for i in range(4):
+        x1, y1 = rot_corners[i]
+        x2, y2 = rot_corners[(i + 1) % 4]
+        outline.append(f'    (fp_line (start {fmt(x1)} {fmt(y1)}) (end {fmt(x2)} {fmt(y2)}) (layer "F.Fab") (width 0.1))')
+
+    # Pin 1 marker
+    p1x, p1y = -half + 0.5, half - 0.5
+    rp1x = p1x*cos_r - p1y*sin_r
+    rp1y = p1x*sin_r + p1y*cos_r
+
+    return f"""  (footprint "Arp3:MCP23017_QFN28" (layer "F.Cu")
+    (at {fmt(cx)} {fmt(cy)})
+    (descr "MCP23017 16-bit I2C I/O expander QFN-28 6x6mm rotated {rotation} deg")
+    (attr smd)
+    (fp_text reference "{ref}" (at 0 -6) (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.1)))
+    )
+    (fp_text value "MCP23017" (at 0 6) (layer "F.Fab")
+      (effects (font (size 0.4 0.4) (thickness 0.08)))
+    )
+{chr(10).join(outline)}
+    (fp_circle (center {fmt(rp1x)} {fmt(rp1y)}) (end {fmt(rp1x + 0.2)} {fmt(rp1y)}) (layer "F.SilkS") (width 0.1))
+{chr(10).join(pads)}
+  )"""
+
+
+def passive_0603(cx, cy, ref, value, net1, net2):
+    """Generate a 0603 passive (cap or resistor) footprint."""
+    return f"""  (footprint "Arp3:C_0603" (layer "F.Cu")
+    (at {fmt(cx)} {fmt(cy)})
+    (descr "{value}")
+    (attr smd)
+    (fp_text reference "{ref}" (at 0 -1.2) (layer "F.SilkS")
+      (effects (font (size 0.4 0.4) (thickness 0.08)))
+    )
+    (fp_text value "{value}" (at 0 1.2) (layer "F.Fab")
+      (effects (font (size 0.4 0.4) (thickness 0.08)))
+    )
+    (pad "1" smd rect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (net {net1} {nn(net1)}))
+    (pad "2" smd rect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (net {net2} {nn(net2)}))
+  )"""
+
+
+def mcp_components():
+    """MCP23017 expanders, decoupling caps, pull-ups, and output header."""
     parts = []
 
-    # J1: 20-pin header — COL0..COL15 + VCC + GND + LED_DIN + spare
-    j1_nets = [net_col(c) for c in range(COLS)] + [NET_VCC, NET_GND, NET_LED_DIN, 0]
-    j1_pads = []
-    for i, nid in enumerate(j1_nets):
-        py = i * CONN_PITCH_MM
-        j1_pads.append(
-            f'    (pad "{i+1}" thru_hole circle '
-            f'(at 0 {fmt(py)}) '
-            f'(size {fmt(CONN_PAD_SIZE)} {fmt(CONN_PAD_SIZE)}) '
-            f'(drill {fmt(CONN_PAD_DRILL)}) '
-            f'(layers "*.Cu" "*.Mask") '
-            f'(net {nid} {nn(nid)}))')
+    # ── U1: column expander (addr 0x20, top-right) ──
+    # GPA0-7 → COL0-7, GPB0-7 → COL8-15
+    u1_nets = {}
+    u1_nets[21] = net_col(0)                             # GPA0 (top)
+    for i in range(1, 8):  u1_nets[21 + i] = net_col(i)  # GPA1-7 (left)
+    for i in range(7):     u1_nets[1 + i] = net_col(8 + i) # GPB0-6 (bottom)
+    u1_nets[8] = net_col(15)                              # GPB7 (right)
+    u1_nets[9] = NET_VCC;  u1_nets[10] = NET_GND
+    u1_nets[12] = NET_I2C_SCL;  u1_nets[13] = NET_I2C_SDA
+    u1_nets[15] = NET_GND;  u1_nets[16] = NET_GND;  u1_nets[17] = NET_GND
+    u1_nets[18] = NET_VCC
+    parts.append(qfn28_footprint(U1_X, U1_Y, "U1", u1_nets, QFN_ROTATION))
 
-    parts.append(f"""  (footprint "Arp3:PinHeader_1x20_P2.54mm" (layer "F.Cu")
-    (at {fmt(CONN_X)} {fmt(J1_Y)})
-    (descr "COL0-15, VCC, GND, LED_DIN, spare")
+    # ── U2: row expander (addr 0x21, center-bottom of grid) ──
+    # GPA0-7 → ROW0-7, GPB spare
+    u2_nets = {}
+    u2_nets[21] = net_row(0)                              # GPA0 (top)
+    for i in range(1, 8):  u2_nets[21 + i] = net_row(i)  # GPA1-7 (left)
+    u2_nets[9] = NET_VCC;  u2_nets[10] = NET_GND
+    u2_nets[12] = NET_I2C_SCL;  u2_nets[13] = NET_I2C_SDA
+    u2_nets[15] = NET_VCC;  u2_nets[16] = NET_GND;  u2_nets[17] = NET_GND
+    u2_nets[18] = NET_VCC
+    parts.append(qfn28_footprint(U2_X, U2_Y, "U2", u2_nets, QFN_ROTATION))
+
+    # ── Decoupling caps (near each chip) ──
+    parts.append(passive_0603(U1_X + 5, U1_Y, "C1", "100nF", NET_VCC, NET_GND))
+    parts.append(passive_0603(U2_X + 5, U2_Y, "C2", "100nF", NET_VCC, NET_GND))
+
+    # ── I2C pull-ups (near Teensy) ──
+    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 3, "R1", "4.7k", NET_I2C_SDA, NET_VCC))
+    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 5, "R2", "4.7k", NET_I2C_SCL, NET_VCC))
+
+    # ── Teensy 4.1 headers (mounted on back, USB at top) ──
+    # Left side: GND, 0-12, 3.3V, 24-32
+    left_nets = [
+        NET_GND,        # GND
+        0,              # pin 0 (spare)
+        NET_LED_DIN,    # pin 1 → LED data
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  # pins 2-12 (spare)
+        NET_VCC,        # 3.3V
+        0, 0, 0, 0, 0, 0, 0, 0, 0,         # pins 24-32 (spare)
+    ]
+    # Right side: Vin, GND, 3.3V, 23-13, 41-33
+    right_nets = [
+        NET_VCC,        # Vin
+        NET_GND,        # GND
+        NET_VCC,        # 3.3V
+        0, 0, 0, 0,    # pins 23-20 (spare)
+        NET_I2C_SCL,    # pin 19 → SCL
+        NET_I2C_SDA,    # pin 18 → SDA
+        0, 0, 0, 0, 0, # pins 17-13 (spare)
+        0, 0, 0, 0, 0, 0, 0, 0, 0,  # pins 41-33 (spare)
+    ]
+
+    left_x = TEENSY_X - TEENSY_DX
+    right_x = TEENSY_X + TEENSY_DX
+
+    teensy_pads = []
+    for i in range(TEENSY_PINS):
+        py = i * TEENSY_PITCH
+        nid_l = left_nets[i] if i < len(left_nets) else 0
+        nid_r = right_nets[i] if i < len(right_nets) else 0
+        teensy_pads.append(
+            f'    (pad "L{i+1}" thru_hole circle '
+            f'(at {fmt(-TEENSY_DX)} {fmt(py)}) '
+            f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
+            f'(drill {fmt(TEENSY_PAD_DRILL)}) '
+            f'(layers "*.Cu" "*.Mask") '
+            f'(net {nid_l} {nn(nid_l)}))')
+        teensy_pads.append(
+            f'    (pad "R{i+1}" thru_hole circle '
+            f'(at {fmt(TEENSY_DX)} {fmt(py)}) '
+            f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
+            f'(drill {fmt(TEENSY_PAD_DRILL)}) '
+            f'(layers "*.Cu" "*.Mask") '
+            f'(net {nid_r} {nn(nid_r)}))')
+
+    mid_y = (TEENSY_PINS - 1) * TEENSY_PITCH / 2
+    parts.append(f"""  (footprint "Arp3:Teensy41" (layer "F.Cu")
+    (at {fmt(TEENSY_X)} {fmt(TEENSY_Y)})
+    (descr "Teensy 4.1 header sockets (mounted on back)")
     (attr through_hole)
-    (fp_text reference "J1" (at -2.5 {fmt(9 * CONN_PITCH_MM)}) (layer "F.SilkS")
+    (fp_text reference "U3" (at 0 -3) (layer "F.SilkS")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
-    (fp_text value "COL+PWR" (at 2.5 {fmt(9 * CONN_PITCH_MM)}) (layer "F.Fab")
-      (effects (font (size 0.6 0.6) (thickness 0.1)))
-    )
-{chr(10).join(j1_pads)}
-  )""")
-
-    # J2: 8-pin header — ROW0..ROW7
-    j2_pads = []
-    for i in range(ROWS):
-        nid = net_row(i)
-        py = i * CONN_PITCH_MM
-        j2_pads.append(
-            f'    (pad "{i+1}" thru_hole circle '
-            f'(at 0 {fmt(py)}) '
-            f'(size {fmt(CONN_PAD_SIZE)} {fmt(CONN_PAD_SIZE)}) '
-            f'(drill {fmt(CONN_PAD_DRILL)}) '
-            f'(layers "*.Cu" "*.Mask") '
-            f'(net {nid} {nn(nid)}))')
-
-    parts.append(f"""  (footprint "Arp3:PinHeader_1x08_P2.54mm" (layer "F.Cu")
-    (at {fmt(CONN_X)} {fmt(J2_Y)})
-    (descr "ROW0-7")
-    (attr through_hole)
-    (fp_text reference "J2" (at -2.5 {fmt(3.5 * CONN_PITCH_MM)}) (layer "F.SilkS")
+    (fp_text value "Teensy 4.1" (at 0 {fmt(mid_y + 3)}) (layer "F.Fab")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
-    (fp_text value "ROWS" (at 2.5 {fmt(3.5 * CONN_PITCH_MM)}) (layer "F.Fab")
-      (effects (font (size 0.6 0.6) (thickness 0.1)))
-    )
-{chr(10).join(j2_pads)}
+    (fp_line (start {fmt(-TEENSY_DX - 1)} -2) (end {fmt(TEENSY_DX + 1)} -2) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(TEENSY_DX + 1)} -2) (end {fmt(TEENSY_DX + 1)} {fmt(mid_y * 2 + 2)}) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(TEENSY_DX + 1)} {fmt(mid_y * 2 + 2)}) (end {fmt(-TEENSY_DX - 1)} {fmt(mid_y * 2 + 2)}) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(-TEENSY_DX - 1)} {fmt(mid_y * 2 + 2)}) (end {fmt(-TEENSY_DX - 1)} -2) (layer "F.Fab") (width 0.1))
+{chr(10).join(teensy_pads)}
   )""")
 
     return "\n".join(parts)
+
+
+# ── MPR121 touch controller footprints ───────────────────────────────
+
+def mpr121_footprint(cx, cy, ref, pin_nets):
+    """MPR121 QFN-20 (4×4mm, 0.5mm pitch, 5 pins/side)."""
+    half = MPR_BODY / 2
+    pads = []
+    for pin in range(1, 21):
+        side = (pin - 1) // MPR_PINS_PER_SIDE
+        idx = (pin - 1) % MPR_PINS_PER_SIDE
+        linear = (idx - 2) * MPR_PITCH
+
+        if side == 0:    dx, dy = -half - MPR_PAD_H / 2, linear      # left
+        elif side == 1:  dx, dy = linear, half + MPR_PAD_H / 2       # bottom
+        elif side == 2:  dx, dy = half + MPR_PAD_H / 2, -linear      # right
+        else:            dx, dy = -linear, -half - MPR_PAD_H / 2     # top
+
+        nid = pin_nets.get(pin, 0)
+        if side in (0, 2):
+            pw, ph = MPR_PAD_H, MPR_PAD_W
+        else:
+            pw, ph = MPR_PAD_W, MPR_PAD_H
+        pads.append(
+            f'    (pad "{pin}" smd rect '
+            f'(at {fmt(dx)} {fmt(dy)}) '
+            f'(size {fmt(pw)} {fmt(ph)}) '
+            f'(layers "F.Cu" "F.Paste" "F.Mask") '
+            f'(net {nid} {nn(nid)}))')
+    # Exposed pad
+    pads.append(
+        f'    (pad "EP" smd rect (at 0 0) (size {fmt(MPR_EPAD)} {fmt(MPR_EPAD)}) '
+        f'(layers "F.Cu" "F.Paste" "F.Mask") '
+        f'(net {NET_GND} {nn(NET_GND)}))')
+
+    return f"""  (footprint "Arp3:MPR121_QFN20" (layer "F.Cu")
+    (at {fmt(cx)} {fmt(cy)})
+    (descr "MPR121 capacitive touch controller QFN-20 4x4mm")
+    (attr smd)
+    (fp_text reference "{ref}" (at 0 {fmt(-half - 1.5)}) (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.1)))
+    )
+    (fp_text value "MPR121" (at 0 {fmt(half + 1.5)}) (layer "F.Fab")
+      (effects (font (size 0.4 0.4) (thickness 0.08)))
+    )
+    (fp_line (start {fmt(-half)} {fmt(-half)}) (end {fmt(half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(half)} {fmt(-half)}) (end {fmt(half)} {fmt(half)}) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(half)} {fmt(half)}) (end {fmt(-half)} {fmt(half)}) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(-half)} {fmt(half)}) (end {fmt(-half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))
+    (fp_circle (center {fmt(-half + 0.5)} {fmt(-half + 0.5)}) (end {fmt(-half + 0.7)} {fmt(-half + 0.5)}) (layer "F.SilkS") (width 0.1))
+{chr(10).join(pads)}
+  )"""
+
+
+def slider_ics():
+    """Two MPR121 touch controllers + decoupling caps."""
+    parts = []
+
+    # MPR121 pinout (QFN-20, 5 pins/side, counter-clockwise from pin 1):
+    # Left(1-5):   VDD, VSS, VREG, SCL, SDA
+    # Bottom(6-10): IRQ, nc, REXT, ELE0, ELE1
+    # Right(11-15): VSS, ELE2, ELE3, ELE4, ELE5
+    # Top(16-20):   ELE6, ELE7, ELE8, ELE9, ELE10/ELE11/ADDR/VDD
+    # (exact pinout simplified — nets assigned to electrodes)
+
+    # U3: vertical slider (addr 0x5A, ADDR→GND)
+    u3_nets = {
+        1: NET_VCC, 2: NET_GND, 3: 0,  # VDD, VSS, VREG
+        4: NET_I2C_SCL, 5: NET_I2C_SDA,
+        6: NET_MPR_IRQ_V,
+        9: net_vslider(0), 10: net_vslider(1),
+        11: NET_GND,
+        12: net_vslider(2), 13: net_vslider(3),
+        14: net_vslider(4), 15: net_vslider(5),
+        16: net_vslider(6), 17: net_vslider(7),
+        20: NET_VCC,
+    }
+    parts.append(mpr121_footprint(MPR_VSLIDER_X, MPR_VSLIDER_Y, "U3", u3_nets))
+
+    # U4: horizontal slider (addr 0x5B, ADDR→VDD)
+    u4_nets = {
+        1: NET_VCC, 2: NET_GND, 3: 0,
+        4: NET_I2C_SCL, 5: NET_I2C_SDA,
+        6: NET_MPR_IRQ_H,
+        9: net_hslider(0), 10: net_hslider(1),
+        11: NET_GND,
+        12: net_hslider(2), 13: net_hslider(3),
+        14: net_hslider(4), 15: net_hslider(5),
+        16: net_hslider(6), 17: net_hslider(7),
+        20: NET_VCC,
+    }
+    parts.append(mpr121_footprint(MPR_HSLIDER_X, MPR_HSLIDER_Y, "U4", u4_nets))
+
+    # Decoupling caps (100nF VDD, 100nF VREG per chip)
+    parts.append(passive_0603(MPR_VSLIDER_X + 4, MPR_VSLIDER_Y, "C3", "100nF", NET_VCC, NET_GND))
+    parts.append(passive_0603(MPR_VSLIDER_X + 4, MPR_VSLIDER_Y + 2, "C4", "100nF", NET_VCC, NET_GND))
+    parts.append(passive_0603(MPR_HSLIDER_X + 4, MPR_HSLIDER_Y, "C5", "100nF", NET_VCC, NET_GND))
+    parts.append(passive_0603(MPR_HSLIDER_X + 4, MPR_HSLIDER_Y + 2, "C6", "100nF", NET_VCC, NET_GND))
+
+    return "\n".join(parts)
+
+
+# ── Row 9: modifier keys + space bar ────────────────────────────────
+
+ROW9_KEYS = [
+    ("SW_SHIFT", NET_KEY_SHIFT, 0),    # col 0
+    ("SW_CTRL",  NET_KEY_CTRL,  1),    # col 1
+    ("SW_OPT",   NET_KEY_OPT,   2),    # col 2
+    ("SW_CMD",   NET_KEY_CMD,   3),    # col 3
+]
+
+def row9_switches():
+    """Modifier keys (1u each) and space bar (2u) on row 9. No LEDs."""
+    parts = []
+    row = ROWS  # row index 8
+
+    for ref, net, col in ROW9_KEYS:
+        cx, cy = cell_center(row, col)
+        parts.append(f"""  (footprint "Arp3:Kailh_Choc_V1" (layer "F.Cu")
+    (at {fmt(cx)} {fmt(cy)})
+    (descr "Kailh Choc V1 modifier key")
+    (attr through_hole)
+    (fp_text reference "{ref}" (at 0 -8.5) (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {net} {nn(net)}))
+    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_GND} {nn(NET_GND)}))
+    (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
+    (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
+    (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
+  )""")
+
+    # Space bar — 4u wide, centered between cols 4-7
+    space_cx = ORIGIN_X + 5.5 * PITCH
+    space_cy = ORIGIN_Y + row * PITCH
+    parts.append(f"""  (footprint "Arp3:Kailh_Choc_V1" (layer "F.Cu")
+    (at {fmt(space_cx)} {fmt(space_cy)})
+    (descr "Kailh Choc V1 space bar 2u")
+    (attr through_hole)
+    (fp_text reference "SW_SPACE" (at 0 -8.5) (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_KEY_SPACE} {nn(NET_KEY_SPACE)}))
+    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_GND} {nn(NET_GND)}))
+    (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
+    (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
+    (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
+  )""")
+
+    return "\n".join(parts)
+
+
+# ── Capacitive sliders ──────────────────────────────────────────────
+
+SLIDER_PAD_GAP = 0.3      # gap between adjacent slider pads
+SLIDER_TOOTH_AMP = 2.5    # zigzag amplitude
+SLIDER_TOOTH_H = 2.5      # height of one zigzag tooth
+
+
+def zigzag_boundary(x_center, y_bot, y_top, amp, half_gap):
+    """Vertical zigzag boundary for a vertical slider."""
+    pts = []
+    n_teeth = int((y_top - y_bot) / SLIDER_TOOTH_H)
+    th = (y_top - y_bot) / max(n_teeth, 1)
+    for i in range(n_teeth):
+        y0 = y_bot + i * th
+        y1 = y0 + th / 2.0
+        pts.append((x_center - amp + half_gap, y0))
+        pts.append((x_center + amp + half_gap, y1))
+    pts.append((x_center - amp + half_gap, y_top))
+    return pts
+
+
+def hzigzag_boundary(y_center, x_left, x_right, amp, half_gap):
+    """Horizontal zigzag boundary for a horizontal slider."""
+    pts = []
+    n_teeth = int((x_right - x_left) / SLIDER_TOOTH_H)
+    tw = (x_right - x_left) / max(n_teeth, 1)
+    for i in range(n_teeth):
+        x0 = x_left + i * tw
+        x1 = x0 + tw / 2.0
+        pts.append((x0, y_center - amp + half_gap))
+        pts.append((x1, y_center + amp + half_gap))
+    pts.append((x_right, y_center - amp + half_gap))
+    return pts
+
+
+def _vzig(y_center, x_left, x_right, n_teeth, amp, half_gap):
+    """Horizontal zigzag boundary at a given Y (for vertical slider).
+    Returns points from left to right."""
+    pts = []
+    tw = (x_right - x_left) / max(n_teeth, 1)
+    for i in range(n_teeth):
+        x0 = x_left + i * tw
+        x1 = x0 + tw / 2.0
+        pts.append((x0, y_center - amp + half_gap))
+        pts.append((x1, y_center + amp + half_gap))
+    pts.append((x_right, y_center - amp + half_gap))
+    return pts
+
+
+def _hzig(x_center, y_top, y_bot, n_teeth, amp, half_gap):
+    """Vertical zigzag boundary at a given X (for horizontal slider).
+    Returns points from top to bottom."""
+    pts = []
+    th = (y_bot - y_top) / max(n_teeth, 1)
+    for i in range(n_teeth):
+        y0 = y_top + i * th
+        y1 = y0 + th / 2.0
+        pts.append((x_center - amp + half_gap, y0))
+        pts.append((x_center + amp + half_gap, y1))
+    pts.append((x_center - amp + half_gap, y_bot))
+    return pts
+
+
+def vertical_slider_zones():
+    """8 chevron copper zones for the vertical slider, left of grid."""
+    zones = []
+    hg = SLIDER_PAD_GAP / 2
+    sl_x0 = MARGIN
+    sl_x1 = MARGIN + SLIDER_W
+    n_teeth = int(SLIDER_W / SLIDER_TOOTH_H)
+
+    for i in range(8):
+        net_id = net_vslider(i)
+        net_name = nn(net_id)
+        pad_y0 = ORIGIN_Y - PITCH / 2 + i * PITCH
+        pad_y1 = pad_y0 + PITCH
+        bnd_y0 = pad_y0
+        bnd_y1 = pad_y1
+
+        pts = []
+        # Top edge: straight if first pad, zigzag otherwise
+        if i == 0:
+            pts.append((sl_x0, bnd_y0))
+            pts.append((sl_x1, bnd_y0))
+        else:
+            pts.extend(_vzig(bnd_y0, sl_x0, sl_x1, n_teeth, SLIDER_TOOTH_AMP, +hg))
+
+        # Bottom edge (right to left): straight if last pad, zigzag reversed
+        if i == 7:
+            pts.append((sl_x1, bnd_y1))
+            pts.append((sl_x0, bnd_y1))
+        else:
+            bottom = _vzig(bnd_y1, sl_x0, sl_x1, n_teeth, SLIDER_TOOTH_AMP, -hg)
+            bottom.reverse()
+            pts.extend(bottom)
+
+        xy_str = " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in pts)
+        zones.append(f"""  (zone (net {net_id}) (net_name {net_name}) (layer "F.Cu") (tstamp {uuid()})
+    (hatch edge 0.5)
+    (connect_pads (clearance 0.2))
+    (min_thickness 0.2)
+    (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (polygon (pts {xy_str}))
+  )""")
+    return "\n".join(zones)
+
+
+def horizontal_slider_zones():
+    """8 chevron copper zones for the horizontal slider, right half of row 9."""
+    zones = []
+    hg = SLIDER_PAD_GAP / 2
+    sl_y_center = ORIGIN_Y + ROWS * PITCH
+    sl_y0 = sl_y_center - PITCH / 2
+    sl_y1 = sl_y_center + PITCH / 2
+    n_teeth = int(PITCH / SLIDER_TOOTH_H)
+
+    for i in range(8):
+        net_id = net_hslider(i)
+        net_name = nn(net_id)
+        pad_x0 = ORIGIN_X + (8 + i) * PITCH - PITCH / 2
+        pad_x1 = pad_x0 + PITCH
+
+        pts = []
+        # Left edge (top to bottom): straight if first, zigzag otherwise
+        if i == 0:
+            pts.append((pad_x0, sl_y0))
+            pts.append((pad_x0, sl_y1))
+        else:
+            pts.extend(_hzig(pad_x0, sl_y0, sl_y1, n_teeth, SLIDER_TOOTH_AMP, +hg))
+
+        # Right edge (bottom to top): straight if last, zigzag reversed
+        if i == 7:
+            pts.append((pad_x1, sl_y1))
+            pts.append((pad_x1, sl_y0))
+        else:
+            right = _hzig(pad_x1, sl_y0, sl_y1, n_teeth, SLIDER_TOOTH_AMP, -hg)
+            right.reverse()
+            pts.extend(right)
+
+        xy_str = " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in pts)
+        zones.append(f"""  (zone (net {net_id}) (net_name {net_name}) (layer "F.Cu") (tstamp {uuid()})
+    (hatch edge 0.5)
+    (connect_pads (clearance 0.2))
+    (min_thickness 0.2)
+    (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (polygon (pts {xy_str}))
+  )""")
+    return "\n".join(zones)
 
 
 def board_outline():
@@ -566,22 +1106,28 @@ def route_led_chain():
                 (din_x, din_y),
             ], TRACE_W, "B.Cu", chain_n)
         else:
-            # ── Inter-row: route through board margin ──
+            # ── Inter-row: route between rows ──
             if src_c == COLS - 1:
-                # Right-side transition (even→odd row) — F.Cu to avoid
-                # conflict with row connector fan-in traces on B.Cu
-                margin_x = src_cx + LED_INTERROW_MARGIN
-                layer = "F.Cu"
+                # Right-side transition (even→odd row) — route through
+                # switch pad gap on F.Cu (between center post and pad 2)
+                route_x = src_cx + 2.7
+                led_cy = dst_cy + LED_OFFSET[1]  # destination LED center Y
+                lines += chamfer_route([
+                    (dout_x, dout_y),
+                    (route_x, dout_y),      # jog right into switch gap
+                    (route_x, led_cy),       # down between pads 1 and 2
+                    (din_x, led_cy),         # left through LED pad gap
+                    (din_x, din_y),          # down to DIN pad
+                ], TRACE_W, "F.Cu", chain_n, chamfer=0.15)
             else:
-                # Left-side transition (odd→even row) — B.Cu
+                # Left-side transition (odd→even row) — B.Cu margin
                 margin_x = src_cx - LED_INTERROW_MARGIN
-                layer = "B.Cu"
-            lines += chamfer_route([
-                (dout_x, dout_y),
-                (margin_x, dout_y),
-                (margin_x, din_y),
-                (din_x, din_y),
-            ], TRACE_W, layer, chain_n)
+                lines += chamfer_route([
+                    (dout_x, dout_y),
+                    (margin_x, dout_y),
+                    (margin_x, din_y),
+                    (din_x, din_y),
+                ], TRACE_W, "B.Cu", chain_n)
     return "\n".join(lines)
 
 
@@ -628,7 +1174,7 @@ def route_led_vcc():
 
 # ── Connector routing (right side) ──────────────────────────────────
 
-CONN_FANIN_SPACING = 0.5  # spacing between fan-in traces
+CONN_FANIN_SPACING = 0.4  # spacing between fan-in traces (tight to fit before Teensy)
 CHAMFER = 0.6              # 45° chamfer distance at corners
 
 
@@ -675,106 +1221,93 @@ def chamfer_route(waypoints, width, layer, net_id, chamfer=CHAMFER):
 
 
 def route_conn_rows():
-    """B.Cu: fan-in from row buses to J2 connector pins on the right."""
-    lines = []
-    last_diode_x = ORIGIN_X + (COLS - 1) * PITCH + DIODE_OFFSET[0]
-    fanin_base_x = last_diode_x + 2.0
+    """Row buses already end at vias on B.Cu at each diode cathode.
+    Manual routing from the last via in each row to U2 QFN pins."""
+    return ""
 
-    for r in range(ROWS):
-        n = net_row(r)
-        cy = ORIGIN_Y + r * PITCH
-        bus_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY   # row bus Y on B.Cu
-        pin_y = J2_Y + r * CONN_PITCH_MM
-        fanin_x = fanin_base_x + r * CONN_FANIN_SPACING
 
-        lines += chamfer_route([
-            (last_diode_x, bus_y),   # end of existing row bus
-            (fanin_x, bus_y),        # turn into fan-in channel
-            (fanin_x, pin_y),        # turn toward connector
-            (CONN_X, pin_y),         # connector pin
-        ], TRACE_W, "B.Cu", n)
-    return "\n".join(lines)
+COLS_PER_GAP = 4   # columns routed through each inter-row gap
+GAP_Y_SPACING = 1.0  # Y spacing between traces in the same gap
 
 
 def route_conn_cols():
-    """F.Cu: fan-in from column trunks to J1 connector pins on the right.
+    """Route column trunks to U1 (column expander) on the right.
 
-    Each column trunk is extended upward above the grid to a horizontal bus,
-    then routed right to a vertical fan-in channel, then down to the pin.
+    4 columns per gap, leftmost columns first (top gap).
+    COL 0-3 between rows 3-4, COL 4-7 between rows 4-5, etc.
+    All within the grid (no traces below bottom row).
+
+    B.Cu horizontal through gap, via to F.Cu, then fan-in upward to U1.
+
+    Fan-in X ordering: COL 0 is leftmost (outermost), COL 15 is
+    rightmost (closest to MCP pins — goes nearly straight up).
+    Within each group, the top trace (lowest within-index) gets the
+    leftmost X so it turns upward first without crossing.
     """
     lines = []
-    trunk_top_y = ORIGIN_Y + SW_PAD1[1]  # topmost point of column trunks
+    via_x_right = ORIGIN_X + (COLS - 1) * PITCH + DIODE_OFFSET[0] + 1.0
+    fanin_start = via_x_right + 1.5   # leftmost fan-in (COL 0)
 
     for c in range(COLS):
         n = net_col(c)
         cx = ORIGIN_X + c * PITCH
         trunk_x = cx + COL_TRUNK_DX
-        bus_y = 4.0 + c * CONN_FANIN_SPACING          # horizontal bus Y
-        pin_y = J1_Y + c * CONN_PITCH_MM
-        fanin_x = CONN_X - 2.0 - c * CONN_FANIN_SPACING
+        target_x, target_y = col_pin_pos(c)
 
-        lines += chamfer_route([
-            (trunk_x, trunk_top_y),  # top of column trunk
-            (trunk_x, bus_y),        # turn into horizontal bus
-            (fanin_x, bus_y),        # turn into fan-in channel
-            (fanin_x, pin_y),        # turn toward connector
-            (CONN_X, pin_y),         # connector pin
-        ], TRACE_W, "F.Cu", n)
+        # Leftmost cols first: COL 0-3 in gap rows 3-4, COL 4-7 in 4-5, etc.
+        group = c // COLS_PER_GAP
+        within = c % COLS_PER_GAP
+        n_in_group = min(COLS_PER_GAP, COLS - group * COLS_PER_GAP)
+        gap_row = 3 + group  # rows 3-4, 4-5, 5-6, 6-7
+
+        gap_center = ORIGIN_Y + gap_row * PITCH + 11.25
+        gap_y = gap_center + (within - (n_in_group - 1) / 2.0) * GAP_Y_SPACING
+
+        # Fan-in X: COL 0 leftmost (outermost), COL 15 rightmost (innermost).
+        # At the horizontal→vertical corner (turning left/up), leftmost
+        # trace turns first — COL0 is leftmost, turns first.
+        fanin_x = fanin_start + c * CONN_FANIN_SPACING
+
+        # Via from F.Cu trunk to B.Cu
+        lines.append(via_hole(trunk_x, gap_y, n))
+        # B.Cu horizontal through gap
+        lines.append(seg(trunk_x, gap_y, via_x_right, gap_y,
+                         TRACE_W, "B.Cu", n))
+        # Via back to F.Cu
+        lines.append(via_hole(via_x_right, gap_y, n))
+
+        # F.Cu route depends on which QFN side the pin is on:
+        #
+        # COL0-7 (top/left pins): approach pad from the RIGHT.
+        #   Run up to pin Y, then horizontal right to the pad.
+        #   Spread: COL0 (outermost) turns right first (highest Y).
+        #
+        # COL8-15 (bottom/right pins): approach pad from BELOW.
+        #   Run up, then diagonal right to land under the pad,
+        #   then straight up into the pad.
+        #   Spread: COL8 (outermost) turns right first (highest Y).
+
+        # Via from F.Cu trunk to B.Cu
+        lines.append(via_hole(trunk_x, gap_y, n))
+        # B.Cu horizontal through gap to right edge of grid
+        lines.append(seg(trunk_x, gap_y, via_x_right, gap_y,
+                         TRACE_W, "B.Cu", n))
+        # Via back to F.Cu — manual routing from here to QFN pins
+        lines.append(via_hole(via_x_right, gap_y, n))
     return "\n".join(lines)
 
 
 def route_conn_power():
-    """F.Cu: traces from nearest LED VCC/GND pads to J1 power pins."""
-    lines = []
-    # Source: row 3, col 15 LED (closest to power pins)
-    src_cx, src_cy = cell_center(3, COLS - 1)
-    led_x = src_cx + LED_OFFSET[0]
-    led_y = src_cy + LED_OFFSET[1]
-
-    # VCC: LED pin 1 (top-left) → J1 pin 17
-    vcc_x = led_x - LED_PAD_DX
-    vcc_y = led_y - LED_PAD_DY
-    vcc_pin_y = J1_Y + 16 * CONN_PITCH_MM
-    # Route below column fan-in, above GND pad
-    vcc_mid_y = vcc_pin_y - 1.5
-    lines += chamfer_route([
-        (vcc_x, vcc_y),
-        (vcc_x, vcc_mid_y),
-        (CONN_X, vcc_mid_y),
-        (CONN_X, vcc_pin_y),
-    ], POWER_W, "F.Cu", NET_VCC)
-
-    # GND: LED pin 3 (bottom-right) → J1 pin 18
-    gnd_x = led_x + LED_PAD_DX
-    gnd_y = led_y + LED_PAD_DY
-    gnd_pin_y = J1_Y + 17 * CONN_PITCH_MM
-    lines += chamfer_route([
-        (gnd_x, gnd_y),
-        (gnd_x, gnd_pin_y),
-        (CONN_X, gnd_pin_y),
-    ], POWER_W, "F.Cu", NET_GND)
+    """VCC and GND connector pins are connected via zone fills (B.Cu GND
+    zone and F.Cu VCC zone).  No explicit traces needed."""
+    return ""
 
     return "\n".join(lines)
 
 
 def route_conn_led_din():
-    """B.Cu: route LED_DIN from first LED's via to J1 pin, around the board."""
-    cx0, cy0 = cell_center(0, 0)
-    din_via_x = cx0 + LED_OFFSET[0] - LED_PAD_DX   # 15.825
-    din_via_y = cy0 + LED_OFFSET[1] + LED_PAD_DY    # 15.325
-    pin_y = J1_Y + 18 * CONN_PITCH_MM               # LED_DIN is pin 19
-
-    route_x = din_via_x - 2.0     # left of VCC vias at din_via_x
-    bottom_y = BOARD_H - 2.0
-
-    lines = chamfer_route([
-        (din_via_x, din_via_y),   # first LED DIN via
-        (route_x, din_via_y),     # jog left to clear VCC stubs
-        (route_x, bottom_y),      # down the left side
-        (CONN_X, bottom_y),       # right along the bottom
-        (CONN_X, pin_y),          # up to connector pin
-    ], TRACE_W, "B.Cu", NET_LED_DIN)
-    return "\n".join(lines)
+    """LED_DIN via exists at first LED. Manual routing to Teensy."""
+    return ""
 
 
 # ── Main output ───────────────────────────────────────────────────────
@@ -870,7 +1403,15 @@ def generate():
 
 {all_leds}
 
-{connectors()}
+{mcp_components()}
+
+{row9_switches()}
+
+{slider_ics()}
+
+{vertical_slider_zones()}
+
+{horizontal_slider_zones()}
 
 {routing_sw_diode}
 
