@@ -405,6 +405,223 @@ def vcc_zone():
   )"""
 
 
+# ── Routing primitives ────────────────────────────────────────────────
+
+TRACE_W = 0.25   # signal trace width (mm)
+POWER_W = 0.5    # power trace width (mm)
+VIA_SIZE = 0.8
+VIA_DRILL = 0.4
+
+# Column trace vertical trunk offset from switch center x.
+# Must clear center post (radius 1.5 mm) and LED pads (edge at cx ± 1.55).
+COL_TRUNK_DX = -2.5
+
+# LED data horizontal routing channel (y offset from switch center)
+LED_DATA_BUS_DY = -2.0
+
+# LED VCC horizontal bus (y offset from switch center), clear of DOUT vias at -3.3
+LED_VCC_BUS_DY = -4.5
+
+# Inter-row LED chain routing margin (x offset from switch center)
+LED_INTERROW_MARGIN = 8.0
+
+
+def seg(x1, y1, x2, y2, width, layer, net_id):
+    """Generate a KiCad trace segment."""
+    return (f'  (segment (start {fmt(x1)} {fmt(y1)}) (end {fmt(x2)} {fmt(y2)}) '
+            f'(width {fmt(width)}) (layer "{layer}") (net {net_id}) (tstamp {uuid()}))')
+
+
+def via_hole(x, y, net_id):
+    """Generate a KiCad via."""
+    return (f'  (via (at {fmt(x)} {fmt(y)}) (size {fmt(VIA_SIZE)}) '
+            f'(drill {fmt(VIA_DRILL)}) (layers "F.Cu" "B.Cu") '
+            f'(net {net_id}) (tstamp {uuid()}))')
+
+
+def chain_to_rc(idx):
+    """Convert LED chain index (0-127) to (row, col)."""
+    row = idx // COLS
+    col_in_row = idx % COLS
+    if row % 2 == 1:
+        col = COLS - 1 - col_in_row
+    else:
+        col = col_in_row
+    return (row, col)
+
+
+# ── Routing generators ───────────────────────────────────────────────
+
+def route_switch_to_diode():
+    """F.Cu: short vertical trace from switch pad 2 to diode anode."""
+    lines = []
+    for r in range(ROWS):
+        for c in range(COLS):
+            cx, cy = cell_center(r, c)
+            n = net_sw(r, c)
+            # SW pad 2: (cx + 5.0, cy + 3.8)
+            # Diode anode (pad 2): (cx + 5.0, cy + 7.0 - 0.95) = (cx + 5.0, cy + 6.05)
+            lines.append(seg(cx + 5.0, cy + 3.8, cx + 5.0, cy + 6.05,
+                             TRACE_W, "F.Cu", n))
+    return "\n".join(lines)
+
+
+def route_columns():
+    """F.Cu: vertical column bus with horizontal stubs to each switch pad 1.
+
+    Trunk runs at cx + COL_TRUNK_DX to clear the center post (3 mm drill at
+    switch center).  Horizontal stubs connect the trunk to pad 1 at (cx, cy+5.9).
+    """
+    lines = []
+    for c in range(COLS):
+        n = net_col(c)
+        cx = ORIGIN_X + c * PITCH
+        trunk_x = cx + COL_TRUNK_DX
+
+        for r in range(ROWS):
+            cy = ORIGIN_Y + r * PITCH
+            pad_y = cy + SW_PAD1[1]  # cy + 5.9
+
+            # Horizontal stub: pad → trunk
+            lines.append(seg(cx, pad_y, trunk_x, pad_y, TRACE_W, "F.Cu", n))
+
+            # Vertical trunk to next row
+            if r < ROWS - 1:
+                next_pad_y = ORIGIN_Y + (r + 1) * PITCH + SW_PAD1[1]
+                lines.append(seg(trunk_x, pad_y, trunk_x, next_pad_y,
+                                 TRACE_W, "F.Cu", n))
+    return "\n".join(lines)
+
+
+def route_rows():
+    """B.Cu: horizontal row bus connecting diode cathodes via vias.
+
+    Via at each diode cathode pad (F.Cu SMD) drops to B.Cu.  Horizontal trace
+    on B.Cu links all cathodes in the same row.
+    """
+    lines = []
+    for r in range(ROWS):
+        n = net_row(r)
+        cy = ORIGIN_Y + r * PITCH
+        via_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY  # cy + 7.95
+
+        for c in range(COLS):
+            cx = ORIGIN_X + c * PITCH
+            via_x = cx + DIODE_OFFSET[0]  # cx + 5.0
+
+            # Via from F.Cu diode cathode pad to B.Cu
+            lines.append(via_hole(via_x, via_y, n))
+
+            # Horizontal B.Cu trace to next column's diode
+            if c < COLS - 1:
+                next_x = ORIGIN_X + (c + 1) * PITCH + DIODE_OFFSET[0]
+                lines.append(seg(via_x, via_y, next_x, via_y,
+                                 TRACE_W, "B.Cu", n))
+    return "\n".join(lines)
+
+
+def route_led_chain():
+    """B.Cu: snaking LED data chain with vias at DOUT / DIN pads.
+
+    Intra-row connections route through a horizontal channel at
+    cy + LED_DATA_BUS_DY.  Inter-row connections route through the board
+    margin (left or right of the grid).
+    """
+    lines = []
+
+    # Via at first LED's DIN pad (LED_DIN input)
+    cx0, cy0 = cell_center(0, 0)
+    lines.append(via_hole(cx0 + LED_OFFSET[0] - LED_PAD_DX,
+                          cy0 + LED_OFFSET[1] + LED_PAD_DY,
+                          NET_LED_DIN))
+
+    total = ROWS * COLS
+    for n in range(total - 1):
+        src_r, src_c = chain_to_rc(n)
+        dst_r, dst_c = chain_to_rc(n + 1)
+        src_cx, src_cy = cell_center(src_r, src_c)
+        dst_cx, dst_cy = cell_center(dst_r, dst_c)
+
+        # DOUT pad absolute position (LED offset + pad offset)
+        dout_x = src_cx + LED_OFFSET[0] + LED_PAD_DX   # cx + 1.2
+        dout_y = src_cy + LED_OFFSET[1] - LED_PAD_DY   # cy - 3.3
+        # DIN pad absolute position
+        din_x = dst_cx + LED_OFFSET[0] - LED_PAD_DX    # cx - 1.2
+        din_y = dst_cy + LED_OFFSET[1] + LED_PAD_DY    # cy - 1.7
+
+        chain_n = net_led_chain(n + 1)
+
+        # Vias at DOUT and DIN
+        lines.append(via_hole(dout_x, dout_y, chain_n))
+        lines.append(via_hole(din_x, din_y, chain_n))
+
+        if src_r == dst_r:
+            # ── Intra-row: horizontal channel on B.Cu ──
+            bus_y = src_cy + LED_DATA_BUS_DY  # cy - 2.0
+            lines.append(seg(dout_x, dout_y, dout_x, bus_y,
+                             TRACE_W, "B.Cu", chain_n))
+            lines.append(seg(dout_x, bus_y, din_x, bus_y,
+                             TRACE_W, "B.Cu", chain_n))
+            lines.append(seg(din_x, bus_y, din_x, din_y,
+                             TRACE_W, "B.Cu", chain_n))
+        else:
+            # ── Inter-row: route through board margin ──
+            if src_c == COLS - 1:
+                # Right-side transition (even→odd row)
+                margin_x = src_cx + LED_INTERROW_MARGIN
+            else:
+                # Left-side transition (odd→even row)
+                margin_x = src_cx - LED_INTERROW_MARGIN
+            lines.append(seg(dout_x, dout_y, margin_x, dout_y,
+                             TRACE_W, "B.Cu", chain_n))
+            lines.append(seg(margin_x, dout_y, margin_x, din_y,
+                             TRACE_W, "B.Cu", chain_n))
+            lines.append(seg(margin_x, din_y, din_x, din_y,
+                             TRACE_W, "B.Cu", chain_n))
+    return "\n".join(lines)
+
+
+def route_led_gnd():
+    """Via at each LED GND pad → B.Cu ground fill."""
+    lines = []
+    for r in range(ROWS):
+        for c in range(COLS):
+            cx, cy = cell_center(r, c)
+            gnd_x = cx + LED_OFFSET[0] + LED_PAD_DX   # cx + 1.2
+            gnd_y = cy + LED_OFFSET[1] + LED_PAD_DY   # cy - 1.7
+            lines.append(via_hole(gnd_x, gnd_y, NET_GND))
+    return "\n".join(lines)
+
+
+def route_led_vcc():
+    """B.Cu: VCC bus per row with vias at each LED VCC pad.
+
+    Bus runs at cy + LED_VCC_BUS_DY (below the DOUT vias at cy - 3.3).
+    Short stubs connect each VCC pad via to the bus.
+    """
+    lines = []
+    for r in range(ROWS):
+        cy = ORIGIN_Y + r * PITCH
+        pad_y = cy + LED_OFFSET[1] - LED_PAD_DY  # cy - 3.3
+        bus_y = cy + LED_VCC_BUS_DY               # cy - 4.5
+
+        for c in range(COLS):
+            cx = ORIGIN_X + c * PITCH
+            vcc_x = cx + LED_OFFSET[0] - LED_PAD_DX  # cx - 1.2
+
+            # Via at VCC pad
+            lines.append(via_hole(vcc_x, pad_y, NET_VCC))
+            # Stub from via to bus
+            lines.append(seg(vcc_x, pad_y, vcc_x, bus_y,
+                             POWER_W, "B.Cu", NET_VCC))
+            # Horizontal bus to next column
+            if c < COLS - 1:
+                next_x = ORIGIN_X + (c + 1) * PITCH + LED_OFFSET[0] - LED_PAD_DX
+                lines.append(seg(vcc_x, bus_y, next_x, bus_y,
+                                 POWER_W, "B.Cu", NET_VCC))
+    return "\n".join(lines)
+
+
 # ── Main output ───────────────────────────────────────────────────────
 
 def generate():
@@ -424,6 +641,14 @@ def generate():
     all_switches = "\n".join(switches)
     all_diodes = "\n".join(diodes)
     all_leds = "\n".join(leds)
+
+    # Generate routing
+    routing_sw_diode = route_switch_to_diode()
+    routing_cols = route_columns()
+    routing_rows = route_rows()
+    routing_led_chain = route_led_chain()
+    routing_led_gnd = route_led_gnd()
+    routing_led_vcc = route_led_vcc()
 
     return f"""(kicad_pcb (version 20221018) (generator "arp3_grid_gen")
 
@@ -493,6 +718,24 @@ def generate():
 
   ; ══════ Connectors ══════
 {connectors()}
+
+  ; ══════ Routing: switch → diode (F.Cu) ══════
+{routing_sw_diode}
+
+  ; ══════ Routing: column buses (F.Cu) ══════
+{routing_cols}
+
+  ; ══════ Routing: row buses (B.Cu + vias) ══════
+{routing_rows}
+
+  ; ══════ Routing: LED data chain (B.Cu + vias) ══════
+{routing_led_chain}
+
+  ; ══════ Routing: LED GND vias ══════
+{routing_led_gnd}
+
+  ; ══════ Routing: LED VCC bus (B.Cu + vias) ══════
+{routing_led_vcc}
 
   ; ══════ Ground fill (B.Cu) ══════
 {ground_zone()}
