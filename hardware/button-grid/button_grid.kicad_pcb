@@ -49,7 +49,6 @@
     )
   )
 
-  ; ── Nets (283 total) ──
   (net 0 "")
   (net 1 "COL0")
   (net 2 "COL1")
@@ -334,13 +333,11 @@
   (net 281 "SW_7_14")
   (net 282 "SW_7_15")
 
-  ; ══════ Board outline (319.8 × 179.4 mm) ══════
   (gr_line (start 0 0) (end 319.8 0) (layer "Edge.Cuts") (width 0.1))
   (gr_line (start 319.8 0) (end 319.8 179.4) (layer "Edge.Cuts") (width 0.1))
   (gr_line (start 319.8 179.4) (end 0 179.4) (layer "Edge.Cuts") (width 0.1))
   (gr_line (start 0 179.4) (end 0 0) (layer "Edge.Cuts") (width 0.1))
 
-  ; ══════ Kailh Choc V1 switches (128) ══════
   (footprint "Arp3:Kailh_Choc_V1" (layer "F.Cu")
     (at 17.025 17.025)
     (descr "Kailh Choc V1 PG1350 low-profile switch")
@@ -2902,7 +2899,6 @@
     (pad "" np_thru_hole circle (at 5.22 0) (size 1.7 1.7) (drill 1.7) (layers "*.Cu" "*.Mask"))
   )
 
-  ; ══════ Anti-ghosting diodes (128) ══════
   (footprint "Arp3:D_SOD-323" (layer "F.Cu")
     (at 22.025 24.025)
     (descr "1N4148W anti-ghosting diode SOD-323")
@@ -4696,7 +4692,6 @@
     (pad "2" smd rect (at 0 -0.95) (size 0.8 0.6) (layers "F.Cu" "F.Paste" "F.Mask") (net 282 "SW_7_15"))
   )
 
-  ; ══════ SK6812MINI-E RGBW LEDs (128) ══════
   (footprint "Arp3:SK6812MINI-E" (layer "F.Cu")
     (at 17.025 14.525)
     (descr "SK6812MINI-E RGBW 3535 addressable LED")
@@ -7258,7 +7253,6 @@
     (pad "4" smd rect (at -1.2 0.8) (size 0.7 0.7) (layers "F.Cu" "F.Paste" "F.Mask") (net 139 "LED_CH112"))
   )
 
-  ; ══════ Connectors ══════
   (footprint "Arp3:PinHeader_1x20_P2.54mm" (layer "F.Cu")
     (at 17.025 173.4)
     (descr "COL0-15, VCC, GND, LED_DIN, spare")
@@ -7310,7 +7304,6 @@
     (pad "8" thru_hole circle (at 17.78 0) (size 1.7 1.7) (drill 1) (layers "*.Cu" "*.Mask") (net 24 "ROW7"))
   )
 
-  ; ══════ Routing: switch → diode (F.Cu) ══════
   (segment (start 22.025 20.825) (end 22.025 23.075) (width 0.25) (layer "F.Cu") (net 155) (tstamp 00000000-0000-0000-0000-000000000001))
   (segment (start 41.075 20.825) (end 41.075 23.075) (width 0.25) (layer "F.Cu") (net 156) (tstamp 00000000-0000-0000-0000-000000000002))
   (segment (start 60.125 20.825) (end 60.125 23.075) (width 0.25) (layer "F.Cu") (net 157) (tstamp 00000000-0000-0000-0000-000000000003))
@@ -7440,7 +7433,6 @@
   (segment (start 288.725 154.175) (end 288.725 156.425) (width 0.25) (layer "F.Cu") (net 281) (tstamp 00000000-0000-0000-0000-000000000127))
   (segment (start 307.775 154.175) (end 307.775 156.425) (width 0.25) (layer "F.Cu") (net 282) (tstamp 00000000-0000-0000-0000-000000000128))
 
-  ; ══════ Routing: column buses (F.Cu) ══════
   (segment (start 17.025 22.925) (end 14.525 22.925) (width 0.25) (layer "F.Cu") (net 1) (tstamp 00000000-0000-0000-0000-000000000129))
   (segment (start 14.525 22.925) (end 14.525 41.975) (width 0.25) (layer "F.Cu") (net 1) (tstamp 00000000-0000-0000-0000-000000000130))
   (segment (start 17.025 41.975) (end 14.525 41.975) (width 0.25) (layer "F.Cu") (net 1) (tstamp 00000000-0000-0000-0000-000000000131))
@@ -7682,7 +7674,6 @@
   (segment (start 300.275 137.225) (end 300.275 156.275) (width 0.25) (layer "F.Cu") (net 16) (tstamp 00000000-0000-0000-0000-000000000367))
   (segment (start 302.775 156.275) (end 300.275 156.275) (width 0.25) (layer "F.Cu") (net 16) (tstamp 00000000-0000-0000-0000-000000000368))
 
-  ; ══════ Routing: row buses (B.Cu + vias) ══════
   (via (at 22.025 24.975) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 17) (tstamp 00000000-0000-0000-0000-000000000369))
   (segment (start 22.025 24.975) (end 41.075 24.975) (width 0.25) (layer "B.Cu") (net 17) (tstamp 00000000-0000-0000-0000-000000000370))
   (via (at 41.075 24.975) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 17) (tstamp 00000000-0000-0000-0000-000000000371))
@@ -7932,7 +7923,6 @@
   (segment (start 288.725 158.325) (end 307.775 158.325) (width 0.25) (layer "B.Cu") (net 24) (tstamp 00000000-0000-0000-0000-000000000615))
   (via (at 307.775 158.325) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 24) (tstamp 00000000-0000-0000-0000-000000000616))
 
-  ; ══════ Routing: LED data chain (B.Cu + vias) ══════
   (via (at 15.825 15.325) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 27) (tstamp 00000000-0000-0000-0000-000000000617))
   (via (at 18.225 13.725) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 28) (tstamp 00000000-0000-0000-0000-000000000618))
   (via (at 34.875 15.325) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 28) (tstamp 00000000-0000-0000-0000-000000000619))
@@ -8570,7 +8560,6 @@
   (segment (start 37.275 148.375) (end 15.825 148.375) (width 0.25) (layer "B.Cu") (net 154) (tstamp 00000000-0000-0000-0000-000000001251))
   (segment (start 15.825 148.375) (end 15.825 148.675) (width 0.25) (layer "B.Cu") (net 154) (tstamp 00000000-0000-0000-0000-000000001252))
 
-  ; ══════ Routing: LED GND vias ══════
   (via (at 18.225 15.325) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 26) (tstamp 00000000-0000-0000-0000-000000001253))
   (via (at 37.275 15.325) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 26) (tstamp 00000000-0000-0000-0000-000000001254))
   (via (at 56.325 15.325) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 26) (tstamp 00000000-0000-0000-0000-000000001255))
@@ -8700,7 +8689,6 @@
   (via (at 284.925 148.675) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 26) (tstamp 00000000-0000-0000-0000-000000001379))
   (via (at 303.975 148.675) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 26) (tstamp 00000000-0000-0000-0000-000000001380))
 
-  ; ══════ Routing: LED VCC bus (B.Cu + vias) ══════
   (via (at 15.825 13.725) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 25) (tstamp 00000000-0000-0000-0000-000000001381))
   (segment (start 15.825 13.725) (end 15.825 12.525) (width 0.5) (layer "B.Cu") (net 25) (tstamp 00000000-0000-0000-0000-000000001382))
   (segment (start 15.825 12.525) (end 34.875 12.525) (width 0.5) (layer "B.Cu") (net 25) (tstamp 00000000-0000-0000-0000-000000001383))
@@ -9078,7 +9066,6 @@
   (via (at 301.575 147.075) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 25) (tstamp 00000000-0000-0000-0000-000000001755))
   (segment (start 301.575 147.075) (end 301.575 145.875) (width 0.5) (layer "B.Cu") (net 25) (tstamp 00000000-0000-0000-0000-000000001756))
 
-  ; ══════ Ground fill (B.Cu) ══════
   (zone (net 26) (net_name "GND") (layer "B.Cu") (tstamp 00000000-0000-0000-0000-000000001757)
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
@@ -9091,7 +9078,6 @@
     ))
   )
 
-  ; ══════ VCC fill (F.Cu, connector area only) ══════
   (zone (net 25) (net_name "VCC") (layer "F.Cu") (tstamp 00000000-0000-0000-0000-000000001758)
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))

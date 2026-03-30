@@ -701,46 +701,32 @@ def generate():
     )
   )
 
-  ; ── Nets ({len(nets)} total) ──
 {net_defs}
 
-  ; ══════ Board outline ({fmt(BOARD_W)} × {fmt(BOARD_H)} mm) ══════
 {board_outline()}
 
-  ; ══════ Kailh Choc V1 switches (128) ══════
 {all_switches}
 
-  ; ══════ Anti-ghosting diodes (128) ══════
 {all_diodes}
 
-  ; ══════ SK6812MINI-E RGBW LEDs (128) ══════
 {all_leds}
 
-  ; ══════ Connectors ══════
 {connectors()}
 
-  ; ══════ Routing: switch → diode (F.Cu) ══════
 {routing_sw_diode}
 
-  ; ══════ Routing: column buses (F.Cu) ══════
 {routing_cols}
 
-  ; ══════ Routing: row buses (B.Cu + vias) ══════
 {routing_rows}
 
-  ; ══════ Routing: LED data chain (B.Cu + vias) ══════
 {routing_led_chain}
 
-  ; ══════ Routing: LED GND vias ══════
 {routing_led_gnd}
 
-  ; ══════ Routing: LED VCC bus (B.Cu + vias) ══════
 {routing_led_vcc}
 
-  ; ══════ Ground fill (B.Cu) ══════
 {ground_zone()}
 
-  ; ══════ VCC fill (F.Cu, connector area only) ══════
 {vcc_zone()}
 
 )

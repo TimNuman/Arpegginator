@@ -413,28 +413,20 @@ def generate():
 
 {net_defs}
 
-  ; ══════ Board outline ══════
 {board_outline()}
 
-  ; ══════ Slider silkscreen outline ══════
 {slider_silkscreen()}
 
-  ; ══════ Slider electrode zones (chevron pattern) ══════
 {electrode_zones}
 
-  ; ══════ Ground fill (B.Cu) ══════
 {ground_zone()}
 
-  ; ══════ Keepout under slider (B.Cu) ══════
 {keepout_zone()}
 
-  ; ══════ AT42QT2120-MMH (U1) ══════
 {qfn24_footprint()}
 
-  ; ══════ Passives ══════
 {passives}
 
-  ; ══════ Connector (J1) ══════
 {connector_footprint()}
 
 )

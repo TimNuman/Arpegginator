@@ -64,19 +64,16 @@
   (net 12 "SCL")
   (net 13 "CHANGE")
 
-  ; ══════ Board outline ══════
   (gr_line (start 0 0) (end 128 0) (layer "Edge.Cuts") (width 0.1))
   (gr_line (start 128 0) (end 128 18) (layer "Edge.Cuts") (width 0.1))
   (gr_line (start 128 18) (end 0 18) (layer "Edge.Cuts") (width 0.1))
   (gr_line (start 0 18) (end 0 0) (layer "Edge.Cuts") (width 0.1))
 
-  ; ══════ Slider silkscreen outline ══════
   (gr_line (start 4.5 3.5) (end 105.5 3.5) (layer "F.SilkS") (width 0.15))
   (gr_line (start 105.5 3.5) (end 105.5 14.5) (layer "F.SilkS") (width 0.15))
   (gr_line (start 105.5 14.5) (end 4.5 14.5) (layer "F.SilkS") (width 0.15))
   (gr_line (start 4.5 14.5) (end 4.5 3.5) (layer "F.SilkS") (width 0.15))
 
-  ; ══════ Slider electrode zones (chevron pattern) ══════
   (zone (net 1) (net_name "KEY0") (layer "F.Cu") (tstamp 00000000-0000-0000-0000-000000000001)
     (hatch edge 0.5)
     (connect_pads (clearance 0.2))
@@ -150,7 +147,6 @@
     (filled_polygon (layer "F.Cu") (pts (xy 90.15 4) (xy 95.15 5.25) (xy 90.15 6.5) (xy 95.15 7.75) (xy 90.15 9) (xy 95.15 10.25) (xy 90.15 11.5) (xy 95.15 12.75) (xy 90.15 14) (xy 105 14) (xy 105 4)))
   )
 
-  ; ══════ Ground fill (B.Cu) ══════
   (zone (net 9) (net_name "GND") (layer "B.Cu") (tstamp 00000000-0000-0000-0000-000000000009)
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
@@ -163,7 +159,6 @@
     ))
   )
 
-  ; ══════ Keepout under slider (B.Cu) ══════
   (zone (net 0) (net_name "") (layers "B.Cu") (tstamp 00000000-0000-0000-0000-000000000010)
     (hatch edge 0.5)
     (name "slider_keepout")
@@ -174,7 +169,6 @@
     ))
   )
 
-  ; ══════ AT42QT2120-MMH (U1) ══════
   (footprint "Arp3:AT42QT2120-MMH" (layer "F.Cu")
     (at 116 9)
     (attr smd)
@@ -216,7 +210,6 @@
     (pad "25" smd rect (at 116 9) (size 2.6 2.6) (layers "F.Cu" "F.Paste" "F.Mask") (net 9 "GND"))
   )
 
-  ; ══════ Passives ══════
   (footprint "Arp3:C_0603" (layer "F.Cu")
     (at 112 3.5)
     (attr smd)
@@ -266,7 +259,6 @@
     (pad "2" smd rect (at 108.75 14.5) (size 0.9 0.8) (layers "F.Cu" "F.Paste" "F.Mask") (net 12 "SCL"))
   )
 
-  ; ══════ Connector (J1) ══════
   (footprint "Arp3:PinHeader_1x05_P2.54mm" (layer "F.Cu")
     (at 109 9)
     (attr through_hole)
