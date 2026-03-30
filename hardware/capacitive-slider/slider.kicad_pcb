@@ -1,4 +1,4 @@
-(kicad_pcb (version 20221018) (generator "arp3_slider_gen")
+(kicad_pcb (version 20240108) (generator "arp3_slider_gen")
 
   (general
     (thickness 1.6)
@@ -159,10 +159,8 @@
     ))
   )
 
-  (zone (net 0) (net_name "") (layers "B.Cu") (tstamp 00000000-0000-0000-0000-000000000010)
-    (hatch edge 0.5)
-    (name "slider_keepout")
-    (attr (is_rule_area) (is_keepout_copper_pour) (is_keepout_via) (is_keepout_track))
+  (rule_area "slider_keepout" (id 00000000-0000-0000-0000-000000000010) (hatch edge 0.5) (connect_pads (clearance 0)) (min_thickness 0.25) (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))
+    (layer "B.Cu")
     (polygon (pts
       (xy 4 3) (xy 106 3)
       (xy 106 15) (xy 4 15)

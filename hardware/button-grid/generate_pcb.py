@@ -650,7 +650,7 @@ def generate():
     routing_led_gnd = route_led_gnd()
     routing_led_vcc = route_led_vcc()
 
-    return f"""(kicad_pcb (version 20221018) (generator "arp3_grid_gen")
+    return f"""(kicad_pcb (version 20240108) (generator "arp3_grid_gen")
 
   (general
     (thickness 1.6)

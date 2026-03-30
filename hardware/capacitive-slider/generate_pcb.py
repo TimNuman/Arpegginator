@@ -323,10 +323,8 @@ def keepout_zone():
     x1 = SLIDER_X1 + margin
     y0 = SLIDER_Y0 - margin
     y1 = SLIDER_Y1 + margin
-    return f"""  (zone (net 0) (net_name "") (layers "B.Cu") (tstamp {_uuid()})
-    (hatch edge 0.5)
-    (name "slider_keepout")
-    (attr (is_rule_area) (is_keepout_copper_pour) (is_keepout_via) (is_keepout_track))
+    return f"""  (rule_area "slider_keepout" (id {_uuid()}) (hatch edge 0.5) (connect_pads (clearance 0)) (min_thickness 0.25) (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))
+    (layer "B.Cu")
     (polygon (pts
       (xy {fmt(x0)} {fmt(y0)}) (xy {fmt(x1)} {fmt(y0)})
       (xy {fmt(x1)} {fmt(y1)}) (xy {fmt(x0)} {fmt(y1)})
@@ -360,7 +358,7 @@ def generate():
         passive_footprint("R2", "4.7k", R2_X, R2_Y, 10, 12),
     ])
 
-    return f"""(kicad_pcb (version 20221018) (generator "arp3_slider_gen")
+    return f"""(kicad_pcb (version 20240108) (generator "arp3_slider_gen")
 
   (general
     (thickness 1.6)
