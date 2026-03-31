@@ -21,7 +21,7 @@ PITCH = 19.05  # standard keyboard unit (mm)
 
 MARGIN = 2.0                                    # minimal edge clearance
 SLIDER_W = PITCH                                # vertical slider width (1 button)
-CONN_AREA_W = 22.0                              # extra width for Teensy + MCP area
+CONN_AREA_W = 66.0                              # display + small margin
 EXTRA_ROW = 1                                   # row 9 (modifier keys + space + h-slider)
 BOARD_W = SLIDER_W + COLS * PITCH + 2 * MARGIN + CONN_AREA_W
 BOARD_H = (ROWS + EXTRA_ROW) * PITCH + 2 * MARGIN
@@ -45,13 +45,14 @@ SW_CENTER_DRILL = 3.0     # center alignment post (NPTH)
 SW_SIDE_POSTS = [(-5.22, 0), (5.22, 0)]  # side alignment (NPTH)
 SW_SIDE_DRILL = 1.7
 
-# ── 1N4148W diode (SOD-323) ──────────────────────────────────────────
+# ── 1N4148W diode (SOD-323, KiCad standard) ─────────────────────────
 # Placed to the right of the switch, connecting SW_PAD2 to the row line.
 # Anode at top (connects to switch pad 2), cathode at bottom (connects to row).
+# KiCad SOD-323 pads: (±1.05, 0) size 0.6×0.45 — rotated 90° for vertical
 DIODE_OFFSET = (5.0, 7.0)   # relative to switch center
-DIODE_PAD_DY = 0.95          # half-spacing between pads (vertical)
-DIODE_PAD_W = 0.8
-DIODE_PAD_H = 0.6
+DIODE_PAD_DY = 1.05          # pad center offset (KiCad SOD-323 standard)
+DIODE_PAD_W = 0.45           # pad width (along edge, was perpendicular)
+DIODE_PAD_H = 0.6            # pad height (perpendicular to edge)
 
 # ── SK6812MINI-E RGBW LED (3535) ─────────────────────────────────────
 # Placed at switch center (shines through/around keycap)
@@ -62,41 +63,66 @@ LED_PAD_W = 0.7
 LED_PAD_H = 0.7
 # Pin 1=VDD (TL), Pin 2=DOUT (TR), Pin 3=GND (BR), Pin 4=DIN (BL)
 
-# ── MCP23017 I/O Expanders (QFN-28, 6×6mm) ─────────────────────────
-# QFN-28: 7 pins per side, 0.65mm pitch, pad center 3.0mm from chip center
-QFN_PAD_EDGE = 3.0              # pad center distance from chip center
+# ── MCP23017 I/O Expanders (QFN-28, 6×6mm, KiCad standard) ─────────
+# QFN-28-1EP_6x6mm_P0.65mm_EP4.25x4.25mm
+QFN_PAD_EDGE = 2.8375           # pad center distance from chip center
 QFN_PAD_PITCH = 0.65            # pin pitch
-QFN_PAD_W = 0.35                # pad width (along edge)
-QFN_PAD_H = 0.8                 # pad height (perpendicular to edge)
+QFN_PAD_W = 0.3                 # pad width (along edge)
+QFN_PAD_H = 1.025               # pad height (perpendicular to edge)
 QFN_PINS_PER_SIDE = 7
+QFN_EP_SIZE = 4.25              # exposed pad size
+QFN_THERMAL_VIA_GRID = [-1.42, 0, 1.42]  # 3x3 grid positions
+QFN_THERMAL_VIA_SIZE = 1.14     # thermal via pad size
 
 # QFN rotation: 0° (standard orientation on right side)
 QFN_ROTATION = 0
 
-# Teensy 4.1 header (2 rows of 24, 600mil DIP, USB at top, mounted on back)
+# 2.4" ILI9341 TFT display (right of grid, rotated 90°, F.Cu side)
+# Original module: 43 x 63mm. Rotated: 63 wide x 43 tall.
+# Header (9 pins on the short 43mm edge) now at the left edge.
+# Left edge aligned to grid right edge.
+DISP_MOD_W = 63.0               # width after rotation
+DISP_MOD_H = 43.0               # height after rotation
+_grid_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2
+DISP_X = _grid_right + 3.0      # header X, left side of module, 3mm from grid
+DISP_Y = MARGIN + DISP_MOD_H / 2  # centered vertically near top
+DISP_PINS = 9
+DISP_PITCH = 2.54
+
+# USB-C connector (top edge, right-aligned under display with 7mm margin)
+USB_X = _grid_right + DISP_MOD_W - 7.0
+USB_Y = 0.0
+USB_PAD_W = 0.3
+USB_PAD_H = 1.0
+
+# Teensy 4.1 header (mounted on back, overlaps display area in X/Y)
 TEENSY_DX = 7.62               # half row spacing (15.24mm / 2)
-TEENSY_X = BOARD_W - MARGIN - TEENSY_DX - 1.0
-TEENSY_Y = MARGIN               # first pin aligned to top of board
+TEENSY_X = _grid_right + DISP_MOD_W / 2 + 3.0  # centered behind display
+TEENSY_Y = MARGIN
 TEENSY_PITCH = 2.54
 TEENSY_PINS = 24
 TEENSY_PAD_DRILL = 1.0
 TEENSY_PAD_SIZE = 1.7
 TEENSY_LAST_Y = TEENSY_Y + (TEENSY_PINS - 1) * TEENSY_PITCH
 
-# U1 = column expander (right side, below Teensy)
-# U2 = row expander (right side, near bottom)
-U1_X = TEENSY_X - TEENSY_DX + 3.0   # near Teensy left header
+# U1 = column expander (right of grid, below display/Teensy area)
+# U2 = row expander (right of grid, near bottom)
+U1_X = ORIGIN_X + COLS * PITCH + 5.0
 U1_Y = TEENSY_LAST_Y + 8.0
 U2_X = U1_X
 U2_Y = BOARD_H - 25.0
 
-# MPR121 touch ICs (QFN-20, 4×4mm, 0.5mm pitch)
+# MPR121 touch ICs (QFN-20, 4×4mm, 0.5mm pitch, KiCad standard)
+# QFN-20-1EP_4x4mm_P0.5mm_EP2.6x2.6mm
 MPR_BODY = 4.0
 MPR_PITCH = 0.5
-MPR_PAD_W = 0.3
-MPR_PAD_H = 0.8
+MPR_PAD_W = 0.25             # pad width (along edge)
+MPR_PAD_H = 0.85             # pad height (perpendicular to edge)
+MPR_PAD_EDGE = 1.925          # pad center distance from chip center
 MPR_EPAD = 2.6
 MPR_PINS_PER_SIDE = 5
+MPR_THERMAL_GRID = [-0.65, 0.65]  # 2x2 grid positions
+MPR_THERMAL_SIZE = 1.05       # thermal pad size
 
 # Slider IC placement: near their respective sliders
 MPR_VSLIDER_X = MARGIN + SLIDER_W / 2        # center of vertical slider
@@ -104,10 +130,10 @@ MPR_VSLIDER_Y = ORIGIN_Y + 8 * PITCH + 5.0   # below vertical slider, in row 9 a
 MPR_HSLIDER_X = ORIGIN_X + 12 * PITCH        # center of horizontal slider area
 MPR_HSLIDER_Y = ORIGIN_Y + 8 * PITCH + PITCH / 2 + 5.0  # below horizontal slider
 
-# 0603 passive pads (for decoupling caps and pull-up resistors)
+# 0603 passive pads (KiCad standard R_0603_1608Metric / C_0603_1608Metric)
 P0603_PAD_W = 0.8
-P0603_PAD_H = 0.9
-P0603_PAD_DX = 0.8             # half center-to-center
+P0603_PAD_H = 0.95
+P0603_PAD_DX = 0.825            # pad center X offset
 
 
 # ── Net numbering ────────────────────────────────────────────────────
@@ -145,7 +171,20 @@ def net_hslider(i): return _BASE_EXTRA + 15 + i  # i = 0..7
 # MPR121 IRQ outputs
 NET_MPR_IRQ_V = _BASE_EXTRA + 23   # vertical slider IRQ
 NET_MPR_IRQ_H = _BASE_EXTRA + 24   # horizontal slider IRQ
-TOTAL_NETS = _BASE_EXTRA + 25
+# Display SPI signals
+NET_DISP_CS   = _BASE_EXTRA + 25
+NET_DISP_DC   = _BASE_EXTRA + 26
+NET_DISP_RST  = _BASE_EXTRA + 27
+NET_DISP_MOSI = _BASE_EXTRA + 28
+NET_DISP_SCK  = _BASE_EXTRA + 29
+NET_DISP_MISO = _BASE_EXTRA + 30
+NET_DISP_LED  = _BASE_EXTRA + 31
+NET_USB_DP    = _BASE_EXTRA + 32   # USB D+
+NET_USB_DN    = _BASE_EXTRA + 33   # USB D-
+NET_USB_VBUS  = _BASE_EXTRA + 34
+NET_USB_CC1   = _BASE_EXTRA + 35
+NET_USB_CC2   = _BASE_EXTRA + 36
+TOTAL_NETS = _BASE_EXTRA + 37
 
 
 def rc_to_chain(row, col):
@@ -212,6 +251,18 @@ def all_net_names():
         nets.append((net_hslider(i), f'"HSLIDER{i}"'))
     nets.append((NET_MPR_IRQ_V, '"MPR_IRQ_V"'))
     nets.append((NET_MPR_IRQ_H, '"MPR_IRQ_H"'))
+    nets.append((NET_USB_DP, '"USB_D+"'))
+    nets.append((NET_USB_DN, '"USB_D-"'))
+    nets.append((NET_USB_VBUS, '"USB_VBUS"'))
+    nets.append((NET_USB_CC1, '"USB_CC1"'))
+    nets.append((NET_USB_CC2, '"USB_CC2"'))
+    nets.append((NET_DISP_CS, '"DISP_CS"'))
+    nets.append((NET_DISP_DC, '"DISP_DC"'))
+    nets.append((NET_DISP_RST, '"DISP_RST"'))
+    nets.append((NET_DISP_MOSI, '"DISP_MOSI"'))
+    nets.append((NET_DISP_SCK, '"DISP_SCK"'))
+    nets.append((NET_DISP_MISO, '"DISP_MISO"'))
+    nets.append((NET_DISP_LED, '"DISP_LED"'))
     return nets
 
 
@@ -278,12 +329,21 @@ def switch_footprint(row, col):
 
     # Silkscreen outline (14x14mm square centered on switch)
     half = 7.0
-    silk = "\n".join([
+    silk_lines = [
         f'    (fp_line (start {fmt(-half)} {fmt(-half)}) (end {fmt(half)} {fmt(-half)}) (layer "F.SilkS") (width 0.12))',
         f'    (fp_line (start {fmt(half)} {fmt(-half)}) (end {fmt(half)} {fmt(half)}) (layer "F.SilkS") (width 0.12))',
         f'    (fp_line (start {fmt(half)} {fmt(half)}) (end {fmt(-half)} {fmt(half)}) (layer "F.SilkS") (width 0.12))',
         f'    (fp_line (start {fmt(-half)} {fmt(half)}) (end {fmt(-half)} {fmt(-half)}) (layer "F.SilkS") (width 0.12))',
+    ]
+    # Courtyard (slightly larger than silkscreen)
+    crt = 7.5
+    silk_lines.extend([
+        f'    (fp_line (start {fmt(-crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(-crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
     ])
+    silk = "\n".join(silk_lines)
 
     return f"""  (footprint "Arp3:Kailh_Choc_V1" (layer "F.Cu")
     (at {fmt(cx)} {fmt(cy)})
@@ -309,7 +369,7 @@ def diode_footprint(row, col):
     sw_net = net_sw(row, col)     # anode: from switch
     row_net = net_row(row)        # cathode: to row
 
-    # SOD-323 pads — vertical orientation
+    # SOD-323 pads — vertical orientation (KiCad standard rotated 90°)
     # Pad 1 = cathode (bottom), Pad 2 = anode (top, toward switch)
     return f"""  (footprint "Arp3:D_SOD-323" (layer "F.Cu")
     (at {fmt(dx)} {fmt(dy)})
@@ -321,9 +381,18 @@ def diode_footprint(row, col):
     (fp_text value "1N4148W" (at 2 0) (layer "F.Fab")
       (effects (font (size 0.5 0.5) (thickness 0.1)))
     )
-    (fp_line (start -0.6 {fmt(-DIODE_PAD_DY)}) (end 0.6 {fmt(-DIODE_PAD_DY)}) (layer "F.SilkS") (width 0.1))
-    (pad "1" smd rect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (net {row_net} {nn(row_net)}))
-    (pad "2" smd rect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (net {sw_net} {nn(sw_net)}))
+    (fp_line (start -0.55 -1.35) (end 0.55 -1.35) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start 0.55 -1.35) (end 0.55 1.35) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start 0.55 1.35) (end -0.55 1.35) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start -0.55 1.35) (end -0.55 -1.35) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start -0.5 {fmt(-DIODE_PAD_DY)}) (end 0.5 {fmt(-DIODE_PAD_DY)}) (layer "F.SilkS") (width 0.1))
+    (pad "1" smd roundrect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {row_net} {nn(row_net)}))
+    (pad "2" smd roundrect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {sw_net} {nn(sw_net)}))
+    (model "${{KICAD10_3DMODEL_DIR}}/Diode_SMD.3dshapes/D_SOD-323.step"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 90))
+    )
   )"""
 
 
@@ -378,21 +447,21 @@ def led_footprint(row, col):
 
 
 def qfn_pin_pos(cx, cy, pin, rotation=0):
-    """Absolute (x, y) of a MCP23017 QFN-28 pad.
+    """Absolute (x, y) of a MCP23017 QFN-28 pad (KiCad standard positions).
 
-    QFN-28: 7 pins/side, counterclockwise from pin 1 at bottom-left.
-    Bottom(1-7), Right(8-14), Top(15-21), Left(22-28).
+    QFN-28: 7 pins/side, counterclockwise from pin 1 at top-left.
+    Left(1-7), Bottom(8-14), Right(15-21), Top(22-28).
     Rotation in degrees applied after computing local offset.
     """
     import math
     side = (pin - 1) // QFN_PINS_PER_SIDE
     idx = (pin - 1) % QFN_PINS_PER_SIDE
-    linear = (idx - 3) * QFN_PAD_PITCH
+    linear = (idx - 3) * QFN_PAD_PITCH  # -1.95 to +1.95
 
-    if side == 0:    dx, dy = linear, QFN_PAD_EDGE
-    elif side == 1:  dx, dy = QFN_PAD_EDGE, -linear
-    elif side == 2:  dx, dy = -linear, -QFN_PAD_EDGE
-    else:            dx, dy = -QFN_PAD_EDGE, linear
+    if side == 0:    dx, dy = -QFN_PAD_EDGE, linear       # left side pins 1-7
+    elif side == 1:  dx, dy = linear, QFN_PAD_EDGE         # bottom side pins 8-14
+    elif side == 2:  dx, dy = QFN_PAD_EDGE, -linear        # right side pins 15-21
+    else:            dx, dy = -linear, -QFN_PAD_EDGE       # top side pins 22-28
 
     if rotation != 0:
         rad = math.radians(rotation)
@@ -424,52 +493,74 @@ def row_pin_pos(r):
 
 
 def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
-    """Generate a MCP23017 QFN-28 footprint (6×6mm), optionally rotated."""
+    """Generate a MCP23017 QFN-28 footprint (6×6mm, KiCad standard), optionally rotated."""
     import math
     half = 3.0
     pads = []
     for pin in range(1, 29):
-        px, py = qfn_pin_pos(cx, cy, pin, rotation)
-        nid = pin_nets.get(pin, 0)
         side = (pin - 1) // QFN_PINS_PER_SIDE
-        # Base pad orientation, then add chip rotation
+        idx = (pin - 1) % QFN_PINS_PER_SIDE
+        linear = (idx - 3) * QFN_PAD_PITCH
+
+        # KiCad standard local positions (no rotation applied to pads)
+        if side == 0:    dx, dy = -QFN_PAD_EDGE, linear       # left
+        elif side == 1:  dx, dy = linear, QFN_PAD_EDGE         # bottom
+        elif side == 2:  dx, dy = QFN_PAD_EDGE, -linear        # right
+        else:            dx, dy = -linear, -QFN_PAD_EDGE       # top
+
+        nid = pin_nets.get(pin, 0)
+        # Pad size: horizontal pads (left/right) or vertical pads (top/bottom)
         if side in (0, 2):
-            pad_angle = rotation
+            pw, ph = QFN_PAD_H, QFN_PAD_W  # 1.025 x 0.3
         else:
-            pad_angle = rotation + 90
-        angle_str = f' {pad_angle}' if pad_angle != 0 else ''
+            pw, ph = QFN_PAD_W, QFN_PAD_H  # 0.3 x 1.025
         pads.append(
-            f'    (pad "{pin}" smd rect '
-            f'(at {fmt(px - cx)} {fmt(py - cy)}{angle_str}) '
-            f'(size {fmt(QFN_PAD_W)} {fmt(QFN_PAD_H)}) '
+            f'    (pad "{pin}" smd roundrect '
+            f'(at {fmt(dx)} {fmt(dy)}) '
+            f'(size {fmt(pw)} {fmt(ph)}) '
             f'(layers "F.Cu" "F.Paste" "F.Mask") '
+            f'(roundrect_rratio 0.25) '
             f'(net {nid} {nn(nid)}))')
-    # Exposed pad (GND) — rotated with chip
-    ep_angle_str = f' {rotation}' if rotation != 0 else ''
+
+    # Exposed pad 29 (GND) — KiCad standard 4.25x4.25mm
     pads.append(
-        f'    (pad "EP" smd rect (at 0 0{ep_angle_str}) (size 3.5 3.5) '
+        f'    (pad "29" smd rect (at 0 0) (size {fmt(QFN_EP_SIZE)} {fmt(QFN_EP_SIZE)}) '
         f'(layers "F.Cu" "F.Paste" "F.Mask") '
         f'(net {NET_GND} {nn(NET_GND)}))')
 
-    # Rotated outline
-    rad = math.radians(rotation)
-    cos_r, sin_r = math.cos(rad), math.sin(rad)
-    corners = [(-half, -half), (half, -half), (half, half), (-half, half)]
-    rot_corners = [(x*cos_r - y*sin_r, x*sin_r + y*cos_r) for x, y in corners]
-    outline = []
-    for i in range(4):
-        x1, y1 = rot_corners[i]
-        x2, y2 = rot_corners[(i + 1) % 4]
-        outline.append(f'    (fp_line (start {fmt(x1)} {fmt(y1)}) (end {fmt(x2)} {fmt(y2)}) (layer "F.Fab") (width 0.1))')
+    # Thermal via pads (3x3 grid, unnamed, same net as EP)
+    for tx in QFN_THERMAL_VIA_GRID:
+        for ty in QFN_THERMAL_VIA_GRID:
+            pads.append(
+                f'    (pad "" smd rect (at {fmt(tx)} {fmt(ty)}) '
+                f'(size {fmt(QFN_THERMAL_VIA_SIZE)} {fmt(QFN_THERMAL_VIA_SIZE)}) '
+                f'(layers "F.Cu" "F.Paste" "F.Mask") '
+                f'(net {NET_GND} {nn(NET_GND)}))')
 
-    # Pin 1 marker
-    p1x, p1y = -half + 0.5, half - 0.5
-    rp1x = p1x*cos_r - p1y*sin_r
-    rp1y = p1x*sin_r + p1y*cos_r
+    # Fab outline
+    outline = [
+        f'    (fp_line (start {fmt(-half)} {fmt(-half)}) (end {fmt(half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))',
+        f'    (fp_line (start {fmt(half)} {fmt(-half)}) (end {fmt(half)} {fmt(half)}) (layer "F.Fab") (width 0.1))',
+        f'    (fp_line (start {fmt(half)} {fmt(half)}) (end {fmt(-half)} {fmt(half)}) (layer "F.Fab") (width 0.1))',
+        f'    (fp_line (start {fmt(-half)} {fmt(half)}) (end {fmt(-half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))',
+    ]
+
+    # Courtyard (0.25mm clearance from pads)
+    crt = 3.6
+    courtyard = [
+        f'    (fp_line (start {fmt(-crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(-crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
+    ]
+
+    # Pin 1 marker (top-left corner of left side)
+    p1x, p1y = -half + 0.5, -half + 0.5
+    rot_angle = f' {rotation}' if rotation != 0 else ''
 
     return f"""  (footprint "Arp3:MCP23017_QFN28" (layer "F.Cu")
-    (at {fmt(cx)} {fmt(cy)})
-    (descr "MCP23017 16-bit I2C I/O expander QFN-28 6x6mm rotated {rotation} deg")
+    (at {fmt(cx)} {fmt(cy)}{rot_angle})
+    (descr "MCP23017 16-bit I2C I/O expander QFN-28 6x6mm")
     (attr smd)
     (fp_text reference "{ref}" (at 0 -6) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.1)))
@@ -478,14 +569,26 @@ def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
 {chr(10).join(outline)}
-    (fp_circle (center {fmt(rp1x)} {fmt(rp1y)}) (end {fmt(rp1x + 0.2)} {fmt(rp1y)}) (layer "F.SilkS") (width 0.1))
+{chr(10).join(courtyard)}
+    (fp_circle (center {fmt(p1x)} {fmt(p1y)}) (end {fmt(p1x + 0.2)} {fmt(p1y)}) (layer "F.SilkS") (width 0.1))
 {chr(10).join(pads)}
+    (model "${{KICAD10_3DMODEL_DIR}}/Package_DFN_QFN.3dshapes/QFN-28-1EP_6x6mm_P0.65mm_EP4.25x4.25mm.step"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 {rotation}))
+    )
   )"""
 
 
-def passive_0603(cx, cy, ref, value, net1, net2):
-    """Generate a 0603 passive (cap or resistor) footprint."""
-    return f"""  (footprint "Arp3:C_0603" (layer "F.Cu")
+def passive_0603(cx, cy, ref, value, net1, net2, is_resistor=False):
+    """Generate a 0603 passive (cap or resistor) footprint with KiCad-standard pads."""
+    if is_resistor:
+        model_path = "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step"
+        fp_name = "Arp3:R_0603"
+    else:
+        model_path = "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step"
+        fp_name = "Arp3:C_0603"
+    return f"""  (footprint "{fp_name}" (layer "F.Cu")
     (at {fmt(cx)} {fmt(cy)})
     (descr "{value}")
     (attr smd)
@@ -495,8 +598,17 @@ def passive_0603(cx, cy, ref, value, net1, net2):
     (fp_text value "{value}" (at 0 1.2) (layer "F.Fab")
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
-    (pad "1" smd rect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (net {net1} {nn(net1)}))
-    (pad "2" smd rect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (net {net2} {nn(net2)}))
+    (fp_line (start -1.48 -0.73) (end 1.48 -0.73) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start 1.48 -0.73) (end 1.48 0.73) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start 1.48 0.73) (end -1.48 0.73) (layer "F.CrtYd") (width 0.05))
+    (fp_line (start -1.48 0.73) (end -1.48 -0.73) (layer "F.CrtYd") (width 0.05))
+    (pad "1" smd roundrect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {net1} {nn(net1)}))
+    (pad "2" smd roundrect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {net2} {nn(net2)}))
+    (model "{model_path}"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 0))
+    )
   )"""
 
 
@@ -533,8 +645,8 @@ def mcp_components():
     parts.append(passive_0603(U2_X + 5, U2_Y, "C2", "100nF", NET_VCC, NET_GND))
 
     # ── I2C pull-ups (near Teensy) ──
-    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 3, "R1", "4.7k", NET_I2C_SDA, NET_VCC))
-    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 5, "R2", "4.7k", NET_I2C_SCL, NET_VCC))
+    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 3, "R1", "4.7k", NET_I2C_SDA, NET_VCC, is_resistor=True))
+    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 5, "R2", "4.7k", NET_I2C_SCL, NET_VCC, is_resistor=True))
 
     # ── Teensy 4.1 headers (mounted on back, USB at top) ──
     # Left side: GND, 0-12, 3.3V, 24-32
@@ -566,15 +678,18 @@ def mcp_components():
         py = i * TEENSY_PITCH
         nid_l = left_nets[i] if i < len(left_nets) else 0
         nid_r = right_nets[i] if i < len(right_nets) else 0
+        # KiCad pin header style: pad 1 is rect, rest are circle
+        l_shape = "rect" if i == 0 else "circle"
+        r_shape = "rect" if i == 0 else "circle"
         teensy_pads.append(
-            f'    (pad "L{i+1}" thru_hole circle '
+            f'    (pad "L{i+1}" thru_hole {l_shape} '
             f'(at {fmt(-TEENSY_DX)} {fmt(py)}) '
             f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
             f'(drill {fmt(TEENSY_PAD_DRILL)}) '
             f'(layers "*.Cu" "*.Mask") '
             f'(net {nid_l} {nn(nid_l)}))')
         teensy_pads.append(
-            f'    (pad "R{i+1}" thru_hole circle '
+            f'    (pad "R{i+1}" thru_hole {r_shape} '
             f'(at {fmt(TEENSY_DX)} {fmt(py)}) '
             f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
             f'(drill {fmt(TEENSY_PAD_DRILL)}) '
@@ -599,41 +714,156 @@ def mcp_components():
 {chr(10).join(teensy_pads)}
   )""")
 
+    # ── Display header (2.4" ILI9341 TFT, 9-pin) ──
+    disp_nets = [
+        NET_VCC, NET_GND, NET_DISP_CS, NET_DISP_RST, NET_DISP_DC,
+        NET_DISP_MOSI, NET_DISP_SCK, NET_DISP_LED, NET_DISP_MISO,
+    ]
+    disp_pads = []
+    for i, nid in enumerate(disp_nets):
+        # KiCad pin header style: pad 1 is rect, rest are circle
+        pad_shape = "rect" if i == 0 else "circle"
+        disp_pads.append(
+            f'    (pad "{i+1}" thru_hole {pad_shape} '
+            f'(at 0 {fmt(i * DISP_PITCH)}) '
+            f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
+            f'(drill {fmt(TEENSY_PAD_DRILL)}) '
+            f'(layers "*.Cu" "*.Mask") '
+            f'(net {nid} {nn(nid)}))')
+    # Module outline on Dwgs.User layer
+    # Header is on the left edge, module extends right
+    # Pins are vertical (along the left short edge of the rotated module)
+    half_h = DISP_MOD_H / 2
+    mod_left = -3.0    # header is 3mm from module left edge
+    mod_right = mod_left + DISP_MOD_W
+    parts.append(f"""  (footprint "Arp3:ILI9341_2.4inch" (layer "F.Cu")
+    (at {fmt(DISP_X)} {fmt(DISP_Y)})
+    (descr "2.4 inch ILI9341 TFT display module, rotated 90 deg")
+    (attr through_hole)
+    (fp_text reference "J2" (at {fmt(mod_left - 3)} 0) (layer "F.SilkS")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (fp_text value "TFT 2.4in" (at {fmt((mod_left + mod_right) / 2)} 0) (layer "F.Fab")
+      (effects (font (size 0.8 0.8) (thickness 0.12)))
+    )
+    (fp_line (start {fmt(mod_left)} {fmt(-half_h)}) (end {fmt(mod_right)} {fmt(-half_h)}) (layer "Dwgs.User") (width 0.15))
+    (fp_line (start {fmt(mod_right)} {fmt(-half_h)}) (end {fmt(mod_right)} {fmt(half_h)}) (layer "Dwgs.User") (width 0.15))
+    (fp_line (start {fmt(mod_right)} {fmt(half_h)}) (end {fmt(mod_left)} {fmt(half_h)}) (layer "Dwgs.User") (width 0.15))
+    (fp_line (start {fmt(mod_left)} {fmt(half_h)}) (end {fmt(mod_left)} {fmt(-half_h)}) (layer "Dwgs.User") (width 0.15))
+{chr(10).join(disp_pads)}
+    (model "${{KICAD10_3DMODEL_DIR}}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_1x09_P2.54mm_Vertical.step"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 0))
+    )
+  )""")
+
+    # ── USB-C connector (top edge, mid-mount) ──
+    usb_pads = []
+    # GND shield tabs (through-hole)
+    for sx in [-4.32, -3.2, 3.2, 4.32]:
+        usb_pads.append(
+            f'    (pad "SH" thru_hole circle (at {fmt(sx)} 1.5) '
+            f'(size 1.0 1.0) (drill 0.6) (layers "*.Cu" "*.Mask") '
+            f'(net {NET_GND} {nn(NET_GND)}))')
+    # Signal pads (USB 2.0 device: D+, D-, VBUS, GND, CC1, CC2)
+    usb_pin_nets = [
+        (NET_GND, "A1"), (0, "A2"), (0, "A3"), (NET_USB_VBUS, "A4"),
+        (NET_USB_CC1, "A5"), (NET_USB_DP, "A6"), (NET_USB_DN, "A7"),
+        (0, "A8"), (NET_USB_VBUS, "A9"), (0, "A10"), (0, "A11"),
+        (NET_GND, "A12"),
+    ]
+    for idx, (nid, label) in enumerate(usb_pin_nets):
+        px = -2.75 + idx * 0.5
+        usb_pads.append(
+            f'    (pad "{label}" smd rect (at {fmt(px)} 0) '
+            f'(size {fmt(USB_PAD_W)} {fmt(USB_PAD_H)}) '
+            f'(layers "F.Cu" "F.Paste" "F.Mask") '
+            f'(net {nid} {nn(nid)}))')
+    parts.append(f"""  (footprint "Arp3:USB_C_Mid_Mount" (layer "F.Cu")
+    (at {fmt(USB_X)} {fmt(USB_Y)})
+    (descr "USB Type-C mid-mount receptacle")
+    (attr smd)
+    (fp_text reference "J3" (at 0 4) (layer "F.SilkS")
+      (effects (font (size 0.6 0.6) (thickness 0.1)))
+    )
+    (fp_text value "USB-C" (at 0 -2) (layer "F.Fab")
+      (effects (font (size 0.5 0.5) (thickness 0.08)))
+    )
+    (fp_line (start -4.5 -1.5) (end 4.5 -1.5) (layer "F.Fab") (width 0.1))
+    (fp_line (start 4.5 -1.5) (end 4.5 3) (layer "F.Fab") (width 0.1))
+    (fp_line (start 4.5 3) (end -4.5 3) (layer "F.Fab") (width 0.1))
+    (fp_line (start -4.5 3) (end -4.5 -1.5) (layer "F.Fab") (width 0.1))
+{chr(10).join(usb_pads)}
+    (model "${{KICAD10_3DMODEL_DIR}}/Connector_USB.3dshapes/USB_C_Receptacle_GCT_USB4110.step"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 0))
+    )
+  )""")
+
+    # CC resistors (5.1kΩ, required for USB-C device mode)
+    parts.append(passive_0603(USB_X - 2, USB_Y + 5, "R3", "5.1k", NET_USB_CC1, NET_GND, is_resistor=True))
+    parts.append(passive_0603(USB_X + 2, USB_Y + 5, "R4", "5.1k", NET_USB_CC2, NET_GND, is_resistor=True))
+    # VBUS decoupling
+    parts.append(passive_0603(USB_X, USB_Y + 7, "C7", "10uF", NET_USB_VBUS, NET_GND))
+
     return "\n".join(parts)
 
 
 # ── MPR121 touch controller footprints ───────────────────────────────
 
 def mpr121_footprint(cx, cy, ref, pin_nets):
-    """MPR121 QFN-20 (4×4mm, 0.5mm pitch, 5 pins/side)."""
+    """MPR121 QFN-20 (4×4mm, 0.5mm pitch, 5 pins/side, KiCad standard)."""
     half = MPR_BODY / 2
     pads = []
     for pin in range(1, 21):
         side = (pin - 1) // MPR_PINS_PER_SIDE
         idx = (pin - 1) % MPR_PINS_PER_SIDE
-        linear = (idx - 2) * MPR_PITCH
+        linear = (idx - 2) * MPR_PITCH  # -1.0 to +1.0
 
-        if side == 0:    dx, dy = -half - MPR_PAD_H / 2, linear      # left
-        elif side == 1:  dx, dy = linear, half + MPR_PAD_H / 2       # bottom
-        elif side == 2:  dx, dy = half + MPR_PAD_H / 2, -linear      # right
-        else:            dx, dy = -linear, -half - MPR_PAD_H / 2     # top
+        # KiCad standard positions
+        if side == 0:    dx, dy = -MPR_PAD_EDGE, linear       # left
+        elif side == 1:  dx, dy = linear, MPR_PAD_EDGE         # bottom
+        elif side == 2:  dx, dy = MPR_PAD_EDGE, -linear        # right
+        else:            dx, dy = -linear, -MPR_PAD_EDGE       # top
 
         nid = pin_nets.get(pin, 0)
         if side in (0, 2):
-            pw, ph = MPR_PAD_H, MPR_PAD_W
+            pw, ph = MPR_PAD_H, MPR_PAD_W  # 0.85 x 0.25
         else:
-            pw, ph = MPR_PAD_W, MPR_PAD_H
+            pw, ph = MPR_PAD_W, MPR_PAD_H  # 0.25 x 0.85
         pads.append(
-            f'    (pad "{pin}" smd rect '
+            f'    (pad "{pin}" smd roundrect '
             f'(at {fmt(dx)} {fmt(dy)}) '
             f'(size {fmt(pw)} {fmt(ph)}) '
             f'(layers "F.Cu" "F.Paste" "F.Mask") '
+            f'(roundrect_rratio 0.25) '
             f'(net {nid} {nn(nid)}))')
-    # Exposed pad
+
+    # Exposed pad 21 (GND)
     pads.append(
-        f'    (pad "EP" smd rect (at 0 0) (size {fmt(MPR_EPAD)} {fmt(MPR_EPAD)}) '
+        f'    (pad "21" smd rect (at 0 0) (size {fmt(MPR_EPAD)} {fmt(MPR_EPAD)}) '
         f'(layers "F.Cu" "F.Paste" "F.Mask") '
         f'(net {NET_GND} {nn(NET_GND)}))')
+
+    # Thermal pads (2x2 grid, unnamed)
+    for tx in MPR_THERMAL_GRID:
+        for ty in MPR_THERMAL_GRID:
+            pads.append(
+                f'    (pad "" smd rect (at {fmt(tx)} {fmt(ty)}) '
+                f'(size {fmt(MPR_THERMAL_SIZE)} {fmt(MPR_THERMAL_SIZE)}) '
+                f'(layers "F.Cu" "F.Paste" "F.Mask") '
+                f'(net {NET_GND} {nn(NET_GND)}))')
+
+    # Courtyard
+    crt = 2.6
+    courtyard = [
+        f'    (fp_line (start {fmt(-crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(-crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
+    ]
 
     return f"""  (footprint "Arp3:MPR121_QFN20" (layer "F.Cu")
     (at {fmt(cx)} {fmt(cy)})
@@ -649,8 +879,14 @@ def mpr121_footprint(cx, cy, ref, pin_nets):
     (fp_line (start {fmt(half)} {fmt(-half)}) (end {fmt(half)} {fmt(half)}) (layer "F.Fab") (width 0.1))
     (fp_line (start {fmt(half)} {fmt(half)}) (end {fmt(-half)} {fmt(half)}) (layer "F.Fab") (width 0.1))
     (fp_line (start {fmt(-half)} {fmt(half)}) (end {fmt(-half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))
+{chr(10).join(courtyard)}
     (fp_circle (center {fmt(-half + 0.5)} {fmt(-half + 0.5)}) (end {fmt(-half + 0.7)} {fmt(-half + 0.5)}) (layer "F.SilkS") (width 0.1))
 {chr(10).join(pads)}
+    (model "${{KICAD10_3DMODEL_DIR}}/Package_DFN_QFN.3dshapes/QFN-20-1EP_4x4mm_P0.5mm_EP2.6x2.6mm.step"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 0))
+    )
   )"""
 
 
