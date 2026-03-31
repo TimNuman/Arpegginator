@@ -38,25 +38,25 @@ def cell_center(row, col):
 # ── Kailh Choc v1 (PG1350) ───────────────────────────────────────────
 # Pad offsets relative to switch center (top view, standard orientation)
 SW_PAD1 = (0, 5.9)       # center-bottom electrical pin
-SW_PAD2 = (5.0, 3.8)     # right electrical pin
+SW_PAD2 = (-5.0, 3.8)    # left electrical pin (kiswitch rotated 180° so pin 2 is on left)
 SW_PAD_DRILL = 1.2
 SW_PAD_SIZE = 2.2
-SW_CENTER_DRILL = 3.0     # center alignment post (NPTH)
-SW_SIDE_POSTS = [(-5.22, 0), (5.22, 0)]  # side alignment (NPTH)
-SW_SIDE_DRILL = 1.7
+SW_CENTER_DRILL = 3.45    # center alignment post (NPTH) — matches kiswitch/datasheet
+SW_SIDE_POSTS = [(-5.5, 0), (5.5, 0)]  # side alignment (NPTH) — matches kiswitch/datasheet
+SW_SIDE_DRILL = 1.9       # matches kiswitch/datasheet
 
 # ── 1N4148W diode (SOD-323, KiCad standard) ─────────────────────────
 # Placed to the right of the switch, connecting SW_PAD2 to the row line.
 # Anode at top (connects to switch pad 2), cathode at bottom (connects to row).
 # KiCad SOD-323 pads: (±1.05, 0) size 0.6×0.45 — rotated 90° for vertical
-DIODE_OFFSET = (5.0, 7.0)   # relative to switch center
-DIODE_PAD_DY = 1.05          # pad center offset (KiCad SOD-323 standard)
+DIODE_OFFSET = (-8.5, 7.0)  # left of switch outline, between rows
+DIODE_PAD_DY = 1.05          # pad center offset — cathode below (away from pin 2), anode above (toward pin 2)
 DIODE_PAD_W = 0.45           # pad width (along edge, was perpendicular)
 DIODE_PAD_H = 0.6            # pad height (perpendicular to edge)
 
 # ── SK6812MINI-E RGBW LED (3535) ─────────────────────────────────────
 # Placed at switch center (shines through/around keycap)
-LED_OFFSET = (0, -2.5)      # slightly above switch center, clear of post
+LED_OFFSET = (0, -4.7)      # centered on LED window per PG1350 datasheet (4.70mm above switch center = top)
 LED_PAD_DX = 1.2             # half-spacing horizontal
 LED_PAD_DY = 0.8             # half-spacing vertical
 LED_PAD_W = 0.7
@@ -357,6 +357,11 @@ def switch_footprint(row, col):
     )
 {silk}
 {pad_str}
+    (model "${{KIPRJMOD}}/3dmodels/SW_Kailh_Choc_V1.stp"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 180))
+    )
   )"""
 
 
@@ -370,7 +375,7 @@ def diode_footprint(row, col):
     row_net = net_row(row)        # cathode: to row
 
     # SOD-323 pads — vertical orientation (KiCad standard rotated 90°)
-    # Pad 1 = cathode (bottom), Pad 2 = anode (top, toward switch)
+    # Pad 1 = cathode (bottom, away from switch), Pad 2 = anode (top, toward switch pad 2)
     return f"""  (footprint "Arp3:D_SOD-323" (layer "F.Cu")
     (at {fmt(dx)} {fmt(dy)})
     (descr "1N4148W anti-ghosting diode SOD-323")
@@ -406,14 +411,16 @@ def led_footprint(row, col):
     din_n = led_din_net(row, col)
     dout_n = led_dout_net(row, col)
 
-    # SK6812MINI-E pinout (top view):
+    # SK6812MINI-E pinout (top view, standard orientation):
     #   Pin1=VDD (TL)   Pin2=DOUT (TR)
     #   Pin4=DIN (BL)   Pin3=GND  (BR)
+    # Odd rows (R→L snake): rotated 180° so DIN/DOUT face chain direction
+    s = 1 if row % 2 == 0 else -1
     pads = [
-        ("1", -LED_PAD_DX, -LED_PAD_DY, NET_VCC,  "VDD"),
-        ("2",  LED_PAD_DX, -LED_PAD_DY, dout_n,   "DOUT"),
-        ("3",  LED_PAD_DX,  LED_PAD_DY, NET_GND,  "GND"),
-        ("4", -LED_PAD_DX,  LED_PAD_DY, din_n,    "DIN"),
+        ("1", -s * LED_PAD_DX, -s * LED_PAD_DY, NET_VCC,  "VDD"),
+        ("2",  s * LED_PAD_DX, -s * LED_PAD_DY, dout_n,   "DOUT"),
+        ("3",  s * LED_PAD_DX,  s * LED_PAD_DY, NET_GND,  "GND"),
+        ("4", -s * LED_PAD_DX,  s * LED_PAD_DY, din_n,    "DIN"),
     ]
 
     pad_strs = []
@@ -966,6 +973,11 @@ def row9_switches():
     (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
+    (model "${{KIPRJMOD}}/3dmodels/SW_Kailh_Choc_V1.stp"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 180))
+    )
   )""")
 
     # Space bar — 4u wide, centered between cols 4-7
@@ -983,6 +995,11 @@ def row9_switches():
     (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
+    (model "${{KIPRJMOD}}/3dmodels/SW_Kailh_Choc_V1.stp"
+      (offset (xyz 0 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz 0 0 180))
+    )
   )""")
 
     return "\n".join(parts)
@@ -1166,7 +1183,7 @@ def ground_zone():
   )"""
 
 
-def vcc_zone():
+def vcc_zone_fcu():
     """VCC fill on F.Cu, covering the right-side connector area."""
     grid_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2 + 2
     return f"""  (zone (net {NET_VCC}) (net_name "VCC") (layer "F.Cu") (tstamp {uuid()})
@@ -1182,6 +1199,26 @@ def vcc_zone():
   )"""
 
 
+def vcc_zone_bcu():
+    """VCC fill on B.Cu covering grid area — priority 1 (above GND at 0).
+
+    Connects to VCC vias at each LED VCC pad. KiCad fills VCC copper
+    around VCC vias; GND zone fills everywhere else.
+    """
+    return f"""  (zone (net {NET_VCC}) (net_name "VCC") (layer "B.Cu") (tstamp {uuid()})
+    (hatch edge 0.5)
+    (priority 1)
+    (connect_pads (clearance 0.3))
+    (min_thickness 0.2)
+    (filled_areas_thickness no)
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (polygon (pts
+      (xy 0 0) (xy {fmt(BOARD_W)} 0)
+      (xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy 0 {fmt(BOARD_H)})
+    ))
+  )"""
+
+
 # ── Routing primitives ────────────────────────────────────────────────
 
 TRACE_W = 0.25   # signal trace width (mm)
@@ -1193,14 +1230,6 @@ VIA_DRILL = 0.4
 # Must clear center post (radius 1.5 mm) and LED pads (edge at cx ± 1.55).
 COL_TRUNK_DX = -2.5
 
-# LED data horizontal routing channel (y offset from switch center)
-LED_DATA_BUS_DY = -2.0
-
-# LED VCC horizontal bus (y offset from switch center), clear of DOUT vias at -3.3
-LED_VCC_BUS_DY = -4.5
-
-# Inter-row LED chain routing margin (x offset from switch center)
-LED_INTERROW_MARGIN = 8.0
 
 
 def seg(x1, y1, x2, y2, width, layer, net_id):
@@ -1236,9 +1265,12 @@ def route_switch_to_diode():
         for c in range(COLS):
             cx, cy = cell_center(r, c)
             n = net_sw(r, c)
-            # SW pad 2: (cx + 5.0, cy + 3.8)
-            # Diode anode (pad 2): (cx + 5.0, cy + 7.0 - 0.95) = (cx + 5.0, cy + 6.05)
-            lines.append(seg(cx + 5.0, cy + 3.8, cx + 5.0, cy + 6.05,
+            # SW pad 2 → diode anode (pad 2)
+            sw2_x = cx + SW_PAD2[0]
+            sw2_y = cy + SW_PAD2[1]
+            anode_x = cx + DIODE_OFFSET[0]
+            anode_y = cy + DIODE_OFFSET[1] - DIODE_PAD_DY  # pad 2 = anode
+            lines.append(seg(sw2_x, sw2_y, anode_x, anode_y,
                              TRACE_W, "F.Cu", n))
     return "\n".join(lines)
 
@@ -1258,14 +1290,21 @@ def route_columns():
         for r in range(ROWS):
             cy = ORIGIN_Y + r * PITCH
             pad_y = cy + SW_PAD1[1]  # cy + 5.9
+            d = CHAMFER                # 45° chamfer distance
 
-            # Horizontal stub: pad → trunk
-            lines.append(seg(cx, pad_y, trunk_x, pad_y, TRACE_W, "F.Cu", n))
+            # Horizontal stub: pad → chamfer point
+            lines.append(seg(cx, pad_y, trunk_x + d, pad_y, TRACE_W, "F.Cu", n))
+            # 45° chamfer into trunk
+            lines.append(seg(trunk_x + d, pad_y, trunk_x, pad_y + d,
+                             TRACE_W, "F.Cu", n))
 
-            # Vertical trunk to next row
+            # Vertical trunk to next row's chamfer
             if r < ROWS - 1:
                 next_pad_y = ORIGIN_Y + (r + 1) * PITCH + SW_PAD1[1]
-                lines.append(seg(trunk_x, pad_y, trunk_x, next_pad_y,
+                lines.append(seg(trunk_x, pad_y + d, trunk_x, next_pad_y - d,
+                                 TRACE_W, "F.Cu", n))
+                # 45° chamfer out of trunk
+                lines.append(seg(trunk_x, next_pad_y - d, trunk_x + d, next_pad_y,
                                  TRACE_W, "F.Cu", n))
     return "\n".join(lines)
 
@@ -1280,7 +1319,7 @@ def route_rows():
     for r in range(ROWS):
         n = net_row(r)
         cy = ORIGIN_Y + r * PITCH
-        via_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY  # cy + 7.95
+        via_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY  # cathode pad position
 
         for c in range(COLS):
             cx = ORIGIN_X + c * PITCH
@@ -1298,19 +1337,13 @@ def route_rows():
 
 
 def route_led_chain():
-    """B.Cu: snaking LED data chain with vias at DOUT / DIN pads.
+    """B.Cu: LED data chain via vias at DOUT/DIN pads.
 
-    Intra-row connections route through a horizontal channel at
-    cy + LED_DATA_BUS_DY.  Inter-row connections route through the board
-    margin (left or right of the grid).
+    Pads are SMD on F.Cu, so vias drop to B.Cu for routing.
+    Intra-row: horizontal + 45° diagonal on B.Cu.
+    Inter-row: diagonal-vertical-diagonal between alignment holes on B.Cu.
     """
     lines = []
-
-    # Via at first LED's DIN pad (LED_DIN input)
-    cx0, cy0 = cell_center(0, 0)
-    lines.append(via_hole(cx0 + LED_OFFSET[0] - LED_PAD_DX,
-                          cy0 + LED_OFFSET[1] + LED_PAD_DY,
-                          NET_LED_DIN))
 
     total = ROWS * COLS
     for n in range(total - 1):
@@ -1319,51 +1352,63 @@ def route_led_chain():
         src_cx, src_cy = cell_center(src_r, src_c)
         dst_cx, dst_cy = cell_center(dst_r, dst_c)
 
-        # DOUT pad absolute position (LED offset + pad offset)
-        dout_x = src_cx + LED_OFFSET[0] + LED_PAD_DX   # cx + 1.2
-        dout_y = src_cy + LED_OFFSET[1] - LED_PAD_DY   # cy - 3.3
-        # DIN pad absolute position
-        din_x = dst_cx + LED_OFFSET[0] - LED_PAD_DX    # cx - 1.2
-        din_y = dst_cy + LED_OFFSET[1] + LED_PAD_DY    # cy - 1.7
+        # Pad positions depend on row orientation (odd rows rotated 180°)
+        src_s = 1 if src_r % 2 == 0 else -1
+        dst_s = 1 if dst_r % 2 == 0 else -1
+        # DOUT pad (pin 2): LED center + (s*DX, -s*DY)
+        dout_x = src_cx + LED_OFFSET[0] + src_s * LED_PAD_DX
+        dout_y = src_cy + LED_OFFSET[1] - src_s * LED_PAD_DY
+        # DIN pad (pin 4): LED center + (-s*DX, s*DY)
+        din_x = dst_cx + LED_OFFSET[0] - dst_s * LED_PAD_DX
+        din_y = dst_cy + LED_OFFSET[1] + dst_s * LED_PAD_DY
 
         chain_n = net_led_chain(n + 1)
 
-        # Vias at DOUT and DIN
+        # Vias at DOUT and DIN pads (F.Cu SMD → B.Cu)
         lines.append(via_hole(dout_x, dout_y, chain_n))
         lines.append(via_hole(din_x, din_y, chain_n))
 
+        # Y difference between DOUT and DIN pads
+        dy = din_y - dout_y
+
         if src_r == dst_r:
-            # ── Intra-row: horizontal channel on B.Cu ──
-            bus_y = src_cy + LED_DATA_BUS_DY  # cy - 2.0
-            lines += chamfer_route([
-                (dout_x, dout_y),
-                (dout_x, bus_y),
-                (din_x, bus_y),
-                (din_x, din_y),
-            ], TRACE_W, "B.Cu", chain_n)
-        else:
-            # ── Inter-row: route between rows ──
-            if src_c == COLS - 1:
-                # Right-side transition (even→odd row) — route through
-                # switch pad gap on F.Cu (between center post and pad 2)
-                route_x = src_cx + 2.7
-                led_cy = dst_cy + LED_OFFSET[1]  # destination LED center Y
-                lines += chamfer_route([
-                    (dout_x, dout_y),
-                    (route_x, dout_y),      # jog right into switch gap
-                    (route_x, led_cy),       # down between pads 1 and 2
-                    (din_x, led_cy),         # left through LED pad gap
-                    (din_x, din_y),          # down to DIN pad
-                ], TRACE_W, "F.Cu", chain_n, chamfer=0.15)
+            # ── Intra-row: horizontal + 45° diagonal on B.Cu ──
+            if din_x > dout_x:
+                # Even row (L→R): 45° diagonal from DOUT, then horizontal to DIN
+                diag_end_x = dout_x + abs(dy)
+                lines.append(seg(dout_x, dout_y, diag_end_x, din_y,
+                                 TRACE_W, "B.Cu", chain_n))
+                lines.append(seg(diag_end_x, din_y, din_x, din_y,
+                                 TRACE_W, "B.Cu", chain_n))
             else:
-                # Left-side transition (odd→even row) — B.Cu margin
-                margin_x = src_cx - LED_INTERROW_MARGIN
-                lines += chamfer_route([
-                    (dout_x, dout_y),
-                    (margin_x, dout_y),
-                    (margin_x, din_y),
-                    (din_x, din_y),
-                ], TRACE_W, "B.Cu", chain_n)
+                # Odd row (R→L): horizontal from DOUT, then 45° diagonal to DIN
+                diag_start_x = din_x + abs(dy)
+                lines.append(seg(dout_x, dout_y, diag_start_x, dout_y,
+                                 TRACE_W, "B.Cu", chain_n))
+                lines.append(seg(diag_start_x, dout_y, din_x, din_y,
+                                 TRACE_W, "B.Cu", chain_n))
+        else:
+            # ── Inter-row: diagonal-vertical-diagonal between alignment holes ──
+            if src_c == COLS - 1:
+                channel_x = src_cx + 3.0   # right side: between center and right post
+            else:
+                channel_x = src_cx - 3.5   # left side: between col trunk (-2.5) and left post (-4.55)
+            dx = abs(channel_x - dout_x)
+            top_y = dout_y + dx
+            bot_y = din_y - dx
+            # \ diagonal into channel (B.Cu)
+            lines.append(seg(dout_x, dout_y, channel_x, top_y,
+                             TRACE_W, "B.Cu", chain_n))
+            # Via to F.Cu for vertical section (skips B.Cu row/col traces)
+            lines.append(via_hole(channel_x, top_y, chain_n))
+            # | vertical through switch area (F.Cu)
+            lines.append(seg(channel_x, top_y, channel_x, bot_y,
+                             TRACE_W, "F.Cu", chain_n))
+            # Via back to B.Cu
+            lines.append(via_hole(channel_x, bot_y, chain_n))
+            # / diagonal out to DIN (B.Cu)
+            lines.append(seg(channel_x, bot_y, din_x, din_y,
+                             TRACE_W, "B.Cu", chain_n))
     return "\n".join(lines)
 
 
@@ -1371,40 +1416,25 @@ def route_led_gnd():
     """Via at each LED GND pad → B.Cu ground fill."""
     lines = []
     for r in range(ROWS):
+        s = 1 if r % 2 == 0 else -1
         for c in range(COLS):
             cx, cy = cell_center(r, c)
-            gnd_x = cx + LED_OFFSET[0] + LED_PAD_DX   # cx + 1.2
-            gnd_y = cy + LED_OFFSET[1] + LED_PAD_DY   # cy - 1.7
+            gnd_x = cx + LED_OFFSET[0] + s * LED_PAD_DX   # GND pad (pin 3)
+            gnd_y = cy + LED_OFFSET[1] + s * LED_PAD_DY
             lines.append(via_hole(gnd_x, gnd_y, NET_GND))
     return "\n".join(lines)
 
 
 def route_led_vcc():
-    """B.Cu: VCC bus per row with vias at each LED VCC pad.
-
-    Bus runs at cy + LED_VCC_BUS_DY (below the DOUT vias at cy - 3.3).
-    Short stubs connect each VCC pad via to the bus.
-    """
+    """Via at each LED VCC pad → B.Cu VCC fill zone."""
     lines = []
     for r in range(ROWS):
-        cy = ORIGIN_Y + r * PITCH
-        pad_y = cy + LED_OFFSET[1] - LED_PAD_DY  # cy - 3.3
-        bus_y = cy + LED_VCC_BUS_DY               # cy - 4.5
-
+        s = 1 if r % 2 == 0 else -1
         for c in range(COLS):
-            cx = ORIGIN_X + c * PITCH
-            vcc_x = cx + LED_OFFSET[0] - LED_PAD_DX  # cx - 1.2
-
-            # Via at VCC pad
-            lines.append(via_hole(vcc_x, pad_y, NET_VCC))
-            # Stub from via to bus
-            lines.append(seg(vcc_x, pad_y, vcc_x, bus_y,
-                             POWER_W, "B.Cu", NET_VCC))
-            # Horizontal bus to next column
-            if c < COLS - 1:
-                next_x = ORIGIN_X + (c + 1) * PITCH + LED_OFFSET[0] - LED_PAD_DX
-                lines.append(seg(vcc_x, bus_y, next_x, bus_y,
-                                 POWER_W, "B.Cu", NET_VCC))
+            cx, cy = cell_center(r, c)
+            vcc_x = cx + LED_OFFSET[0] - s * LED_PAD_DX  # VDD pad (pin 1)
+            vcc_y = cy + LED_OFFSET[1] - s * LED_PAD_DY
+            lines.append(via_hole(vcc_x, vcc_y, NET_VCC))
     return "\n".join(lines)
 
 
@@ -1496,7 +1526,10 @@ def route_conn_cols():
         n_in_group = min(COLS_PER_GAP, COLS - group * COLS_PER_GAP)
         gap_row = 3 + group  # rows 3-4, 4-5, 5-6, 6-7
 
-        gap_center = ORIGIN_Y + gap_row * PITCH + 11.25
+        # Gap center between bottom of gap_row (diode cathode) and top of gap_row+1 (LED)
+        gap_bottom = ORIGIN_Y + gap_row * PITCH + DIODE_OFFSET[1] + DIODE_PAD_DY
+        gap_top = ORIGIN_Y + (gap_row + 1) * PITCH + LED_OFFSET[1] - LED_PAD_DY
+        gap_center = (gap_bottom + gap_top) / 2
         gap_y = gap_center + (within - (n_in_group - 1) / 2.0) * GAP_Y_SPACING
 
         # Fan-in X: COL 0 leftmost (outermost), COL 15 rightmost (innermost).
@@ -1671,7 +1704,9 @@ def generate():
 
 {ground_zone()}
 
-{vcc_zone()}
+{vcc_zone_fcu()}
+
+{vcc_zone_bcu()}
 
 )
 """
