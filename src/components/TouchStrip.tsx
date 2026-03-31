@@ -37,7 +37,7 @@ export const TouchStrip = memo(
           orientation === "vertical"
             ? (e.clientY - rect.top) / rect.height
             : (e.clientX - rect.left) / rect.width;
-        return Math.round(Math.max(0, Math.min(1, pos)) * 1024);
+        return Math.round(Math.max(0, Math.min(1, pos)) * 255);
       };
 
       const endDrag = () => {
