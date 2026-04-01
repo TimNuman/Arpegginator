@@ -125,10 +125,10 @@ MPR_THERMAL_GRID = [-0.65, 0.65]  # 2x2 grid positions
 MPR_THERMAL_SIZE = 1.05       # thermal pad size
 
 # Slider IC placement: near their respective sliders
-MPR_VSLIDER_X = MARGIN + SLIDER_W / 2        # center of vertical slider
-MPR_VSLIDER_Y = ORIGIN_Y + 8 * PITCH + 5.0   # below vertical slider, in row 9 area
-MPR_HSLIDER_X = ORIGIN_X + 12 * PITCH        # center of horizontal slider area
-MPR_HSLIDER_Y = ORIGIN_Y + 8 * PITCH + PITCH / 2 + 5.0  # below horizontal slider
+MPR_VSLIDER_X = MARGIN + SLIDER_W / 2        # center of vertical slider (under pad)
+MPR_VSLIDER_Y = ORIGIN_Y + 4 * PITCH         # under middle of vertical slider
+MPR_HSLIDER_X = ORIGIN_X + 12 * PITCH        # center of horizontal slider area (under pad)
+MPR_HSLIDER_Y = ORIGIN_Y + ROWS * PITCH      # under horizontal slider
 
 # 0603 passive pads (KiCad standard R_0603_1608Metric / C_0603_1608Metric)
 P0603_PAD_W = 0.8
@@ -158,32 +158,30 @@ def net_sw(r, c):      return 155 + r * COLS + c
 _BASE_EXTRA = 155 + ROWS * COLS       # 283
 NET_I2C_SDA = _BASE_EXTRA
 NET_I2C_SCL = _BASE_EXTRA + 1
-# Row 9 modifier keys (directly wired, no matrix)
-NET_KEY_SHIFT = _BASE_EXTRA + 2
-NET_KEY_CTRL  = _BASE_EXTRA + 3
-NET_KEY_OPT   = _BASE_EXTRA + 4
-NET_KEY_CMD   = _BASE_EXTRA + 5
-NET_KEY_SPACE = _BASE_EXTRA + 6
+# Row 9 matrix wiring (col -1 through 7, ROW8)
+NET_ROW8 = _BASE_EXTRA + 2
+NET_COL_NEG1 = _BASE_EXTRA + 3     # extra column for col -1
+def net_r9_sw(i): return _BASE_EXTRA + 4 + i   # switch-diode nets, i=0..8
 # Vertical slider pads (8)
-def net_vslider(i): return _BASE_EXTRA + 7 + i   # i = 0..7
+def net_vslider(i): return _BASE_EXTRA + 13 + i   # i = 0..7
 # Horizontal slider pads (8)
-def net_hslider(i): return _BASE_EXTRA + 15 + i  # i = 0..7
+def net_hslider(i): return _BASE_EXTRA + 21 + i   # i = 0..7
 # MPR121 IRQ outputs
-NET_MPR_IRQ_V = _BASE_EXTRA + 23   # vertical slider IRQ
-NET_MPR_IRQ_H = _BASE_EXTRA + 24   # horizontal slider IRQ
+NET_MPR_IRQ_V = _BASE_EXTRA + 29   # vertical slider IRQ
+NET_MPR_IRQ_H = _BASE_EXTRA + 30   # horizontal slider IRQ
 # Display SPI signals
-NET_DISP_CS   = _BASE_EXTRA + 25
-NET_DISP_DC   = _BASE_EXTRA + 26
-NET_DISP_RST  = _BASE_EXTRA + 27
-NET_DISP_MOSI = _BASE_EXTRA + 28
-NET_DISP_SCK  = _BASE_EXTRA + 29
-NET_DISP_MISO = _BASE_EXTRA + 30
-NET_DISP_LED  = _BASE_EXTRA + 31
-NET_USB_DP    = _BASE_EXTRA + 32   # USB D+
-NET_USB_DN    = _BASE_EXTRA + 33   # USB D-
-NET_USB_VBUS  = _BASE_EXTRA + 34
-NET_USB_CC1   = _BASE_EXTRA + 35
-NET_USB_CC2   = _BASE_EXTRA + 36
+NET_DISP_CS   = _BASE_EXTRA + 31
+NET_DISP_DC   = _BASE_EXTRA + 32
+NET_DISP_RST  = _BASE_EXTRA + 33
+NET_DISP_MOSI = _BASE_EXTRA + 34
+NET_DISP_SCK  = _BASE_EXTRA + 35
+NET_DISP_MISO = _BASE_EXTRA + 36
+NET_DISP_LED  = _BASE_EXTRA + 37
+NET_USB_DP    = _BASE_EXTRA + 38   # USB D+
+NET_USB_DN    = _BASE_EXTRA + 39   # USB D-
+NET_USB_VBUS  = _BASE_EXTRA + 40
+NET_USB_CC1   = _BASE_EXTRA + 41
+NET_USB_CC2   = _BASE_EXTRA + 42
 TOTAL_NETS = _BASE_EXTRA + 37
 
 
@@ -240,11 +238,10 @@ def all_net_names():
             nets.append((net_sw(r, c), f'"SW_{r}_{c}"'))
     nets.append((NET_I2C_SDA, '"I2C_SDA"'))
     nets.append((NET_I2C_SCL, '"I2C_SCL"'))
-    nets.append((NET_KEY_SHIFT, '"KEY_SHIFT"'))
-    nets.append((NET_KEY_CTRL, '"KEY_CTRL"'))
-    nets.append((NET_KEY_OPT, '"KEY_OPT"'))
-    nets.append((NET_KEY_CMD, '"KEY_CMD"'))
-    nets.append((NET_KEY_SPACE, '"KEY_SPACE"'))
+    nets.append((NET_ROW8, '"ROW8"'))
+    nets.append((NET_COL_NEG1, '"COL_NEG1"'))
+    for i in range(9):
+        nets.append((net_r9_sw(i), f'"SW_R9_{i}"'))
     for i in range(8):
         nets.append((net_vslider(i), f'"VSLIDER{i}"'))
     for i in range(8):
@@ -587,30 +584,31 @@ def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
   )"""
 
 
-def passive_0603(cx, cy, ref, value, net1, net2, is_resistor=False):
+def passive_0603(cx, cy, ref, value, net1, net2, is_resistor=False, back=False):
     """Generate a 0603 passive (cap or resistor) footprint with KiCad-standard pads."""
+    side = "B" if back else "F"
     if is_resistor:
         model_path = "${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step"
         fp_name = "Arp3:R_0603"
     else:
         model_path = "${KICAD10_3DMODEL_DIR}/Capacitor_SMD.3dshapes/C_0603_1608Metric.step"
         fp_name = "Arp3:C_0603"
-    return f"""  (footprint "{fp_name}" (layer "F.Cu")
+    return f"""  (footprint "{fp_name}" (layer "{side}.Cu")
     (at {fmt(cx)} {fmt(cy)})
     (descr "{value}")
     (attr smd)
-    (fp_text reference "{ref}" (at 0 -1.2) (layer "F.SilkS")
+    (fp_text reference "{ref}" (at 0 -1.2) (layer "{side}.SilkS")
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
-    (fp_text value "{value}" (at 0 1.2) (layer "F.Fab")
+    (fp_text value "{value}" (at 0 1.2) (layer "{side}.Fab")
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
-    (fp_line (start -1.48 -0.73) (end 1.48 -0.73) (layer "F.CrtYd") (width 0.05))
-    (fp_line (start 1.48 -0.73) (end 1.48 0.73) (layer "F.CrtYd") (width 0.05))
-    (fp_line (start 1.48 0.73) (end -1.48 0.73) (layer "F.CrtYd") (width 0.05))
-    (fp_line (start -1.48 0.73) (end -1.48 -0.73) (layer "F.CrtYd") (width 0.05))
-    (pad "1" smd roundrect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {net1} {nn(net1)}))
-    (pad "2" smd roundrect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {net2} {nn(net2)}))
+    (fp_line (start -1.48 -0.73) (end 1.48 -0.73) (layer "{side}.CrtYd") (width 0.05))
+    (fp_line (start 1.48 -0.73) (end 1.48 0.73) (layer "{side}.CrtYd") (width 0.05))
+    (fp_line (start 1.48 0.73) (end -1.48 0.73) (layer "{side}.CrtYd") (width 0.05))
+    (fp_line (start -1.48 0.73) (end -1.48 -0.73) (layer "{side}.CrtYd") (width 0.05))
+    (pad "1" smd roundrect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "{side}.Cu" "{side}.Paste" "{side}.Mask") (roundrect_rratio 0.25) (net {net1} {nn(net1)}))
+    (pad "2" smd roundrect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "{side}.Cu" "{side}.Paste" "{side}.Mask") (roundrect_rratio 0.25) (net {net2} {nn(net2)}))
     (model "{model_path}"
       (offset (xyz 0 0 0))
       (scale (xyz 1 1 1))
@@ -820,23 +818,24 @@ def mcp_components():
 
 # ── MPR121 touch controller footprints ───────────────────────────────
 
-def mpr121_footprint(cx, cy, ref, pin_nets):
+def mpr121_footprint(cx, cy, ref, pin_nets, back=False):
     """MPR121 QFN-20 (4×4mm, 0.5mm pitch, 5 pins/side, KiCad standard)."""
+    side = "B" if back else "F"
     half = MPR_BODY / 2
     pads = []
     for pin in range(1, 21):
-        side = (pin - 1) // MPR_PINS_PER_SIDE
+        qside = (pin - 1) // MPR_PINS_PER_SIDE
         idx = (pin - 1) % MPR_PINS_PER_SIDE
         linear = (idx - 2) * MPR_PITCH  # -1.0 to +1.0
 
         # KiCad standard positions
-        if side == 0:    dx, dy = -MPR_PAD_EDGE, linear       # left
-        elif side == 1:  dx, dy = linear, MPR_PAD_EDGE         # bottom
-        elif side == 2:  dx, dy = MPR_PAD_EDGE, -linear        # right
-        else:            dx, dy = -linear, -MPR_PAD_EDGE       # top
+        if qside == 0:    dx, dy = -MPR_PAD_EDGE, linear       # left
+        elif qside == 1:  dx, dy = linear, MPR_PAD_EDGE         # bottom
+        elif qside == 2:  dx, dy = MPR_PAD_EDGE, -linear        # right
+        else:             dx, dy = -linear, -MPR_PAD_EDGE       # top
 
         nid = pin_nets.get(pin, 0)
-        if side in (0, 2):
+        if qside in (0, 2):
             pw, ph = MPR_PAD_H, MPR_PAD_W  # 0.85 x 0.25
         else:
             pw, ph = MPR_PAD_W, MPR_PAD_H  # 0.25 x 0.85
@@ -844,14 +843,14 @@ def mpr121_footprint(cx, cy, ref, pin_nets):
             f'    (pad "{pin}" smd roundrect '
             f'(at {fmt(dx)} {fmt(dy)}) '
             f'(size {fmt(pw)} {fmt(ph)}) '
-            f'(layers "F.Cu" "F.Paste" "F.Mask") '
+            f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
             f'(roundrect_rratio 0.25) '
             f'(net {nid} {nn(nid)}))')
 
     # Exposed pad 21 (GND)
     pads.append(
         f'    (pad "21" smd rect (at 0 0) (size {fmt(MPR_EPAD)} {fmt(MPR_EPAD)}) '
-        f'(layers "F.Cu" "F.Paste" "F.Mask") '
+        f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
         f'(net {NET_GND} {nn(NET_GND)}))')
 
     # Thermal pads (2x2 grid, unnamed)
@@ -860,34 +859,34 @@ def mpr121_footprint(cx, cy, ref, pin_nets):
             pads.append(
                 f'    (pad "" smd rect (at {fmt(tx)} {fmt(ty)}) '
                 f'(size {fmt(MPR_THERMAL_SIZE)} {fmt(MPR_THERMAL_SIZE)}) '
-                f'(layers "F.Cu" "F.Paste" "F.Mask") '
+                f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
                 f'(net {NET_GND} {nn(NET_GND)}))')
 
     # Courtyard
     crt = 2.6
     courtyard = [
-        f'    (fp_line (start {fmt(-crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
-        f'    (fp_line (start {fmt(crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
-        f'    (fp_line (start {fmt(crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(crt)}) (layer "F.CrtYd") (width 0.05))',
-        f'    (fp_line (start {fmt(-crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(-crt)}) (layer "F.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(-crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(-crt)}) (layer "{side}.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(-crt)}) (end {fmt(crt)} {fmt(crt)}) (layer "{side}.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(crt)}) (layer "{side}.CrtYd") (width 0.05))',
+        f'    (fp_line (start {fmt(-crt)} {fmt(crt)}) (end {fmt(-crt)} {fmt(-crt)}) (layer "{side}.CrtYd") (width 0.05))',
     ]
 
-    return f"""  (footprint "Arp3:MPR121_QFN20" (layer "F.Cu")
+    return f"""  (footprint "Arp3:MPR121_QFN20" (layer "{side}.Cu")
     (at {fmt(cx)} {fmt(cy)})
     (descr "MPR121 capacitive touch controller QFN-20 4x4mm")
     (attr smd)
-    (fp_text reference "{ref}" (at 0 {fmt(-half - 1.5)}) (layer "F.SilkS")
+    (fp_text reference "{ref}" (at 0 {fmt(-half - 1.5)}) (layer "{side}.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.1)))
     )
-    (fp_text value "MPR121" (at 0 {fmt(half + 1.5)}) (layer "F.Fab")
+    (fp_text value "MPR121" (at 0 {fmt(half + 1.5)}) (layer "{side}.Fab")
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
-    (fp_line (start {fmt(-half)} {fmt(-half)}) (end {fmt(half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))
-    (fp_line (start {fmt(half)} {fmt(-half)}) (end {fmt(half)} {fmt(half)}) (layer "F.Fab") (width 0.1))
-    (fp_line (start {fmt(half)} {fmt(half)}) (end {fmt(-half)} {fmt(half)}) (layer "F.Fab") (width 0.1))
-    (fp_line (start {fmt(-half)} {fmt(half)}) (end {fmt(-half)} {fmt(-half)}) (layer "F.Fab") (width 0.1))
+    (fp_line (start {fmt(-half)} {fmt(-half)}) (end {fmt(half)} {fmt(-half)}) (layer "{side}.Fab") (width 0.1))
+    (fp_line (start {fmt(half)} {fmt(-half)}) (end {fmt(half)} {fmt(half)}) (layer "{side}.Fab") (width 0.1))
+    (fp_line (start {fmt(half)} {fmt(half)}) (end {fmt(-half)} {fmt(half)}) (layer "{side}.Fab") (width 0.1))
+    (fp_line (start {fmt(-half)} {fmt(half)}) (end {fmt(-half)} {fmt(-half)}) (layer "{side}.Fab") (width 0.1))
 {chr(10).join(courtyard)}
-    (fp_circle (center {fmt(-half + 0.5)} {fmt(-half + 0.5)}) (end {fmt(-half + 0.7)} {fmt(-half + 0.5)}) (layer "F.SilkS") (width 0.1))
+    (fp_circle (center {fmt(-half + 0.5)} {fmt(-half + 0.5)}) (end {fmt(-half + 0.7)} {fmt(-half + 0.5)}) (layer "{side}.SilkS") (width 0.1))
 {chr(10).join(pads)}
     (model "${{KICAD10_3DMODEL_DIR}}/Package_DFN_QFN.3dshapes/QFN-20-1EP_4x4mm_P0.5mm_EP2.6x2.6mm.step"
       (offset (xyz 0 0 0))
@@ -920,7 +919,7 @@ def slider_ics():
         16: net_vslider(6), 17: net_vslider(7),
         20: NET_VCC,
     }
-    parts.append(mpr121_footprint(MPR_VSLIDER_X, MPR_VSLIDER_Y, "U3", u3_nets))
+    parts.append(mpr121_footprint(MPR_VSLIDER_X, MPR_VSLIDER_Y, "U3", u3_nets, back=True))
 
     # U4: horizontal slider (addr 0x5B, ADDR→VDD)
     u4_nets = {
@@ -934,42 +933,43 @@ def slider_ics():
         16: net_hslider(6), 17: net_hslider(7),
         20: NET_VCC,
     }
-    parts.append(mpr121_footprint(MPR_HSLIDER_X, MPR_HSLIDER_Y, "U4", u4_nets))
+    parts.append(mpr121_footprint(MPR_HSLIDER_X, MPR_HSLIDER_Y, "U4", u4_nets, back=True))
 
     # Decoupling caps (100nF VDD, 100nF VREG per chip)
-    parts.append(passive_0603(MPR_VSLIDER_X + 4, MPR_VSLIDER_Y, "C3", "100nF", NET_VCC, NET_GND))
-    parts.append(passive_0603(MPR_VSLIDER_X + 4, MPR_VSLIDER_Y + 2, "C4", "100nF", NET_VCC, NET_GND))
-    parts.append(passive_0603(MPR_HSLIDER_X + 4, MPR_HSLIDER_Y, "C5", "100nF", NET_VCC, NET_GND))
-    parts.append(passive_0603(MPR_HSLIDER_X + 4, MPR_HSLIDER_Y + 2, "C6", "100nF", NET_VCC, NET_GND))
+    parts.append(passive_0603(MPR_VSLIDER_X + 4, MPR_VSLIDER_Y, "C3", "100nF", NET_VCC, NET_GND, back=True))
+    parts.append(passive_0603(MPR_VSLIDER_X + 4, MPR_VSLIDER_Y + 2, "C4", "100nF", NET_VCC, NET_GND, back=True))
+    parts.append(passive_0603(MPR_HSLIDER_X + 4, MPR_HSLIDER_Y, "C5", "100nF", NET_VCC, NET_GND, back=True))
+    parts.append(passive_0603(MPR_HSLIDER_X + 4, MPR_HSLIDER_Y + 2, "C6", "100nF", NET_VCC, NET_GND, back=True))
 
     return "\n".join(parts)
 
 
 # ── Row 9: modifier keys + space bar ────────────────────────────────
 
-ROW9_KEYS = [
-    ("SW_SHIFT", NET_KEY_SHIFT, 0),    # col 0
-    ("SW_CTRL",  NET_KEY_CTRL,  1),    # col 1
-    ("SW_OPT",   NET_KEY_OPT,   2),    # col 2
-    ("SW_CMD",   NET_KEY_CMD,   3),    # col 3
-]
+ROW9_COLS = list(range(-1, 8))   # cols -1 through 7 (9 switches)
 
 def row9_switches():
-    """Modifier keys (1u each) and space bar (2u) on row 9. No LEDs."""
+    """Bottom row switches wired into the matrix (cols -1..7, ROW8).
+    Each switch has a diode, same as the main grid."""
     parts = []
     row = ROWS  # row index 8
 
-    for ref, net, col in ROW9_KEYS:
+    for i, col in enumerate(ROW9_COLS):
         cx, cy = cell_center(row, col)
+        ref = f"SW_R9_{i}"
+        col_net = NET_COL_NEG1 if col == -1 else net_col(col)
+        sw_net = net_r9_sw(i)
+
+        # Switch footprint
         parts.append(f"""  (footprint "Arp3:Kailh_Choc_V1" (layer "F.Cu")
     (at {fmt(cx)} {fmt(cy)})
-    (descr "Kailh Choc V1 modifier key")
+    (descr "Kailh Choc V1 bottom row key")
     (attr through_hole)
     (fp_text reference "{ref}" (at 0 -8.5) (layer "F.SilkS")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
-    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {net} {nn(net)}))
-    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_GND} {nn(NET_GND)}))
+    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {col_net} {nn(col_net)}))
+    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {sw_net} {nn(sw_net)}))
     (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
@@ -980,25 +980,23 @@ def row9_switches():
     )
   )""")
 
-    # Space bar — 4u wide, centered between cols 4-7
-    space_cx = ORIGIN_X + 5.5 * PITCH
-    space_cy = ORIGIN_Y + row * PITCH
-    parts.append(f"""  (footprint "Arp3:Kailh_Choc_V1" (layer "F.Cu")
-    (at {fmt(space_cx)} {fmt(space_cy)})
-    (descr "Kailh Choc V1 space bar 2u")
-    (attr through_hole)
-    (fp_text reference "SW_SPACE" (at 0 -8.5) (layer "F.SilkS")
-      (effects (font (size 0.8 0.8) (thickness 0.12)))
+        # Diode footprint (same layout as main grid)
+        dx = cx + DIODE_OFFSET[0]
+        dy = cy + DIODE_OFFSET[1]
+        parts.append(f"""  (footprint "Arp3:D_SOD-323" (layer "F.Cu")
+    (at {fmt(dx)} {fmt(dy)})
+    (descr "1N4148W anti-ghosting diode SOD-323")
+    (attr smd)
+    (fp_text reference "D_R9_{i}" (at -2 0) (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.1)))
     )
-    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_KEY_SPACE} {nn(NET_KEY_SPACE)}))
-    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_GND} {nn(NET_GND)}))
-    (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
-    (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
-    (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
-    (model "${{KIPRJMOD}}/3dmodels/SW_Kailh_Choc_V1.stp"
+    (fp_line (start -0.5 {fmt(-DIODE_PAD_DY)}) (end 0.5 {fmt(-DIODE_PAD_DY)}) (layer "F.SilkS") (width 0.1))
+    (pad "1" smd roundrect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {NET_ROW8} {nn(NET_ROW8)}))
+    (pad "2" smd roundrect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {sw_net} {nn(sw_net)}))
+    (model "${{KICAD10_3DMODEL_DIR}}/Diode_SMD.3dshapes/D_SOD-323.step"
       (offset (xyz 0 0 0))
       (scale (xyz 1 1 1))
-      (rotate (xyz 0 0 180))
+      (rotate (xyz 0 0 90))
     )
   )""")
 
@@ -1263,17 +1261,28 @@ def chain_to_rc(idx):
 def route_switch_to_diode():
     """F.Cu: short vertical trace from switch pad 2 to diode anode."""
     lines = []
+    # Main grid (rows 0-7, cols 0-15)
     for r in range(ROWS):
         for c in range(COLS):
             cx, cy = cell_center(r, c)
             n = net_sw(r, c)
-            # SW pad 2 → diode anode (pad 2)
             sw2_x = cx + SW_PAD2[0]
             sw2_y = cy + SW_PAD2[1]
             anode_x = cx + DIODE_OFFSET[0]
-            anode_y = cy + DIODE_OFFSET[1] - DIODE_PAD_DY  # pad 2 = anode
+            anode_y = cy + DIODE_OFFSET[1] - DIODE_PAD_DY
             lines.append(seg(sw2_x, sw2_y, anode_x, anode_y,
                              TRACE_W, "F.Cu", n))
+    # Bottom row (row 8, cols -1..7)
+    row = ROWS
+    for i, col in enumerate(ROW9_COLS):
+        cx, cy = cell_center(row, col)
+        n = net_r9_sw(i)
+        sw2_x = cx + SW_PAD2[0]
+        sw2_y = cy + SW_PAD2[1]
+        anode_x = cx + DIODE_OFFSET[0]
+        anode_y = cy + DIODE_OFFSET[1] - DIODE_PAD_DY
+        lines.append(seg(sw2_x, sw2_y, anode_x, anode_y,
+                         TRACE_W, "F.Cu", n))
     return "\n".join(lines)
 
 
@@ -1288,26 +1297,35 @@ def route_columns():
         n = net_col(c)
         cx = ORIGIN_X + c * PITCH
         trunk_x = cx + COL_TRUNK_DX
+        # Cols 0-7 extend to bottom row (ROWS+1 rows), cols 8-15 only main grid
+        last_row = ROWS if c < 8 else ROWS - 1
 
         for r in range(ROWS):
             cy = ORIGIN_Y + r * PITCH
-            pad_y = cy + SW_PAD1[1]  # cy + 5.9
-            d = CHAMFER                # 45° chamfer distance
+            pad_y = cy + SW_PAD1[1]
+            d = CHAMFER
 
-            # Horizontal stub: pad → chamfer point
-            lines.append(seg(cx, pad_y, trunk_x + d, pad_y, TRACE_W, "F.Cu", n))
-            # 45° chamfer into trunk
-            lines.append(seg(trunk_x + d, pad_y, trunk_x, pad_y + d,
-                             TRACE_W, "F.Cu", n))
+            if r < last_row:
+                # Normal row: stub → chamfer into trunk
+                lines.append(seg(cx, pad_y, trunk_x + d, pad_y, TRACE_W, "F.Cu", n))
+                lines.append(seg(trunk_x + d, pad_y, trunk_x, pad_y + d,
+                                 TRACE_W, "F.Cu", n))
 
-            # Vertical trunk to next row's chamfer
-            if r < ROWS - 1:
+                # Vertical trunk to next row's chamfer
                 next_pad_y = ORIGIN_Y + (r + 1) * PITCH + SW_PAD1[1]
                 lines.append(seg(trunk_x, pad_y + d, trunk_x, next_pad_y - d,
                                  TRACE_W, "F.Cu", n))
-                # 45° chamfer out of trunk
                 lines.append(seg(trunk_x, next_pad_y - d, trunk_x + d, next_pad_y,
                                  TRACE_W, "F.Cu", n))
+            else:
+                # Last row for this column: straight stub, no downward chamfer
+                lines.append(seg(cx, pad_y, trunk_x, pad_y, TRACE_W, "F.Cu", n))
+
+        # Bottom row stub (cols 0-7 only)
+        if c < 8:
+            cy = ORIGIN_Y + ROWS * PITCH
+            pad_y = cy + SW_PAD1[1]
+            lines.append(seg(cx, pad_y, trunk_x, pad_y, TRACE_W, "F.Cu", n))
     return "\n".join(lines)
 
 
@@ -1318,23 +1336,40 @@ def route_rows():
     on B.Cu links all cathodes in the same row.
     """
     lines = []
+    # Main grid rows 0-7 (16 columns each)
     for r in range(ROWS):
         n = net_row(r)
         cy = ORIGIN_Y + r * PITCH
-        via_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY  # cathode pad position
+        via_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY
 
         for c in range(COLS):
             cx = ORIGIN_X + c * PITCH
-            via_x = cx + DIODE_OFFSET[0]  # cx + 5.0
-
-            # Via from F.Cu diode cathode pad to B.Cu
+            via_x = cx + DIODE_OFFSET[0]
             lines.append(via_hole(via_x, via_y, n))
-
-            # Horizontal B.Cu trace to next column's diode
             if c < COLS - 1:
                 next_x = ORIGIN_X + (c + 1) * PITCH + DIODE_OFFSET[0]
                 lines.append(seg(via_x, via_y, next_x, via_y,
                                  TRACE_W, "B.Cu", n))
+
+        # Extend row bus past last column
+        last_via_x = ORIGIN_X + (COLS - 1) * PITCH + DIODE_OFFSET[0]
+        grid_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2
+        lines.append(seg(last_via_x, via_y, grid_right, via_y,
+                         TRACE_W, "B.Cu", n))
+
+    # Bottom row (ROW8, cols -1..7)
+    n = NET_ROW8
+    cy = ORIGIN_Y + ROWS * PITCH
+    via_y = cy + DIODE_OFFSET[1] + DIODE_PAD_DY
+    for i, col in enumerate(ROW9_COLS):
+        cx = ORIGIN_X + col * PITCH
+        via_x = cx + DIODE_OFFSET[0]
+        lines.append(via_hole(via_x, via_y, n))
+        if i < len(ROW9_COLS) - 1:
+            next_col = ROW9_COLS[i + 1]
+            next_x = ORIGIN_X + next_col * PITCH + DIODE_OFFSET[0]
+            lines.append(seg(via_x, via_y, next_x, via_y,
+                             TRACE_W, "B.Cu", n))
     return "\n".join(lines)
 
 
@@ -1398,19 +1433,16 @@ def route_led_chain():
             dx = abs(channel_x - dout_x)
             top_y = dout_y + dx
             bot_y = din_y - dx
-            # \ diagonal into channel (B.Cu)
+            # Entire inter-row on F.Cu (channel at cx±3.0 clears col trunk at cx-2.5)
+            # \ diagonal into channel
             lines.append(seg(dout_x, dout_y, channel_x, top_y,
-                             TRACE_W, "B.Cu", chain_n))
-            # Via to F.Cu for vertical section (skips B.Cu row/col traces)
-            lines.append(via_hole(channel_x, top_y, chain_n))
-            # | vertical through switch area (F.Cu)
+                             TRACE_W, "F.Cu", chain_n))
+            # | vertical through switch area
             lines.append(seg(channel_x, top_y, channel_x, bot_y,
                              TRACE_W, "F.Cu", chain_n))
-            # Via back to B.Cu
-            lines.append(via_hole(channel_x, bot_y, chain_n))
-            # / diagonal out to DIN (B.Cu)
+            # / diagonal out to DIN
             lines.append(seg(channel_x, bot_y, din_x, din_y,
-                             TRACE_W, "B.Cu", chain_n))
+                             TRACE_W, "F.Cu", chain_n))
     return "\n".join(lines)
 
 
@@ -1513,7 +1545,7 @@ def route_conn_cols():
     leftmost X so it turns upward first without crossing.
     """
     lines = []
-    via_x_right = ORIGIN_X + (COLS - 1) * PITCH + DIODE_OFFSET[0] + 1.0
+    via_x_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2
     fanin_start = via_x_right + 1.5   # leftmost fan-in (COL 0)
 
     for c in range(COLS):
