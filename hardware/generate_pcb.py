@@ -1109,6 +1109,7 @@ def vertical_slider_zones():
     (filled_areas_thickness no)
     (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
     (polygon (pts {xy_str}))
+    (filled_polygon (layer "F.Cu") (pts {xy_str}))
   )""")
     return "\n".join(zones)
 
@@ -1153,6 +1154,7 @@ def horizontal_slider_zones():
     (filled_areas_thickness no)
     (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
     (polygon (pts {xy_str}))
+    (filled_polygon (layer "F.Cu") (pts {xy_str}))
   )""")
     return "\n".join(zones)
 
