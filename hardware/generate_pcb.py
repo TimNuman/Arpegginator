@@ -95,10 +95,10 @@ USB_Y = 0.0
 USB_PAD_W = 0.3
 USB_PAD_H = 1.0
 
-# Teensy 4.1 header (mounted on back, overlaps display area in X/Y)
+# Teensy 4.1 header (mounted on back, below USB-C + power components)
 TEENSY_DX = 7.62               # half row spacing (15.24mm / 2)
-TEENSY_X = _grid_right + DISP_MOD_W / 2 + 3.0  # centered behind display
-TEENSY_Y = MARGIN
+TEENSY_X = USB_X               # centered under USB-C
+TEENSY_Y = 24.0                # below USB D+/D- header + power components
 TEENSY_PITCH = 2.54
 TEENSY_PINS = 24
 TEENSY_PAD_DRILL = 1.0
@@ -289,8 +289,7 @@ def nn(nid):
 
 def switch_footprint(row, col):
     cx, cy = cell_center(row, col)
-    idx = row * COLS + col + 1
-    ref = f"SW{idx}"
+    ref = f"SW_R{row+1:02d}_C{col+1:02d}"
     col_net = net_col(col)
     sw_net = net_sw(row, col)
 
@@ -367,8 +366,7 @@ def diode_footprint(row, col):
     cx, cy = cell_center(row, col)
     dx = cx + DIODE_OFFSET[0]
     dy = cy + DIODE_OFFSET[1]
-    idx = row * COLS + col + 1
-    ref = f"D{idx}"
+    ref = f"D_R{row+1:02d}_C{col+1:02d}"
     sw_net = net_sw(row, col)     # anode: from switch
     row_net = net_row(row)        # cathode: to row
 
@@ -403,8 +401,7 @@ def led_footprint(row, col):
     cx, cy = cell_center(row, col)
     lx = cx + LED_OFFSET[0]
     ly = cy + LED_OFFSET[1]
-    idx = row * COLS + col + 1
-    ref = f"LED{idx}"
+    ref = f"LED_R{row+1:02d}_C{col+1:02d}"
 
     din_n = led_din_net(row, col)
     dout_n = led_dout_net(row, col)
@@ -688,9 +685,12 @@ def mcp_components():
     parts.append(passive_0603(U1_X, U1_Y + 5, "C1", "100nF", NET_VCC, NET_GND))
     parts.append(passive_0603(U2_X, U2_Y - 5, "C2", "100nF", NET_VCC, NET_GND))
 
-    # ── I2C pull-ups (near Teensy) ──
-    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 3, "R1", "4.7k", NET_I2C_SDA, NET_VCC, is_resistor=True))
-    parts.append(passive_0603(TEENSY_X, TEENSY_LAST_Y + 5, "R2", "4.7k", NET_I2C_SCL, NET_VCC, is_resistor=True))
+    # ── I2C pull-ups (right next to Teensy R8/R9 = pins 19/18) ──
+    i2c_x = TEENSY_X + TEENSY_DX + 3   # just right of Teensy
+    i2c_scl_y = TEENSY_Y + 7 * TEENSY_PITCH   # R8 = pin 19 (SCL)
+    i2c_sda_y = TEENSY_Y + 8 * TEENSY_PITCH   # R9 = pin 18 (SDA)
+    parts.append(passive_0603(i2c_x, i2c_sda_y, "R1", "4.7k", NET_I2C_SDA, NET_VCC, is_resistor=True))
+    parts.append(passive_0603(i2c_x, i2c_scl_y, "R2", "4.7k", NET_I2C_SCL, NET_VCC, is_resistor=True))
 
     # ── Teensy 4.1 headers (mounted on back, USB at top) ──
     # Left side: GND, 0-12, 3.3V, 24-32
@@ -698,7 +698,17 @@ def mcp_components():
         NET_GND,        # GND
         0,              # pin 0 (spare)
         NET_LED_DIN,    # pin 1 → LED data
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  # pins 2-12 (spare)
+        0,              # pin 2 (spare)
+        0,              # pin 3 (spare)
+        0,              # pin 4 (spare)
+        0,              # pin 5 (spare)
+        NET_DISP_DC,    # pin 6 → display DC
+        NET_DISP_RST,   # pin 7 → display RST
+        NET_DISP_LED,   # pin 8 → display backlight
+        0,              # pin 9 (spare)
+        NET_DISP_CS,    # pin 10 → display CS (SPI0 CS0)
+        NET_DISP_MOSI,  # pin 11 → display MOSI (SPI0)
+        NET_DISP_MISO,  # pin 12 → display MISO (SPI0)
         NET_VCC,        # 3.3V
         0, 0, 0, 0, 0, 0, 0, 0, 0,         # pins 24-32 (spare)
     ]
@@ -710,7 +720,8 @@ def mcp_components():
         0, 0, 0, 0,    # pins 23-20 (spare)
         NET_I2C_SCL,    # pin 19 → SCL
         NET_I2C_SDA,    # pin 18 → SDA
-        0, 0, 0, 0, 0, # pins 17-13 (spare)
+        0, 0, 0, 0,    # pins 17-14 (spare)
+        NET_DISP_SCK,   # pin 13 → display SCK (SPI0)
         0, 0, 0, 0, 0, 0, 0, 0, 0,  # pins 41-33 (spare)
     ]
 
@@ -756,6 +767,27 @@ def mcp_components():
     (fp_line (start {fmt(TEENSY_DX + 1)} {fmt(mid_y * 2 + 2)}) (end {fmt(-TEENSY_DX - 1)} {fmt(mid_y * 2 + 2)}) (layer "F.Fab") (width 0.1))
     (fp_line (start {fmt(-TEENSY_DX - 1)} {fmt(mid_y * 2 + 2)}) (end {fmt(-TEENSY_DX - 1)} -2) (layer "F.Fab") (width 0.1))
 {chr(10).join(teensy_pads)}
+  )""")
+
+    # ── USB device D+/D- wire pads (rotated 90°, between power and Teensy) ──
+    usb_dev_x = USB_X             # centered under USB-C
+    usb_dev_y = 19.0              # between power components (~15) and Teensy (24)
+    parts.append(f"""  (footprint "Arp3:USB_Dev_Pads" (layer "F.Cu")
+    (at {fmt(usb_dev_x)} {fmt(usb_dev_y)})
+    (descr "USB device D+/D- wire pads for Teensy micro-USB connection")
+    (attr through_hole)
+    (fp_text reference "J4" (at 0 -2.5) (layer "F.SilkS")
+      (effects (font (size 0.5 0.5) (thickness 0.1)))
+    )
+    (fp_text value "USB D+/D-" (at 0 2.5) (layer "F.Fab")
+      (effects (font (size 0.4 0.4) (thickness 0.08)))
+    )
+    (pad "1" thru_hole circle (at {fmt(-TEENSY_PITCH / 2)} 0) (size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) (drill {fmt(TEENSY_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_USB_DP} {nn(NET_USB_DP)}))
+    (pad "2" thru_hole circle (at {fmt(TEENSY_PITCH / 2)} 0) (size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) (drill {fmt(TEENSY_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_USB_DN} {nn(NET_USB_DN)}))
+    (fp_line (start {fmt(-TEENSY_PITCH / 2 - 1.2)} -1.2) (end {fmt(TEENSY_PITCH / 2 + 1.2)} -1.2) (layer "F.SilkS") (width 0.12))
+    (fp_line (start {fmt(TEENSY_PITCH / 2 + 1.2)} -1.2) (end {fmt(TEENSY_PITCH / 2 + 1.2)} 1.2) (layer "F.SilkS") (width 0.12))
+    (fp_line (start {fmt(TEENSY_PITCH / 2 + 1.2)} 1.2) (end {fmt(-TEENSY_PITCH / 2 - 1.2)} 1.2) (layer "F.SilkS") (width 0.12))
+    (fp_line (start {fmt(-TEENSY_PITCH / 2 - 1.2)} 1.2) (end {fmt(-TEENSY_PITCH / 2 - 1.2)} -1.2) (layer "F.SilkS") (width 0.12))
   )""")
 
     # ── Display header (2.4" ILI9341 TFT, 9-pin) ──
@@ -869,7 +901,7 @@ def mcp_components():
     # FB1: Ferrite bead (0805, 600Ω@100MHz) — VCC_FUSED → VCC
     parts.append(passive_0603(pwr_x + 3, pwr_y + 3, "FB1", "600R@100MHz", NET_VCC_FUSED, NET_VCC, is_resistor=True))
     # C9: decoupling on VCC after ferrite
-    parts.append(passive_0603(pwr_x + 3, pwr_y + 5, "C9", "10uF", NET_VCC, NET_GND))
+    parts.append(passive_0603(pwr_x + 3, pwr_y + 5, "C9", "10uF", NET_GND, NET_VCC))
 
     return "\n".join(parts)
 
@@ -982,7 +1014,7 @@ def row9_switches():
 
     for i, col in enumerate(ROW9_COLS):
         cx, cy = cell_center(row, col)
-        ref = f"SW_R9_{i}"
+        ref = f"SW_R09_C{col+2:02d}"  # col -1 → C01, col 0 → C02, etc.
         col_net = net_col(col + 1)  # shifted: col -1→COL0, col 0→COL1, etc.
         sw_net = net_r9_sw(i)
 
@@ -1013,7 +1045,7 @@ def row9_switches():
     (at {fmt(dx)} {fmt(dy)})
     (descr "1N4148W anti-ghosting diode SOD-323")
     (attr smd)
-    (fp_text reference "D_R9_{i}" (at -2 0) (layer "F.SilkS")
+    (fp_text reference "D_R09_C{col+2:02d}" (at -2 0) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.1)))
     )
     (fp_line (start -0.5 {fmt(-DIODE_PAD_DY)}) (end 0.5 {fmt(-DIODE_PAD_DY)}) (layer "F.SilkS") (width 0.1))
@@ -1216,52 +1248,41 @@ def board_outline():
 
 
 def ground_zone():
+    pts = (f"(xy 0 0) (xy {fmt(BOARD_W)} 0) "
+           f"(xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy 0 {fmt(BOARD_H)})")
     return f"""  (zone (net {NET_GND}) (net_name "GND") (layer "B.Cu") (tstamp {uuid()})
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
     (min_thickness 0.2)
     (filled_areas_thickness no)
     (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
-    (polygon (pts
-      (xy 0 0) (xy {fmt(BOARD_W)} 0)
-      (xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy 0 {fmt(BOARD_H)})
-    ))
+    (polygon (pts {pts}))
   )"""
 
 
 def vcc_zone_fcu():
-    """VCC fill on F.Cu, covering the right-side connector area."""
-    grid_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2 + 2
-    return f"""  (zone (net {NET_VCC}) (net_name "VCC") (layer "F.Cu") (tstamp {uuid()})
-    (hatch edge 0.5)
-    (connect_pads (clearance 0.3))
-    (min_thickness 0.2)
-    (filled_areas_thickness no)
-    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
-    (polygon (pts
-      (xy {fmt(grid_right)} 0) (xy {fmt(BOARD_W)} 0)
-      (xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy {fmt(grid_right)} {fmt(BOARD_H)})
-    ))
-  )"""
+    """VCC is trace-routed from power distribution, no zone needed."""
+    return ""
 
 
-def led_vcc_zone_bcu():
-    """LED_VCC fill on B.Cu covering grid area — priority 1 (above GND at 0).
+def led_vcc_zone_fcu():
+    """LED_VCC fill on F.Cu covering the grid area.
 
-    Connects to LED_VCC vias at each LED VDD pad. High-current 5V rail
-    separate from Teensy VCC. GND zone fills everywhere else.
+    LED VDD pads are SMD on F.Cu — connects directly without vias.
     """
-    return f"""  (zone (net {NET_LED_VCC}) (net_name "LED_VCC") (layer "B.Cu") (tstamp {uuid()})
+    grid_left = ORIGIN_X - PITCH / 2
+    grid_right = ORIGIN_X + (COLS - 1) * PITCH + PITCH / 2
+    grid_top = ORIGIN_Y - PITCH / 2
+    grid_bot = ORIGIN_Y + (ROWS - 1) * PITCH + PITCH / 2
+    pts = (f"(xy {fmt(grid_left)} {fmt(grid_top)}) (xy {fmt(grid_right)} {fmt(grid_top)}) "
+           f"(xy {fmt(grid_right)} {fmt(grid_bot)}) (xy {fmt(grid_left)} {fmt(grid_bot)})")
+    return f"""  (zone (net {NET_LED_VCC}) (net_name "LED_VCC") (layer "F.Cu") (tstamp {uuid()})
     (hatch edge 0.5)
-    (priority 1)
     (connect_pads (clearance 0.3))
     (min_thickness 0.2)
     (filled_areas_thickness no)
     (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
-    (polygon (pts
-      (xy 0 0) (xy {fmt(BOARD_W)} 0)
-      (xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy 0 {fmt(BOARD_H)})
-    ))
+    (polygon (pts {pts}))
   )"""
 
 
@@ -1550,16 +1571,8 @@ def route_led_gnd():
 
 
 def route_led_vcc():
-    """Via at each LED VCC pad → B.Cu LED_VCC fill zone."""
-    lines = []
-    for r in range(ROWS):
-        s = 1 if r % 2 == 0 else -1
-        for c in range(COLS):
-            cx, cy = cell_center(r, c)
-            vcc_x = cx + LED_OFFSET[0] - s * LED_PAD_DX  # VDD pad (pin 1)
-            vcc_y = cy + LED_OFFSET[1] - s * LED_PAD_DY
-            lines.append(via_hole(vcc_x, vcc_y, NET_LED_VCC))
-    return "\n".join(lines)
+    """LED VDD pads connect directly to F.Cu LED_VCC zone — no vias needed."""
+    return ""
 
 
 # ── Connector routing (right side) ──────────────────────────────────
@@ -1625,14 +1638,137 @@ def route_conn_cols():
     return ""
 
 
-def route_conn_power():
-    """VCC and GND connector pins are connected via zone fills (B.Cu GND
-    zone and F.Cu VCC zone).  No explicit traces needed."""
-    return ""
+def route_usb_to_teensy():
+    """Route USB-C signals to Teensy and power distribution components.
+
+    USB-C → CC resistors (short stubs)
+    USB-C → C7 VBUS decoupling
+    USB-C → F1 polyfuse → VCC_FUSED → R5 → LED_VCC
+                                     → FB1 → VCC → C9
+    VCC connects to Teensy Vin via F.Cu zone fill.
+    USB D+/D- → Teensy USB pads (not yet connected — Teensy has its own USB).
+    """
+    lines = []
+    pwr_x = USB_X
+    pwr_y = USB_Y + 10
+    d = CHAMFER
+
+    # ── USB-C VBUS (A4 at USB_X + 0.25, A9 at USB_X + 2.75) to C7 ──
+    # VBUS pad A4 is at USB_X + (-2.75 + 3*0.5) = USB_X - 1.25
+    # VBUS pad A9 is at USB_X + (-2.75 + 8*0.5) = USB_X + 1.25
+    vbus_a4_x = USB_X - 1.25
+    vbus_a9_x = USB_X + 1.25
+    # Merge VBUS pads into a single trace down to C7
+    c7_x = USB_X
+    c7_y = USB_Y + 7
+    lines.append(seg(vbus_a4_x, USB_Y, vbus_a4_x, USB_Y + 2,
+                     POWER_W, "F.Cu", NET_USB_VBUS))
+    lines.append(seg(vbus_a9_x, USB_Y, vbus_a9_x, USB_Y + 2,
+                     POWER_W, "F.Cu", NET_USB_VBUS))
+    lines.append(seg(vbus_a4_x, USB_Y + 2, vbus_a9_x, USB_Y + 2,
+                     POWER_W, "F.Cu", NET_USB_VBUS))
+    # Down to C7
+    lines.append(seg(c7_x, USB_Y + 2, c7_x, c7_y - P0603_PAD_DX,
+                     POWER_W, "F.Cu", NET_USB_VBUS))
+
+    # ── C7 to F1 (VBUS → polyfuse) ──
+    f1_x = pwr_x
+    f1_y = pwr_y
+    lines.append(seg(c7_x, c7_y - P0603_PAD_DX, f1_x - P0603_PAD_DX, f1_y,
+                     POWER_W, "F.Cu", NET_USB_VBUS))
+
+    # ── F1 output (VCC_FUSED) to R5 and FB1 ──
+    r5_x = pwr_x
+    r5_y = pwr_y + 3
+    fb1_x = pwr_x + 3
+    fb1_y = pwr_y + 3
+    # F1 pad 2 to junction
+    lines.append(seg(f1_x + P0603_PAD_DX, f1_y, f1_x + P0603_PAD_DX, r5_y,
+                     POWER_W, "F.Cu", NET_VCC_FUSED))
+    # Junction to R5 pad 1
+    lines.append(seg(f1_x + P0603_PAD_DX, r5_y, r5_x - P0603_PAD_DX, r5_y,
+                     POWER_W, "F.Cu", NET_VCC_FUSED))
+    # Junction to FB1 pad 1
+    lines.append(seg(f1_x + P0603_PAD_DX, r5_y, fb1_x - P0603_PAD_DX, fb1_y,
+                     POWER_W, "F.Cu", NET_VCC_FUSED))
+
+    # ── FB1 output (VCC) to C9 ──
+    c9_x = pwr_x + 3
+    c9_y = pwr_y + 5
+    lines.append(seg(fb1_x + P0603_PAD_DX, fb1_y, c9_x + P0603_PAD_DX, c9_y,
+                     POWER_W, "F.Cu", NET_VCC))
+
+    # ── CC1/CC2 from USB-C to resistors (short stubs down) ──
+    # CC1 pad A5 at USB_X + (-2.75 + 4*0.5) = USB_X - 0.75
+    # CC2 would be on B-side, but we only have A-side pads
+    cc1_x = USB_X - 0.75
+    r3_x = USB_X - 2
+    r3_y = USB_Y + 5
+    lines.append(seg(cc1_x, USB_Y, cc1_x, USB_Y + 3,
+                     TRACE_W, "F.Cu", NET_USB_CC1))
+    lines.append(seg(cc1_x, USB_Y + 3, r3_x - P0603_PAD_DX, r3_y,
+                     TRACE_W, "F.Cu", NET_USB_CC1))
+
+    # CC2 — A5 only has CC1 for single-orientation. CC2 from B-side
+    # For now, R4 connects CC2 to GND via its own net
+    r4_x = USB_X + 2
+    r4_y = USB_Y + 5
+
+    # ── USB D+/D- from USB-C to wire pads near Teensy ──
+    # Route on B.Cu to avoid power components on F.Cu
+    # D+ pad A6 at USB_X - 0.25, D- pad A7 at USB_X + 0.25
+    dp_x = USB_X - 0.25
+    dn_x = USB_X + 0.25
+    # Wire pad positions (horizontal, between power and Teensy)
+    usb_dev_dp_x = USB_X - TEENSY_PITCH / 2
+    usb_dev_dn_x = USB_X + TEENSY_PITCH / 2
+    usb_dev_y = 19.0
+
+    # D+: short F.Cu stub from pad, via to B.Cu, route under power, via back
+    lines.append(seg(dp_x, USB_Y, dp_x, USB_Y + 1.5,
+                     TRACE_W, "F.Cu", NET_USB_DP))
+    lines.append(via_hole(dp_x, USB_Y + 1.5, NET_USB_DP))
+    lines.append(seg(dp_x, USB_Y + 1.5, usb_dev_dp_x, usb_dev_y,
+                     TRACE_W, "B.Cu", NET_USB_DP))
+    lines.append(via_hole(usb_dev_dp_x, usb_dev_y, NET_USB_DP))
+
+    # D-: same pattern
+    lines.append(seg(dn_x, USB_Y, dn_x, USB_Y + 1.5,
+                     TRACE_W, "F.Cu", NET_USB_DN))
+    lines.append(via_hole(dn_x, USB_Y + 1.5, NET_USB_DN))
+    lines.append(seg(dn_x, USB_Y + 1.5, usb_dev_dn_x, usb_dev_y,
+                     TRACE_W, "B.Cu", NET_USB_DN))
+    lines.append(via_hole(usb_dev_dn_x, usb_dev_y, NET_USB_DN))
+
+    return "\n".join(lines)
+
+
+def route_gnd_vias():
+    """GND vias at F.Cu SMD pads that need to reach the B.Cu ground zone."""
+    lines = []
+    pwr_x = USB_X
+    pwr_y = USB_Y + 10
+
+    # C1 (MCP U1 decoupling) — GND is pad 2 (right, +DX)
+    lines.append(via_hole(U1_X + P0603_PAD_DX, U1_Y + 5, NET_GND))
+    # C2 (MCP U2 decoupling) — GND is pad 2 (right, +DX)
+    lines.append(via_hole(U2_X + P0603_PAD_DX, U2_Y - 5, NET_GND))
+    # R3 (CC1 pull-down) — GND is pad 2 (right, +DX)
+    lines.append(via_hole(USB_X - 2 + P0603_PAD_DX, USB_Y + 5, NET_GND))
+    # R4 (CC2 pull-down) — GND is pad 2 (right, +DX)
+    lines.append(via_hole(USB_X + 2 + P0603_PAD_DX, USB_Y + 5, NET_GND))
+    # C7 (VBUS decoupling) — GND is pad 2 (right, +DX)
+    lines.append(via_hole(USB_X + P0603_PAD_DX, USB_Y + 7, NET_GND))
+    # C8 (LED bulk cap) — GND is pad 2 (right, +DX)
+    lines.append(via_hole(pwr_x - 3 + P0603_PAD_DX, pwr_y + 3, NET_GND))
+    # C9 (VCC decoupling, flipped) — GND is pad 1 (left, -DX)
+    lines.append(via_hole(pwr_x + 3 - P0603_PAD_DX, pwr_y + 5, NET_GND))
+
+    return "\n".join(lines)
 
 
 def route_conn_led_din():
-    """LED_DIN via exists at first LED. Manual routing to Teensy."""
+    """LED_DIN from first LED to Teensy pin 1."""
     return ""
 
 
@@ -1665,7 +1801,8 @@ def generate():
     routing_led_vcc = route_led_vcc()
     routing_conn_rows = route_conn_rows()
     routing_conn_cols = route_conn_cols()
-    routing_conn_power = route_conn_power()
+    routing_usb = route_usb_to_teensy()
+    routing_gnd_vias = route_gnd_vias()
     routing_conn_led_din = route_conn_led_din()
 
     return f"""(kicad_pcb (version 20240108) (generator "arp3_grid_gen")
@@ -1751,7 +1888,9 @@ def generate():
 
 {routing_conn_cols}
 
-{routing_conn_power}
+{routing_usb}
+
+{routing_gnd_vias}
 
 {routing_conn_led_din}
 
@@ -1759,7 +1898,7 @@ def generate():
 
 {vcc_zone_fcu()}
 
-{led_vcc_zone_bcu()}
+{led_vcc_zone_fcu()}
 
 )
 """
@@ -1779,17 +1918,17 @@ def generate_bom():
     r9_sw = len(ROW9_COLS)
     total = grid_sw + r9_sw
 
-    bom.append(f"| {total} | SW1-SW{grid_sw}, SW_R9_0-{r9_sw-1} | PG1350 | Kailh Choc V1 "
+    bom.append(f"| {total} | SW_R01_C01-R{ROWS:02d}_C{COLS:02d}, SW_R09_C01-C{r9_sw:02d} | PG1350 | Kailh Choc V1 "
                f"| Low-profile keyswitch "
                f"| [splitkb.com](https://splitkb.com/products/kailh-low-profile-choc-switches) |")
 
-    bom.append(f"| {total} | D1-D{grid_sw}, D_R9_0-{r9_sw-1} | 1N4148W | SOD-323 "
+    bom.append(f"| {total} | D_R01_C01-R{ROWS:02d}_C{COLS:02d}, D_R09_C01-C{r9_sw:02d} | 1N4148W | SOD-323 "
                f"| Anti-ghosting diode "
                f"| [tme.eu](https://www.tme.eu/en/details/1n4148w-dc/smd-universal-diodes/) · "
                f"[reichelt.de](https://www.reichelt.de/index.html?ACTION=446&q=1N4148W%20SOD-323) · "
                f"[lcsc.com](https://www.lcsc.com/search?q=1N4148W%20SOD-323) |")
 
-    bom.append(f"| {grid_sw} | LED1-LED{grid_sw} | SK6812MINI-E | 3535 "
+    bom.append(f"| {grid_sw} | LED_R01_C01-R{ROWS:02d}_C{COLS:02d} | SK6812MINI-E | 3535 "
                f"| RGB addressable LED "
                f"| [splitkb.com](https://splitkb.com/products/sk6812mini-e-rgb-leds) · "
                f"[lcsc.com](https://www.lcsc.com/search?q=SK6812MINI-E) |")
