@@ -6,7 +6,7 @@ Components per cell:
   - 1N4148W (SOD-323) anti-ghosting diode
   - SK6812MINI-E (3535) RGBW addressable LED
 
-Matrix: 16 columns × 8 rows, scanned with 24 GPIO pins.
+Matrix: 16 columns × 8 rows, scanned via SPI (MCP23S17 expanders).
 LED chain: single data line, snaking row-by-row (128 LEDs).
 
 Run:  python3 generate_pcb.py > button_grid.kicad_pcb
@@ -63,7 +63,7 @@ LED_PAD_W = 0.7
 LED_PAD_H = 0.7
 # Pin 1=VDD (TL), Pin 2=DOUT (TR), Pin 3=GND (BR), Pin 4=DIN (BL)
 
-# ── MCP23017 I/O Expanders (QFN-28, 6×6mm, KiCad standard) ─────────
+# ── MCP23S17 SPI I/O Expanders (QFN-28, 6×6mm, KiCad standard) ─────
 # QFN-28-1EP_6x6mm_P0.65mm_EP4.25x4.25mm
 QFN_PAD_EDGE = 2.8375           # pad center distance from chip center
 QFN_PAD_PITCH = 0.65            # pin pitch
@@ -143,8 +143,8 @@ P0603_PAD_DX = 0.825            # pad center X offset
 # 27     : LED_DIN  (data input to first LED)
 # 28-154 : LED_CHAIN_1..LED_CHAIN_127 (DOUT→DIN between consecutive LEDs)
 # 155-282: SW_0_0..SW_7_15 (switch pin 2 → diode anode)
-# 283    : I2C_SDA
-# 284    : I2C_SCL
+# 283    : I2C_SDA       (MPR121 touch controllers)
+# 284    : I2C_SCL       (MPR121 touch controllers)
 
 def net_col(c):        return 1 + c
 def net_row(r):        return 17 + r
@@ -182,7 +182,9 @@ NET_USB_CC1   = _BASE_EXTRA + 40
 NET_USB_CC2   = _BASE_EXTRA + 41
 NET_LED_VCC   = _BASE_EXTRA + 42   # high-current 5V rail for LEDs (from VBUS)
 NET_VCC_FUSED = _BASE_EXTRA + 43   # VBUS after polyfuse, before ferrite split
-TOTAL_NETS = _BASE_EXTRA + 37
+NET_SPI_CS_U1 = _BASE_EXTRA + 44   # SPI CS for MCP23S17 column expander
+NET_SPI_CS_U2 = _BASE_EXTRA + 45   # SPI CS for MCP23S17 row expander
+TOTAL_NETS = _BASE_EXTRA + 46
 
 
 def rc_to_chain(row, col):
@@ -261,6 +263,8 @@ def all_net_names():
     nets.append((NET_DISP_LED, '"DISP_LED"'))
     nets.append((NET_LED_VCC, '"LED_VCC"'))
     nets.append((NET_VCC_FUSED, '"VCC_FUSED"'))
+    nets.append((NET_SPI_CS_U1, '"SPI_CS_U1"'))
+    nets.append((NET_SPI_CS_U2, '"SPI_CS_U2"'))
     return nets
 
 
@@ -449,7 +453,7 @@ def led_footprint(row, col):
 
 
 def qfn_pin_pos(cx, cy, pin, rotation=0):
-    """Absolute (x, y) of a MCP23017 QFN-28 pad (KiCad standard positions).
+    """Absolute (x, y) of a MCP23S17 QFN-28 pad (KiCad standard positions).
 
     QFN-28: 7 pins/side, counterclockwise from pin 1 at top-left.
     Left(1-7), Bottom(8-14), Right(15-21), Top(22-28).
@@ -495,7 +499,7 @@ def row_pin_pos(r):
 
 
 def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
-    """Generate a MCP23017 QFN-28 footprint (6×6mm, KiCad standard), optionally rotated."""
+    """Generate a MCP23S17 QFN-28 footprint (6×6mm, KiCad standard), optionally rotated."""
     import math
     half = 3.0
     pads = []
@@ -560,14 +564,14 @@ def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
     p1x, p1y = -half + 0.5, -half + 0.5
     rot_angle = f' {rotation}' if rotation != 0 else ''
 
-    return f"""  (footprint "Arp3:MCP23017_QFN28" (layer "F.Cu")
+    return f"""  (footprint "Arp3:MCP23S17_QFN28" (layer "F.Cu")
     (at {fmt(cx)} {fmt(cy)}{rot_angle})
-    (descr "MCP23017 16-bit I2C I/O expander QFN-28 6x6mm")
+    (descr "MCP23S17 16-bit SPI I/O expander QFN-28 6x6mm")
     (attr smd)
     (fp_text reference "{ref}" (at 0 -6) (layer "F.SilkS")
       (effects (font (size 0.5 0.5) (thickness 0.1)))
     )
-    (fp_text value "MCP23017" (at 0 6) (layer "F.Fab")
+    (fp_text value "MCP23S17" (at 0 6) (layer "F.Fab")
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
 {chr(10).join(outline)}
@@ -654,30 +658,37 @@ def passive_0603(cx, cy, ref, value, net1, net2, is_resistor=False, back=False):
 
 
 def mcp_components():
-    """MCP23017 expanders, decoupling caps, pull-ups, and output header."""
+    """MCP23S17 SPI expanders, decoupling caps, pull-ups, and output header."""
     parts = []
 
-    # ── U1: column expander (addr 0x20, top-right) ──
+    # ── U1: column expander (SPI, top-right) ──
     # GPA0-7 → COL0-7, GPB0-7 → COL8-15
+    # Pin 11=CS, 12=SCK, 13=SI(MOSI), 14=SO(MISO) — shared SPI0 bus with display
     u1_nets = {}
     u1_nets[21] = net_col(0)                             # GPA0 (top)
     for i in range(1, 8):  u1_nets[21 + i] = net_col(i)  # GPA1-7 (left)
     for i in range(7):     u1_nets[1 + i] = net_col(8 + i) # GPB0-6 (bottom)
     u1_nets[8] = net_col(15)                              # GPB7 (right)
     u1_nets[9] = NET_VCC;  u1_nets[10] = NET_GND
-    u1_nets[12] = NET_I2C_SCL;  u1_nets[13] = NET_I2C_SDA
+    u1_nets[11] = NET_SPI_CS_U1                           # CS (active low)
+    u1_nets[12] = NET_DISP_SCK                            # SCK (shared SPI0 bus)
+    u1_nets[13] = NET_DISP_MOSI                           # SI / MOSI (shared SPI0 bus)
+    u1_nets[14] = NET_DISP_MISO                           # SO / MISO (shared SPI0 bus)
     u1_nets[15] = NET_GND;  u1_nets[16] = NET_GND;  u1_nets[17] = NET_GND
     u1_nets[18] = NET_VCC
     parts.append(qfn28_footprint(U1_X, U1_Y, "U1", u1_nets, QFN_ROTATION))
 
-    # ── U2: row expander (addr 0x21, center-bottom of grid) ──
+    # ── U2: row expander (SPI, center-bottom of grid) ──
     # GPA0-7 → ROW0-7, GPB spare
     u2_nets = {}
     u2_nets[21] = net_row(0)                              # GPA0 (top)
     for i in range(1, 8):  u2_nets[21 + i] = net_row(i)  # GPA1-7 (left)
     u2_nets[9] = NET_VCC;  u2_nets[10] = NET_GND
-    u2_nets[12] = NET_I2C_SCL;  u2_nets[13] = NET_I2C_SDA
-    u2_nets[15] = NET_VCC;  u2_nets[16] = NET_GND;  u2_nets[17] = NET_GND
+    u2_nets[11] = NET_SPI_CS_U2                           # CS (active low)
+    u2_nets[12] = NET_DISP_SCK                            # SCK (shared SPI0 bus)
+    u2_nets[13] = NET_DISP_MOSI                           # SI / MOSI (shared SPI0 bus)
+    u2_nets[14] = NET_DISP_MISO                           # SO / MISO (shared SPI0 bus)
+    u2_nets[15] = NET_GND;  u2_nets[16] = NET_GND;  u2_nets[17] = NET_GND
     u2_nets[18] = NET_VCC
     parts.append(qfn28_footprint(U2_X, U2_Y, "U2", u2_nets, QFN_ROTATION))
 
@@ -685,7 +696,7 @@ def mcp_components():
     parts.append(passive_0603(U1_X, U1_Y + 5, "C1", "100nF", NET_VCC, NET_GND))
     parts.append(passive_0603(U2_X, U2_Y - 5, "C2", "100nF", NET_VCC, NET_GND))
 
-    # ── I2C pull-ups (right next to Teensy R8/R9 = pins 19/18) ──
+    # ── I2C pull-ups (for MPR121 touch controllers, near Teensy pins 19/18) ──
     i2c_x = TEENSY_X + TEENSY_DX + 3   # just right of Teensy
     i2c_scl_y = TEENSY_Y + 7 * TEENSY_PITCH   # R8 = pin 19 (SCL)
     i2c_sda_y = TEENSY_Y + 8 * TEENSY_PITCH   # R9 = pin 18 (SDA)
@@ -707,8 +718,8 @@ def mcp_components():
         NET_DISP_LED,   # pin 8 → display backlight
         0,              # pin 9 (spare)
         NET_DISP_CS,    # pin 10 → display CS (SPI0 CS0)
-        NET_DISP_MOSI,  # pin 11 → display MOSI (SPI0)
-        NET_DISP_MISO,  # pin 12 → display MISO (SPI0)
+        NET_DISP_MOSI,  # pin 11 → SPI0 MOSI (shared: display + MCP23S17)
+        NET_DISP_MISO,  # pin 12 → SPI0 MISO (shared: display + MCP23S17)
         NET_VCC,        # 3.3V
         0, 0, 0, 0, 0, 0, 0, 0, 0,         # pins 24-32 (spare)
     ]
@@ -717,11 +728,13 @@ def mcp_components():
         NET_VCC,        # Vin
         NET_GND,        # GND
         NET_VCC,        # 3.3V
-        0, 0, 0, 0,    # pins 23-20 (spare)
-        NET_I2C_SCL,    # pin 19 → SCL
-        NET_I2C_SDA,    # pin 18 → SDA
+        0, 0,           # pins 23-22 (spare)
+        NET_SPI_CS_U2,  # pin 21 → MCP23S17 U2 CS
+        NET_SPI_CS_U1,  # pin 20 → MCP23S17 U1 CS
+        NET_I2C_SCL,    # pin 19 → SCL (MPR121 touch)
+        NET_I2C_SDA,    # pin 18 → SDA (MPR121 touch)
         0, 0, 0, 0,    # pins 17-14 (spare)
-        NET_DISP_SCK,   # pin 13 → display SCK (SPI0)
+        NET_DISP_SCK,   # pin 13 → SPI0 SCK (shared: display + MCP23S17)
         0, 0, 0, 0, 0, 0, 0, 0, 0,  # pins 41-33 (spare)
     ]
 
@@ -1933,11 +1946,11 @@ def generate_bom():
                f"| [splitkb.com](https://splitkb.com/products/sk6812mini-e-rgb-leds) · "
                f"[lcsc.com](https://www.lcsc.com/search?q=SK6812MINI-E) |")
 
-    bom.append("| 2 | U1, U2 | MCP23017-E/ML | QFN-28 6x6mm "
-               "| I2C 16-bit I/O expander "
-               "| [tme.eu](https://www.tme.eu/en/details/mcp23017-e_ml/i2c-periph-integrated-circuits/microchip-technology/) · "
-               "[reichelt.de](https://www.reichelt.de/index.html?ACTION=446&q=MCP23017-E%2FML) · "
-               "[lcsc.com](https://www.lcsc.com/search?q=MCP23017-E%2FML) |")
+    bom.append("| 2 | U1, U2 | MCP23S17-E/ML | QFN-28 6x6mm "
+               "| SPI 16-bit I/O expander "
+               "| [tme.eu](https://www.tme.eu/en/details/mcp23s17-e_ml/spi-periph-integrated-circuits/microchip-technology/) · "
+               "[reichelt.de](https://www.reichelt.de/index.html?ACTION=446&q=MCP23S17-E%2FML) · "
+               "[lcsc.com](https://www.lcsc.com/search?q=MCP23S17-E%2FML) |")
 
     bom.append("| 2 | U3, U4 | MPR121QR2 | QFN-20 4x4mm "
                "| Capacitive touch controller "
@@ -1984,7 +1997,7 @@ def generate_bom():
                "[lcsc.com](https://www.lcsc.com/search?q=0603%200R) |")
 
     bom.append("| 2 | R1, R2 | 4.7k | 0603 "
-               "| I2C pull-up resistor "
+               "| I2C pull-up resistor (MPR121) "
                "| [tme.eu](https://www.tme.eu/en/katalog/smd-resistors_112313/?params=2:498;6:4.7k) · "
                "[lcsc.com](https://www.lcsc.com/search?q=0603%204.7k) |")
 
@@ -1994,7 +2007,7 @@ def generate_bom():
                "[lcsc.com](https://www.lcsc.com/search?q=0603%205.1k) |")
 
     bom.append("| 6 | C1-C6 | 100nF | 0603 "
-               "| Decoupling cap (MCP/MPR) "
+               "| Decoupling cap (MCP23S17/MPR121) "
                "| [tme.eu](https://www.tme.eu/en/katalog/mlcc-smd-capacitors_112316/?params=2:498;4:100n) · "
                "[lcsc.com](https://www.lcsc.com/search?q=0603%20100nF) |")
 
