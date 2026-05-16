@@ -65,8 +65,17 @@ Both at the bottom edge, 2.54 mm pitch.
 ## Generating the PCB
 
 ```bash
-python3 generate_pcb.py > button_grid.kicad_pcb
+python3 generate_pcb.py
 ```
+
+This writes `button_grid.kicad_pcb` and `bom.md` next to the script. The
+script emits a KiCad 10 (format `20260206`) file and then runs
+`kicad-cli pcb upgrade --force` on it so the output matches KiCad's exact
+canonical serialization — regenerations produce clean, readable diffs
+against revisions saved from the KiCad GUI. Requires KiCad 10 with
+`kicad-cli` on `PATH` (or installed at the default macOS location); without
+it the PCB is still valid but stays in compact form until first opened and
+saved in KiCad.
 
 All geometry is parameterized at the top of the script. Adjust `PITCH`,
 `MARGIN`, switch footprint offsets, etc. as needed then regenerate.

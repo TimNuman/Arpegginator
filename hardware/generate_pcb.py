@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a KiCad 7 PCB for the Arpegginator 16×8 button grid.
+"""Generate a KiCad 10 PCB for the Arpegginator 16×8 button grid.
 
 Components per cell:
   - Kailh Choc v1 (PG1350) low-profile switch
@@ -9,7 +9,9 @@ Components per cell:
 Matrix: 16 columns × 8 rows, scanned via SPI (MCP23S17 expanders).
 LED chain: single data line, snaking row-by-row (128 LEDs).
 
-Run:  python3 generate_pcb.py > button_grid.kicad_pcb
+Run:  python3 generate_pcb.py
+      (writes button_grid.kicad_pcb + bom.md next to this script and
+       canonicalizes the PCB with `kicad-cli pcb upgrade --force`)
 """
 
 import sys
@@ -304,14 +306,14 @@ def switch_footprint(row, col):
                 f'(size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) '
                 f'(drill {fmt(SW_PAD_DRILL)}) '
                 f'(layers "*.Cu" "*.Mask") '
-                f'(net {col_net} {nn(col_net)}))')
+                f'(net {nn(col_net)}))')
     # Electrical pad 2 → switch-diode net
     pads.append(f'    (pad "2" thru_hole circle '
                 f'(at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) '
                 f'(size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) '
                 f'(drill {fmt(SW_PAD_DRILL)}) '
                 f'(layers "*.Cu" "*.Mask") '
-                f'(net {sw_net} {nn(sw_net)}))')
+                f'(net {nn(sw_net)}))')
     # Center alignment post (NPTH)
     pads.append(f'    (pad "" np_thru_hole circle '
                 f'(at 0 0) '
@@ -391,8 +393,8 @@ def diode_footprint(row, col):
     (fp_line (start 0.55 1.35) (end -0.55 1.35) (layer "F.CrtYd") (width 0.05))
     (fp_line (start -0.55 1.35) (end -0.55 -1.35) (layer "F.CrtYd") (width 0.05))
     (fp_line (start -0.5 {fmt(-DIODE_PAD_DY)}) (end 0.5 {fmt(-DIODE_PAD_DY)}) (layer "F.SilkS") (width 0.1))
-    (pad "1" smd roundrect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {row_net} {nn(row_net)}))
-    (pad "2" smd roundrect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {sw_net} {nn(sw_net)}))
+    (pad "1" smd roundrect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {nn(row_net)}))
+    (pad "2" smd roundrect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {nn(sw_net)}))
     (model "${{KICAD10_3DMODEL_DIR}}/Diode_SMD.3dshapes/D_SOD-323.step"
       (offset (xyz 0 0 0))
       (scale (xyz 1 1 1))
@@ -429,7 +431,7 @@ def led_footprint(row, col):
             f'(at {fmt(pdx)} {fmt(pdy)}) '
             f'(size {fmt(LED_PAD_W)} {fmt(LED_PAD_H)}) '
             f'(layers "F.Cu" "F.Paste" "F.Mask") '
-            f'(net {pnet} {nn(pnet)}))')
+            f'(net {nn(pnet)}))')
 
     pad_str = "\n".join(pad_strs)
 
@@ -526,13 +528,13 @@ def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
             f'(size {fmt(pw)} {fmt(ph)}) '
             f'(layers "F.Cu" "F.Paste" "F.Mask") '
             f'(roundrect_rratio 0.25) '
-            f'(net {nid} {nn(nid)}))')
+            f'(net {nn(nid)}))')
 
     # Exposed pad 29 (GND) — KiCad standard 4.25x4.25mm
     pads.append(
         f'    (pad "29" smd rect (at 0 0) (size {fmt(QFN_EP_SIZE)} {fmt(QFN_EP_SIZE)}) '
         f'(layers "F.Cu" "F.Paste" "F.Mask") '
-        f'(net {NET_GND} {nn(NET_GND)}))')
+        f'(net {nn(NET_GND)}))')
 
     # Thermal via pads (3x3 grid, unnamed, same net as EP)
     for tx in QFN_THERMAL_VIA_GRID:
@@ -541,7 +543,7 @@ def qfn28_footprint(cx, cy, ref, pin_nets, rotation=0):
                 f'    (pad "" smd rect (at {fmt(tx)} {fmt(ty)}) '
                 f'(size {fmt(QFN_THERMAL_VIA_SIZE)} {fmt(QFN_THERMAL_VIA_SIZE)}) '
                 f'(layers "F.Cu" "F.Paste" "F.Mask") '
-                f'(net {NET_GND} {nn(NET_GND)}))')
+                f'(net {nn(NET_GND)}))')
 
     # Fab outline
     outline = [
@@ -609,7 +611,7 @@ def tvs_sot143b(cx, cy, ref, net_gnd, net_vcc, net_io1, net_io2, back=False):
             f'(size {fmt(pw)} {fmt(ph)}) '
             f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
             f'(roundrect_rratio 0.25) '
-            f'(net {nid} {nn(nid)}))')
+            f'(net {nn(nid)}))')
     return f"""  (footprint "Arp3:PRTR5V0U2X_SOT-143B" (layer "{side}.Cu")
     (at {fmt(cx)} {fmt(cy)})
     (descr "PRTR5V0U2X dual-channel ESD TVS SOT-143B")
@@ -647,8 +649,8 @@ def passive_0603(cx, cy, ref, value, net1, net2, is_resistor=False, back=False):
     (fp_line (start 1.48 -0.73) (end 1.48 0.73) (layer "{side}.CrtYd") (width 0.05))
     (fp_line (start 1.48 0.73) (end -1.48 0.73) (layer "{side}.CrtYd") (width 0.05))
     (fp_line (start -1.48 0.73) (end -1.48 -0.73) (layer "{side}.CrtYd") (width 0.05))
-    (pad "1" smd roundrect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "{side}.Cu" "{side}.Paste" "{side}.Mask") (roundrect_rratio 0.25) (net {net1} {nn(net1)}))
-    (pad "2" smd roundrect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "{side}.Cu" "{side}.Paste" "{side}.Mask") (roundrect_rratio 0.25) (net {net2} {nn(net2)}))
+    (pad "1" smd roundrect (at {fmt(-P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "{side}.Cu" "{side}.Paste" "{side}.Mask") (roundrect_rratio 0.25) (net {nn(net1)}))
+    (pad "2" smd roundrect (at {fmt(P0603_PAD_DX)} 0) (size {fmt(P0603_PAD_W)} {fmt(P0603_PAD_H)}) (layers "{side}.Cu" "{side}.Paste" "{side}.Mask") (roundrect_rratio 0.25) (net {nn(net2)}))
     (model "{model_path}"
       (offset (xyz 0 0 0))
       (scale (xyz 1 1 1))
@@ -755,14 +757,14 @@ def mcp_components():
             f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
             f'(drill {fmt(TEENSY_PAD_DRILL)}) '
             f'(layers "*.Cu" "*.Mask") '
-            f'(net {nid_l} {nn(nid_l)}))')
+            f'(net {nn(nid_l)}))')
         teensy_pads.append(
             f'    (pad "R{i+1}" thru_hole {r_shape} '
             f'(at {fmt(TEENSY_DX)} {fmt(py)}) '
             f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
             f'(drill {fmt(TEENSY_PAD_DRILL)}) '
             f'(layers "*.Cu" "*.Mask") '
-            f'(net {nid_r} {nn(nid_r)}))')
+            f'(net {nn(nid_r)}))')
 
     mid_y = (TEENSY_PINS - 1) * TEENSY_PITCH / 2
     parts.append(f"""  (footprint "Arp3:Teensy41" (layer "F.Cu")
@@ -795,8 +797,8 @@ def mcp_components():
     (fp_text value "USB D+/D-" (at 0 2.5) (layer "F.Fab")
       (effects (font (size 0.4 0.4) (thickness 0.08)))
     )
-    (pad "1" thru_hole circle (at {fmt(-TEENSY_PITCH / 2)} 0) (size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) (drill {fmt(TEENSY_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_USB_DP} {nn(NET_USB_DP)}))
-    (pad "2" thru_hole circle (at {fmt(TEENSY_PITCH / 2)} 0) (size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) (drill {fmt(TEENSY_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {NET_USB_DN} {nn(NET_USB_DN)}))
+    (pad "1" thru_hole circle (at {fmt(-TEENSY_PITCH / 2)} 0) (size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) (drill {fmt(TEENSY_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {nn(NET_USB_DP)}))
+    (pad "2" thru_hole circle (at {fmt(TEENSY_PITCH / 2)} 0) (size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) (drill {fmt(TEENSY_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {nn(NET_USB_DN)}))
     (fp_line (start {fmt(-TEENSY_PITCH / 2 - 1.2)} -1.2) (end {fmt(TEENSY_PITCH / 2 + 1.2)} -1.2) (layer "F.SilkS") (width 0.12))
     (fp_line (start {fmt(TEENSY_PITCH / 2 + 1.2)} -1.2) (end {fmt(TEENSY_PITCH / 2 + 1.2)} 1.2) (layer "F.SilkS") (width 0.12))
     (fp_line (start {fmt(TEENSY_PITCH / 2 + 1.2)} 1.2) (end {fmt(-TEENSY_PITCH / 2 - 1.2)} 1.2) (layer "F.SilkS") (width 0.12))
@@ -818,7 +820,7 @@ def mcp_components():
             f'(size {fmt(TEENSY_PAD_SIZE)} {fmt(TEENSY_PAD_SIZE)}) '
             f'(drill {fmt(TEENSY_PAD_DRILL)}) '
             f'(layers "*.Cu" "*.Mask") '
-            f'(net {nid} {nn(nid)}))')
+            f'(net {nn(nid)}))')
     # Module outline on Dwgs.User layer
     # Header is on the left edge, module extends right
     # Pins are vertical (along the left short edge of the rotated module)
@@ -854,7 +856,7 @@ def mcp_components():
         usb_pads.append(
             f'    (pad "SH" thru_hole circle (at {fmt(sx)} 1.5) '
             f'(size 1.0 1.0) (drill 0.6) (layers "*.Cu" "*.Mask") '
-            f'(net {NET_GND} {nn(NET_GND)}))')
+            f'(net {nn(NET_GND)}))')
     # Signal pads (USB 2.0 device: D+, D-, VBUS, GND, CC1, CC2)
     usb_pin_nets = [
         (NET_GND, "A1"), (0, "A2"), (0, "A3"), (NET_USB_VBUS, "A4"),
@@ -868,7 +870,7 @@ def mcp_components():
             f'    (pad "{label}" smd rect (at {fmt(px)} 0) '
             f'(size {fmt(USB_PAD_W)} {fmt(USB_PAD_H)}) '
             f'(layers "F.Cu" "F.Paste" "F.Mask") '
-            f'(net {nid} {nn(nid)}))')
+            f'(net {nn(nid)}))')
     parts.append(f"""  (footprint "Arp3:USB_C_Mid_Mount" (layer "F.Cu")
     (at {fmt(USB_X)} {fmt(USB_Y)})
     (descr "USB Type-C mid-mount receptacle")
@@ -948,13 +950,13 @@ def mpr121_footprint(cx, cy, ref, pin_nets, back=False):
             f'(size {fmt(pw)} {fmt(ph)}) '
             f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
             f'(roundrect_rratio 0.25) '
-            f'(net {nid} {nn(nid)}))')
+            f'(net {nn(nid)}))')
 
     # Exposed pad 21 (GND)
     pads.append(
         f'    (pad "21" smd rect (at 0 0) (size {fmt(MPR_EPAD)} {fmt(MPR_EPAD)}) '
         f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
-        f'(net {NET_GND} {nn(NET_GND)}))')
+        f'(net {nn(NET_GND)}))')
 
     # Thermal pads (2x2 grid, unnamed)
     for tx in MPR_THERMAL_GRID:
@@ -963,7 +965,7 @@ def mpr121_footprint(cx, cy, ref, pin_nets, back=False):
                 f'    (pad "" smd rect (at {fmt(tx)} {fmt(ty)}) '
                 f'(size {fmt(MPR_THERMAL_SIZE)} {fmt(MPR_THERMAL_SIZE)}) '
                 f'(layers "{side}.Cu" "{side}.Paste" "{side}.Mask") '
-                f'(net {NET_GND} {nn(NET_GND)}))')
+                f'(net {nn(NET_GND)}))')
 
     # Courtyard
     crt = 2.6
@@ -1039,8 +1041,8 @@ def row9_switches():
     (fp_text reference "{ref}" (at 0 -8.5) (layer "F.SilkS")
       (effects (font (size 0.8 0.8) (thickness 0.12)))
     )
-    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {col_net} {nn(col_net)}))
-    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {sw_net} {nn(sw_net)}))
+    (pad "1" thru_hole circle (at {fmt(SW_PAD1[0])} {fmt(SW_PAD1[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {nn(col_net)}))
+    (pad "2" thru_hole circle (at {fmt(SW_PAD2[0])} {fmt(SW_PAD2[1])}) (size {fmt(SW_PAD_SIZE)} {fmt(SW_PAD_SIZE)}) (drill {fmt(SW_PAD_DRILL)}) (layers "*.Cu" "*.Mask") (net {nn(sw_net)}))
     (pad "" np_thru_hole circle (at 0 0) (size {fmt(SW_CENTER_DRILL)} {fmt(SW_CENTER_DRILL)}) (drill {fmt(SW_CENTER_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[0][0])} {fmt(SW_SIDE_POSTS[0][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
     (pad "" np_thru_hole circle (at {fmt(SW_SIDE_POSTS[1][0])} {fmt(SW_SIDE_POSTS[1][1])}) (size {fmt(SW_SIDE_DRILL)} {fmt(SW_SIDE_DRILL)}) (drill {fmt(SW_SIDE_DRILL)}) (layers "*.Cu" "*.Mask"))
@@ -1062,8 +1064,8 @@ def row9_switches():
       (effects (font (size 0.5 0.5) (thickness 0.1)))
     )
     (fp_line (start -0.5 {fmt(-DIODE_PAD_DY)}) (end 0.5 {fmt(-DIODE_PAD_DY)}) (layer "F.SilkS") (width 0.1))
-    (pad "1" smd roundrect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {NET_ROW8} {nn(NET_ROW8)}))
-    (pad "2" smd roundrect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {sw_net} {nn(sw_net)}))
+    (pad "1" smd roundrect (at 0 {fmt(DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {nn(NET_ROW8)}))
+    (pad "2" smd roundrect (at 0 {fmt(-DIODE_PAD_DY)}) (size {fmt(DIODE_PAD_W)} {fmt(DIODE_PAD_H)}) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (net {nn(sw_net)}))
     (model "${{KICAD10_3DMODEL_DIR}}/Diode_SMD.3dshapes/D_SOD-323.step"
       (offset (xyz 0 0 0))
       (scale (xyz 1 1 1))
@@ -1159,12 +1161,11 @@ def slider_assembly(origin_x, origin_y, pad_nets, irq_net, ref_prefix,
                 pts.extend(right)
 
             xy_str = " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in pts)
-            parts.append(f"""  (zone (net {net_id}) (net_name {net_name}) (layer "F.Cu") (tstamp {uuid()})
+            parts.append(f"""  (zone (net {net_name}) (layer "F.Cu") (uuid "{uuid()}")
     (hatch edge 0.5)
     (connect_pads (clearance 0.2))
     (min_thickness 0.2)
-    (filled_areas_thickness no)
-    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5) (island_removal_mode 0))
     (polygon (pts {xy_str}))
     (filled_polygon (layer "F.Cu") (pts {xy_str}))
   )""")
@@ -1202,12 +1203,11 @@ def slider_assembly(origin_x, origin_y, pad_nets, irq_net, ref_prefix,
                 pts.extend(bottom)
 
             xy_str = " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in pts)
-            parts.append(f"""  (zone (net {net_id}) (net_name {net_name}) (layer "F.Cu") (tstamp {uuid()})
+            parts.append(f"""  (zone (net {net_name}) (layer "F.Cu") (uuid "{uuid()}")
     (hatch edge 0.5)
     (connect_pads (clearance 0.2))
     (min_thickness 0.2)
-    (filled_areas_thickness no)
-    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5) (island_removal_mode 0))
     (polygon (pts {xy_str}))
     (filled_polygon (layer "F.Cu") (pts {xy_str}))
   )""")
@@ -1256,19 +1256,19 @@ def board_outline():
         x2, y2 = corners[(i + 1) % 4]
         lines.append(f'  (gr_line (start {fmt(x1)} {fmt(y1)}) '
                      f'(end {fmt(x2)} {fmt(y2)}) '
-                     f'(layer "Edge.Cuts") (width 0.1))')
+                     f'(stroke (width 0.1) (type solid)) '
+                     f'(layer "Edge.Cuts") (uuid "{uuid()}"))')
     return "\n".join(lines)
 
 
 def ground_zone():
     pts = (f"(xy 0 0) (xy {fmt(BOARD_W)} 0) "
            f"(xy {fmt(BOARD_W)} {fmt(BOARD_H)}) (xy 0 {fmt(BOARD_H)})")
-    return f"""  (zone (net {NET_GND}) (net_name "GND") (layer "B.Cu") (tstamp {uuid()})
+    return f"""  (zone (net "GND") (layer "B.Cu") (uuid "{uuid()}")
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
     (min_thickness 0.2)
-    (filled_areas_thickness no)
-    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5) (island_removal_mode 0))
     (polygon (pts {pts}))
   )"""
 
@@ -1289,12 +1289,11 @@ def led_vcc_zone_fcu():
     grid_bot = ORIGIN_Y + (ROWS - 1) * PITCH + PITCH / 2
     pts = (f"(xy {fmt(grid_left)} {fmt(grid_top)}) (xy {fmt(grid_right)} {fmt(grid_top)}) "
            f"(xy {fmt(grid_right)} {fmt(grid_bot)}) (xy {fmt(grid_left)} {fmt(grid_bot)})")
-    return f"""  (zone (net {NET_LED_VCC}) (net_name "LED_VCC") (layer "F.Cu") (tstamp {uuid()})
+    return f"""  (zone (net "LED_VCC") (layer "F.Cu") (uuid "{uuid()}")
     (hatch edge 0.5)
     (connect_pads (clearance 0.3))
     (min_thickness 0.2)
-    (filled_areas_thickness no)
-    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5))
+    (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5) (island_removal_mode 0))
     (polygon (pts {pts}))
   )"""
 
@@ -1315,14 +1314,15 @@ COL_TRUNK_DX = -2.5
 def seg(x1, y1, x2, y2, width, layer, net_id):
     """Generate a KiCad trace segment."""
     return (f'  (segment (start {fmt(x1)} {fmt(y1)}) (end {fmt(x2)} {fmt(y2)}) '
-            f'(width {fmt(width)}) (layer "{layer}") (net {net_id}) (tstamp {uuid()}))')
+            f'(width {fmt(width)}) (layer "{layer}") (net {nn(net_id)}) '
+            f'(uuid "{uuid()}"))')
 
 
 def via_hole(x, y, net_id):
     """Generate a KiCad via."""
     return (f'  (via (at {fmt(x)} {fmt(y)}) (size {fmt(VIA_SIZE)}) '
             f'(drill {fmt(VIA_DRILL)}) (layers "F.Cu" "B.Cu") '
-            f'(net {net_id}) (tstamp {uuid()}))')
+            f'(net {nn(net_id)}) (uuid "{uuid()}"))')
 
 
 def chain_to_rc(idx):
@@ -1788,9 +1788,6 @@ def route_conn_led_din():
 # ── Main output ───────────────────────────────────────────────────────
 
 def generate():
-    nets = all_net_names()
-    net_defs = "\n".join(f'  (net {nid} {nm})' for nid, nm in nets)
-
     # Generate all footprints
     switches = []
     diodes = []
@@ -1818,58 +1815,91 @@ def generate():
     routing_gnd_vias = route_gnd_vias()
     routing_conn_led_din = route_conn_led_din()
 
-    return f"""(kicad_pcb (version 20240108) (generator "arp3_grid_gen")
-
-  (general
-    (thickness 1.6)
-  )
-
-  (paper "A3")
-
-  (layers
-    (0 "F.Cu" signal)
-    (31 "B.Cu" signal)
-    (32 "B.Adhes" user "B.Adhesive")
-    (33 "F.Adhes" user "F.Adhesive")
-    (34 "B.Paste" user)
-    (35 "F.Paste" user)
-    (36 "B.SilkS" user "B.Silkscreen")
-    (37 "F.SilkS" user "F.Silkscreen")
-    (38 "B.Mask" user "B.Mask")
-    (39 "F.Mask" user "F.Mask")
-    (40 "Dwgs.User" user "User.Drawings")
-    (41 "Cmts.User" user "User.Comments")
-    (42 "Eco1.User" user "User.Eco1")
-    (43 "Eco2.User" user "User.Eco2")
-    (44 "Edge.Cuts" user)
-    (45 "Margin" user)
-    (46 "B.CrtYd" user "B.Courtyard")
-    (47 "F.CrtYd" user "F.Courtyard")
-    (48 "B.Fab" user "B.Fab")
-    (49 "F.Fab" user "F.Fab")
-  )
-
-  (setup
-    (pad_to_mask_clearance 0.05)
-    (aux_axis_origin 0 0)
-    (pcbplotparams
-      (layerselection 0x00010fc_ffffffff)
-      (plotframeref no)
-      (viasonmask no)
-      (mode 1)
-      (useauxorigin no)
-      (hpglpennumber 1)
-      (hpglpenspeed 20)
-      (hpglpendiameter 15.000000)
-      (outputformat 1)
-      (mirror no)
-      (drillshape 1)
-      (scaleselection 1)
-      (outputdirectory "")
-    )
-  )
-
-{net_defs}
+    return f"""(kicad_pcb
+	(version 20260206)
+	(generator "arp3_grid_gen")
+	(generator_version "10.0")
+	(general
+		(thickness 1.6)
+		(legacy_teardrops no)
+	)
+	(paper "A3")
+	(layers
+		(0 "F.Cu" signal)
+		(2 "B.Cu" signal)
+		(9 "F.Adhes" user "F.Adhesive")
+		(11 "B.Adhes" user "B.Adhesive")
+		(13 "F.Paste" user)
+		(15 "B.Paste" user)
+		(5 "F.SilkS" user "F.Silkscreen")
+		(7 "B.SilkS" user "B.Silkscreen")
+		(1 "F.Mask" user)
+		(3 "B.Mask" user)
+		(17 "Dwgs.User" user "User.Drawings")
+		(19 "Cmts.User" user "User.Comments")
+		(21 "Eco1.User" user "User.Eco1")
+		(23 "Eco2.User" user "User.Eco2")
+		(25 "Edge.Cuts" user)
+		(27 "Margin" user)
+		(31 "F.CrtYd" user "F.Courtyard")
+		(29 "B.CrtYd" user "B.Courtyard")
+		(35 "F.Fab" user)
+		(33 "B.Fab" user)
+	)
+	(setup
+		(pad_to_mask_clearance 0.05)
+		(allow_soldermask_bridges_in_footprints no)
+		(tenting
+			(front yes)
+			(back yes)
+		)
+		(covering
+			(front no)
+			(back no)
+		)
+		(plugging
+			(front no)
+			(back no)
+		)
+		(capping no)
+		(filling no)
+		(pcbplotparams
+			(layerselection 0x00000000_00000000_55555555_5755f5ff)
+			(plot_on_all_layers_selection 0x00000000_00000000_00000000_00000000)
+			(disableapertmacros no)
+			(usegerberextensions no)
+			(usegerberattributes yes)
+			(usegerberadvancedattributes yes)
+			(creategerberjobfile yes)
+			(dashed_line_dash_ratio 12)
+			(dashed_line_gap_ratio 3)
+			(svgprecision 4)
+			(plotframeref no)
+			(mode 1)
+			(useauxorigin no)
+			(pdf_front_fp_property_popups yes)
+			(pdf_back_fp_property_popups yes)
+			(pdf_metadata yes)
+			(pdf_single_document no)
+			(dxfpolygonmode yes)
+			(dxfimperialunits yes)
+			(dxfusepcbnewfont yes)
+			(psnegative no)
+			(psa4output no)
+			(plot_black_and_white yes)
+			(sketchpadsonfab no)
+			(plotpadnumbers no)
+			(hidednponfab no)
+			(sketchdnponfab yes)
+			(crossoutdnponfab yes)
+			(subtractmaskfromsilk no)
+			(outputformat 1)
+			(mirror no)
+			(drillshape 1)
+			(scaleselection 1)
+			(outputdirectory "")
+		)
+	)
 
 {board_outline()}
 
@@ -1913,6 +1943,7 @@ def generate():
 
 {led_vcc_zone_fcu()}
 
+	(embedded_fonts no)
 )
 """
 
@@ -2053,12 +2084,48 @@ def generate_bom():
     return "\n".join(bom)
 
 
+def _find_kicad_cli():
+    """Locate the kicad-cli binary (PATH, then default macOS install)."""
+    import shutil
+    cli = shutil.which("kicad-cli")
+    if cli:
+        return cli
+    mac_default = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
+    if os.path.exists(mac_default):
+        return mac_default
+    return None
+
+
 if __name__ == "__main__":
-    sys.stdout.write(generate())
+    import os
+    import subprocess
+
+    here = os.path.dirname(__file__) or "."
+    pcb_path = os.path.join(here, "button_grid.kicad_pcb")
+
+    # The emitters produce a valid but compact KiCad 10 (20260206) file.
+    # kicad-cli then rewrites it in KiCad's exact canonical serialization so
+    # regenerations diff cleanly against KiCad-saved revisions.
+    with open(pcb_path, "w") as f:
+        f.write(generate())
+    print(f"PCB written to {pcb_path}", file=sys.stderr)
+
+    kicad_cli = _find_kicad_cli()
+    if kicad_cli:
+        subprocess.run(
+            [kicad_cli, "pcb", "upgrade", "--force", pcb_path], check=True
+        )
+        print("Canonicalized via kicad-cli pcb upgrade --force", file=sys.stderr)
+    else:
+        print(
+            "WARNING: kicad-cli not found — PCB left in compact format. "
+            "It is still a valid KiCad 10 file but will be reformatted on the "
+            "first KiCad save. Install KiCad 10 or put kicad-cli on PATH.",
+            file=sys.stderr,
+        )
 
     # Generate BOM alongside PCB
-    import os
-    bom_path = os.path.join(os.path.dirname(__file__) or ".", "bom.md")
+    bom_path = os.path.join(here, "bom.md")
     with open(bom_path, "w") as f:
         f.write(generate_bom())
-    print(f"\nBOM written to {bom_path}", file=sys.stderr)
+    print(f"BOM written to {bom_path}", file=sys.stderr)
