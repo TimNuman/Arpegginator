@@ -1,6 +1,6 @@
 # Bill of Materials
 
-Generated: 2026-04-07 04:57
+Generated: 2026-05-16 08:19
 
 | Qty | Reference | Value | Package | Description | Where to buy |
 |-----|-----------|-------|---------|-------------|-------------|
