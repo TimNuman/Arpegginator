@@ -104,17 +104,22 @@ pub extern "C" fn engine_get_event_pool_base_ptr() -> *const NoteEvent {
 
 #[no_mangle]
 pub extern "C" fn engine_get_event_handles_buffer(ch: u8, pat: u8) -> *const u16 {
+    if ch as usize >= NUM_CHANNELS || pat as usize >= NUM_PATTERNS {
+        return core::ptr::null();
+    }
     let s = state_ref();
     s.patterns[ch as usize][pat as usize].event_handles.as_ptr()
 }
 
 #[no_mangle]
 pub extern "C" fn engine_set_event_count(ch: u8, pat: u8, count: u16) {
-    state().patterns[ch as usize][pat as usize].event_count = count;
+    if ch as usize >= NUM_CHANNELS || pat as usize >= NUM_PATTERNS { return; }
+    state().patterns[ch as usize][pat as usize].event_count = count.min(MAX_EVENTS as u16);
 }
 
 #[no_mangle]
 pub extern "C" fn engine_set_pattern_length(ch: u8, pat: u8, len: i32) {
+    if ch as usize >= NUM_CHANNELS || pat as usize >= NUM_PATTERNS { return; }
     state().patterns[ch as usize][pat as usize].length_ticks = len;
 }
 
@@ -216,10 +221,12 @@ pub extern "C" fn engine_set_ui_mode(mode: u8) { state().ui_mode = mode; }
 pub extern "C" fn engine_set_modify_sub_mode(sm: u8) { state().modify_sub_mode = sm; }
 
 #[no_mangle]
-pub extern "C" fn engine_set_current_channel(ch: u8) { state().current_channel = ch; }
+pub extern "C" fn engine_set_current_channel(ch: u8) {
+    if (ch as usize) < NUM_CHANNELS { state().current_channel = ch; }
+}
 
 #[no_mangle]
-pub extern "C" fn engine_set_zoom(ticks_per_col: i32) { state().zoom = ticks_per_col; }
+pub extern "C" fn engine_set_zoom(ticks_per_col: i32) { state().zoom = ticks_per_col.max(1); }
 
 #[no_mangle]
 pub extern "C" fn engine_set_selected_event(idx: i16) { state().selected_event_idx = idx; }
@@ -361,11 +368,13 @@ pub extern "C" fn engine_get_brightness() -> u8 {
 
 #[no_mangle]
 pub extern "C" fn engine_get_event_count(ch: u8, pat: u8) -> u16 {
+    if ch as usize >= NUM_CHANNELS || pat as usize >= NUM_PATTERNS { return 0; }
     state_ref().patterns[ch as usize][pat as usize].event_count
 }
 
 #[no_mangle]
 pub extern "C" fn engine_get_pattern_length(ch: u8, pat: u8) -> i32 {
+    if ch as usize >= NUM_CHANNELS || pat as usize >= NUM_PATTERNS { return 0; }
     state_ref().patterns[ch as usize][pat as usize].length_ticks
 }
 
@@ -484,9 +493,12 @@ fn get_selected_event() -> Option<&'static NoteEvent> {
     let s = state_ref();
     if s.selected_event_idx < 0 { return None; }
     let ch = s.current_channel as usize;
+    if ch >= NUM_CHANNELS { return None; }
     let pat = s.current_patterns[ch] as usize;
+    if pat >= NUM_PATTERNS { return None; }
     if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return None; }
     let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+    if h == POOL_HANDLE_NONE { return None; }
     Some(&s.event_pool.slots[h as usize])
 }
 
