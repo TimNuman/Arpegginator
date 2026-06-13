@@ -129,9 +129,6 @@ impl<'a, B: usb_device::bus::UsbBus> MidiOut<'a, B> {
 
 #[bsp::rt::entry]
 fn main() -> ! {
-    // SAFETY: `HEAP_MEM` is a single static backing region handed to the
-    // allocator exactly once, before any allocation occurs. The pointer is
-    // valid for `HEAP_SIZE` bytes and never aliased elsewhere.
     unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE); }
 
     let board::Resources {

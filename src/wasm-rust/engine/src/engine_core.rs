@@ -18,9 +18,6 @@ impl<const N: usize> FmtBuf<N> {
     }
 
     pub fn as_str(&self) -> &str {
-        // Only valid UTF-8 is ever pushed (str/char/write!), but truncation in
-        // push_str could split a multi-byte char, so validate rather than
-        // assume — checked conversion is safe and the cost is negligible here.
         core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
     }
 
@@ -681,16 +678,8 @@ impl EngineState {
     /// Avoids constructing the large struct on the stack.
     pub fn new_boxed() -> Box<EngineState> {
         extern crate alloc;
-        let layout = core::alloc::Layout::new::<EngineState>();
-        // SAFETY: `alloc_zeroed` returns either null or a fresh allocation of
-        // `layout` size/align. We bail via `handle_alloc_error` on null, so the
-        // pointer is valid, uniquely owned, and correctly aligned for
-        // `EngineState`. An all-zero bit pattern is a valid (if not yet
-        // defaulted) `EngineState` — every field is a plain integer/float/array
-        // with no niche, so zeroing is well-defined; `init_in_place` then sets
-        // the non-zero defaults. `Box::from_raw` takes ownership of exactly this
-        // allocation, matching the global allocator that produced it.
         let mut s = unsafe {
+            let layout = core::alloc::Layout::new::<EngineState>();
             let ptr = alloc::alloc::alloc_zeroed(layout) as *mut EngineState;
             if ptr.is_null() {
                 alloc::alloc::handle_alloc_error(layout);

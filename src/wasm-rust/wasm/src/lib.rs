@@ -1,10 +1,5 @@
 // wasm/lib.rs — WASM exports and JS callback bridges
 // Thin shell around arp3-engine: global state + #[no_mangle] exports
-//
-// Single-threaded WASM. All global mutable state goes through `Global<T>`
-// (arp3_engine::cell), the engine's audited single-threaded unsafe boundary,
-// so this module itself is safe Rust apart from the inherently-unsafe FFI
-// allocator exports.
 
 extern crate alloc;
 
@@ -166,9 +161,6 @@ pub extern "C" fn engine_get_note_event_size() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn engine_get_field_offset(field_id: i32) -> i32 {
-    // `offset_of!` computes the field offset at compile time, fully in safe
-    // Rust — no null-pointer arithmetic. NoteEvent is `#[repr(C)]`, so these
-    // offsets match the layout the JS side reads from WASM linear memory.
     use core::mem::offset_of;
     match field_id {
         0 => offset_of!(NoteEvent, row) as i32,
@@ -543,8 +535,6 @@ pub extern "C" fn engine_get_voicing_count_export(amount: u8, distance: u8) -> u
     engine_core::get_voicing_count(amount, distance)
 }
 
-/// Copy `s` into a global C-string buffer (null-terminated, truncated to fit)
-/// and return a pointer for JS to read out of WASM linear memory.
 fn write_cstr<const N: usize>(buf: &Global<[u8; N]>, s: &str) -> *const u8 {
     let dst = buf.get_mut();
     let bytes = s.as_bytes();
