@@ -262,11 +262,21 @@ pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
                 return Some((data, data_len, pos));
             }
             _ => {
-                // Not SysEx — stop parsing
-                return None;
+                // Non-SysEx packet (clock, notes, active sense, …). Drop it and
+                // any partial SysEx, then keep scanning. The 4 bytes are already
+                // consumed (pos advanced), so they get drained by the caller —
+                // otherwise unparseable traffic would wedge the accumulator.
+                data_len = 0;
             }
         }
     }
 
-    None // Incomplete
+    if data_len == 0 && pos > 0 {
+        // Only consumed non-SysEx packets, no SysEx in flight: report them drained.
+        Some((data, 0, pos))
+    } else {
+        // data_len > 0: partial SysEx awaiting more packets.
+        // pos == 0: fewer than 4 bytes buffered — incomplete packet.
+        None
+    }
 }

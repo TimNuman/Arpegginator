@@ -21,6 +21,8 @@ pub mod engine_drums;
 #[cfg(test)]
 mod test_core;
 #[cfg(test)]
+mod test_critical;
+#[cfg(test)]
 mod test_edit;
 #[cfg(test)]
 mod test_rendered;

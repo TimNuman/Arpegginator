@@ -450,9 +450,10 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             }
             protocol::CMD_SET_ZOOM => {
                 if payload.len() >= 3 {
-                    state.zoom = (payload[0] as i32)
+                    state.zoom = ((payload[0] as i32)
                         | ((payload[1] as i32) << 7)
-                        | ((payload[2] as i32 & 0x03) << 14);
+                        | ((payload[2] as i32 & 0x03) << 14))
+                        .max(1);
                 }
             }
             protocol::CMD_SET_CURRENT_CHANNEL => {

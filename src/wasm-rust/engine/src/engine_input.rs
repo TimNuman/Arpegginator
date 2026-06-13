@@ -707,6 +707,7 @@ fn pattern_press_bare(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
 
 fn handle_channel_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) {
     let ch_idx = vis_row as usize;
+    if ch_idx >= NUM_CHANNELS { return; }
 
     if vis_col == 0 {
         if (mods & MOD_ALT) != 0 {
