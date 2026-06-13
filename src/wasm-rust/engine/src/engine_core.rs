@@ -18,7 +18,10 @@ impl<const N: usize> FmtBuf<N> {
     }
 
     pub fn as_str(&self) -> &str {
-        unsafe { core::str::from_utf8_unchecked(&self.buf[..self.len]) }
+        // Only valid UTF-8 is ever pushed (str/char/write!), but truncation in
+        // push_str could split a multi-byte char, so validate rather than
+        // assume — checked conversion is safe and the cost is negligible here.
+        core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
     }
 
     pub fn push_str(&mut self, s: &str) {
@@ -678,8 +681,16 @@ impl EngineState {
     /// Avoids constructing the large struct on the stack.
     pub fn new_boxed() -> Box<EngineState> {
         extern crate alloc;
+        let layout = core::alloc::Layout::new::<EngineState>();
+        // SAFETY: `alloc_zeroed` returns either null or a fresh allocation of
+        // `layout` size/align. We bail via `handle_alloc_error` on null, so the
+        // pointer is valid, uniquely owned, and correctly aligned for
+        // `EngineState`. An all-zero bit pattern is a valid (if not yet
+        // defaulted) `EngineState` — every field is a plain integer/float/array
+        // with no niche, so zeroing is well-defined; `init_in_place` then sets
+        // the non-zero defaults. `Box::from_raw` takes ownership of exactly this
+        // allocation, matching the global allocator that produced it.
         let mut s = unsafe {
-            let layout = core::alloc::Layout::new::<EngineState>();
             let ptr = alloc::alloc::alloc_zeroed(layout) as *mut EngineState;
             if ptr.is_null() {
                 alloc::alloc::handle_alloc_error(layout);
@@ -1076,10 +1087,10 @@ pub fn get_voicing_offsets(amount: u8, distance: u8, idx: u8, out: &mut [i8]) ->
 
 // ============ Arpeggio ============
 
-static mut ARP_RANDOM_SEED: u32 = 0;
+static ARP_RANDOM_SEED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 pub fn engine_reseed_random_arp() {
-    unsafe { ARP_RANDOM_SEED = ARP_RANDOM_SEED.wrapping_add(1); }
+    ARP_RANDOM_SEED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: i8) -> u8 {
@@ -1162,7 +1173,7 @@ pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: 
             for i in 0..cc as usize { perm[i] = i as u8; }
 
             // Hash epoch + global seed, then Fisher-Yates
-            let seed = unsafe { ARP_RANDOM_SEED };
+            let seed = ARP_RANDOM_SEED.load(core::sync::atomic::Ordering::Relaxed);
             let mut h = (epoch as u32).wrapping_mul(2654435761).wrapping_add(seed.wrapping_mul(374761393));
             for i in (1..cc as usize).rev() {
                 h ^= h >> 15;

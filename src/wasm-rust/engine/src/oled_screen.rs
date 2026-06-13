@@ -2,7 +2,9 @@
 // Full-width layout with 256×128 display, IBM Plex Mono fonts
 
 use core::fmt::Write;
+use core::sync::atomic::{AtomicU32, Ordering};
 use libm::{cosf, sinf};
+use crate::cell::Global;
 use crate::engine_core::FmtBuf;
 use crate::oled_gfx::*;
 use crate::oled_fonts_aa::*;
@@ -42,7 +44,7 @@ const TICKER_PAUSE_FRAMES: u32 = 120;  // 2s at 60fps
 const TICKER_PX_FRAMES: u32 = 15;     // 0.25s per pixel
 const TICKER_WRAP_GAP: i16 = 15;      // pixel gap between looping copies
 
-static mut FRAME_COUNT: u32 = 0;
+static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 
 const NUM_TICKERS: usize = 7; // 0-3: rows, 4-6: legend columns
 
@@ -58,12 +60,12 @@ impl TickerState {
     }
 }
 
-static mut TICKERS: [TickerState; NUM_TICKERS] = [
+static TICKERS: Global<[TickerState; NUM_TICKERS]> = Global::new([
     TickerState::new(), TickerState::new(),
     TickerState::new(), TickerState::new(),
     TickerState::new(), TickerState::new(),
     TickerState::new(),
-];
+]);
 
 fn simple_hash(s: &str) -> u32 {
     s.bytes().fold(5381u32, |h, b| h.wrapping_mul(33).wrapping_add(b as u32))
@@ -75,8 +77,8 @@ fn simple_hash(s: &str) -> u32 {
 fn ticker_offset_hash(slot: usize, hash: u32, scroll_dist: i16) -> i16 {
     if scroll_dist <= 0 || slot >= NUM_TICKERS { return 0; }
 
-    let frame = unsafe { FRAME_COUNT };
-    let tk = unsafe { &mut TICKERS[slot] };
+    let frame = FRAME_COUNT.load(Ordering::Relaxed);
+    let tk = &mut TICKERS.get_mut()[slot];
 
     if tk.text_hash != hash || tk.scroll_dist != scroll_dist {
         tk.text_hash = hash;
@@ -102,9 +104,7 @@ fn ticker_offset(slot: usize, text: &str, scroll_dist: i16) -> i16 {
 
 /// Returns true if any ticker is currently scrolling (needs continuous rendering)
 pub fn oled_is_animating() -> bool {
-    unsafe {
-        TICKERS.iter().any(|tk| tk.scroll_dist > 0)
-    }
+    TICKERS.get().iter().any(|tk| tk.scroll_dist > 0)
 }
 
 // ============ Modifier key bitmask ============
@@ -545,8 +545,8 @@ fn ticker_offset_immediate(slot: usize, text: &str, scroll_dist: i16) -> i16 {
     if scroll_dist <= 0 || slot >= NUM_TICKERS { return 0; }
 
     let hash = simple_hash(text);
-    let frame = unsafe { FRAME_COUNT };
-    let tk = unsafe { &mut TICKERS[slot] };
+    let frame = FRAME_COUNT.load(Ordering::Relaxed);
+    let tk = &mut TICKERS.get_mut()[slot];
 
     if tk.text_hash != hash || tk.scroll_dist != scroll_dist {
         tk.text_hash = hash;
@@ -1248,7 +1248,7 @@ fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
 // ============ Public entry point ============
 
 pub fn oled_render(s: &EngineState, modifiers: u8) {
-    unsafe { FRAME_COUNT = FRAME_COUNT.wrapping_add(1); }
+    FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
     gfx_clear(GFX_BLACK);
 
     let mode = s.ui_mode;

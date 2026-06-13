@@ -79,6 +79,7 @@ pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
 #[cfg(all(target_arch = "arm", not(test)))]
 pub mod arm_platform {
     use core::sync::atomic::{AtomicUsize, Ordering};
+    use crate::cell::Global;
 
     const MIDI_QUEUE_SIZE: usize = 128;
 
@@ -98,7 +99,8 @@ pub mod arm_platform {
         }
     }
 
-    static mut MIDI_QUEUE: [MidiEvent; MIDI_QUEUE_SIZE] = [MidiEvent::zero(); MIDI_QUEUE_SIZE];
+    static MIDI_QUEUE: Global<[MidiEvent; MIDI_QUEUE_SIZE]> =
+        Global::new([MidiEvent::zero(); MIDI_QUEUE_SIZE]);
     static MIDI_WRITE: AtomicUsize = AtomicUsize::new(0);
     static MIDI_READ: AtomicUsize = AtomicUsize::new(0);
 
@@ -106,7 +108,7 @@ pub mod arm_platform {
         let w = MIDI_WRITE.load(Ordering::Relaxed);
         let next = (w + 1) % MIDI_QUEUE_SIZE;
         if next != MIDI_READ.load(Ordering::Acquire) {
-            unsafe { MIDI_QUEUE[w] = ev; }
+            MIDI_QUEUE.get_mut()[w] = ev;
             MIDI_WRITE.store(next, Ordering::Release);
         }
         // If queue is full, event is silently dropped
@@ -118,7 +120,7 @@ pub mod arm_platform {
         if r == MIDI_WRITE.load(Ordering::Acquire) {
             return None;
         }
-        let ev = unsafe { MIDI_QUEUE[r] };
+        let ev = MIDI_QUEUE.get()[r];
         MIDI_READ.store((r + 1) % MIDI_QUEUE_SIZE, Ordering::Release);
         Some(ev)
     }

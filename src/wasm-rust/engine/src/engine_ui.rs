@@ -1,14 +1,15 @@
 // engine_ui.rs — Grid rendering, rendered notes, chord offsets
 
+use crate::cell::Global;
 use crate::engine_core::*;
 use crate::engine_input::{MOD_ALT, MOD_CTRL, MOD_META};
 
 // Temp buffer lives outside EngineState to avoid aliasing UB when passing
 // &EngineState to engine_render_events while writing into this buffer.
-static mut TEMP_RENDERED: [RenderedNote; MAX_RENDERED_NOTES] = [RenderedNote {
+static TEMP_RENDERED: Global<[RenderedNote; MAX_RENDERED_NOTES]> = Global::new([RenderedNote {
     row: 0, position: 0, length: 0, source_idx: 0,
     repeat_index: 0, chord_index: 0, chord_offset: 0,
-}; MAX_RENDERED_NOTES];
+}; MAX_RENDERED_NOTES]);
 
 // ============ Sub-mode render configs ============
 
@@ -245,7 +246,7 @@ pub fn engine_ensure_rendered(s: &mut EngineState, channel: u8) {
     if !channel_changed && s.rendered_dirty[channel as usize] == 0 { return; }
     let pat = s.current_patterns[channel as usize];
     // Render into separate static buffer to avoid aliasing &EngineState and &mut temp.
-    let temp_buf = unsafe { &mut TEMP_RENDERED };
+    let temp_buf = TEMP_RENDERED.get_mut();
     let count = engine_render_events(s, channel, pat, temp_buf, MAX_RENDERED_NOTES);
     // Copy from temp to rendered_notes
     s.rendered_notes[..count as usize].copy_from_slice(&temp_buf[..count as usize]);
@@ -806,7 +807,7 @@ fn compute_ghost_notes(s: &mut EngineState) {
         if s.channel_types[ch] == ChannelType::Drum as u8 { continue; }
 
         let pat = s.current_patterns[ch];
-        let temp_buf = unsafe { &mut TEMP_RENDERED };
+        let temp_buf = TEMP_RENDERED.get_mut();
         let cnt = engine_render_events(s, ch as u8, pat, temp_buf, MAX_RENDERED_NOTES);
 
         for i in 0..cnt as usize {
@@ -968,7 +969,7 @@ pub fn engine_compute_grid(s: &mut EngineState, timestamp_ms: f32) {
 
     // Copy rendered notes into separate static buffer to avoid borrow conflict with &mut s
     let note_count = s.rendered_count as usize;
-    let temp = unsafe { &mut TEMP_RENDERED };
+    let temp = TEMP_RENDERED.get_mut();
     temp[..note_count].copy_from_slice(&s.rendered_notes[..note_count]);
     let notes = &temp[..note_count];
 
