@@ -370,7 +370,6 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, _tpc: i32) {
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
-    // selected_event_idx is host-settable; reject stale/out-of-range values.
     if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     if s.patterns[ch][pat_idx].event_count as usize >= MAX_EVENTS { return; }
 

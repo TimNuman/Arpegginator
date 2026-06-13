@@ -209,22 +209,13 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
 // ============ SysEx Parsing Helper ============
 
 /// Extract SysEx data bytes from USB MIDI packets.
-///
-/// Returns `Some((data_without_f0_f7, data_len, bytes_consumed))`. `bytes_consumed`
-/// always covers any leading non-SysEx packets (note on/off, clock, active sensing,
-/// etc.) so a DAW sending ordinary MIDI to the device can never stall the input
-/// accumulator. When a non-SysEx run is consumed without a complete SysEx message,
-/// `data_len` is 0 (the caller ignores it).
-///
-/// Returns `None` only when the remaining bytes are the prefix of an as-yet-incomplete
-/// SysEx message — the caller should keep them and append the next USB read.
 pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
     // buf contains raw USB MIDI 4-byte packets
     let mut data = [0u8; 64];
     let mut data_len = 0;
     let mut pos = 0;
     let mut in_sysex = false;
-    let mut sysex_start = 0; // byte offset where the current SysEx began
+    let mut sysex_start = 0;
 
     while pos + 4 <= buf.len() {
         let cin = buf[pos] & 0x0F;
@@ -279,8 +270,6 @@ pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
                 return Some((data, data_len, pos));
             }
             _ => {
-                // Not a SysEx packet (note/clock/etc.). Abandon any partial SysEx
-                // (malformed) and skip the packet so it can't block the buffer.
                 in_sysex = false;
                 data_len = 0;
                 pos += 4;
@@ -289,14 +278,11 @@ pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
     }
 
     if in_sysex {
-        // Incomplete SysEx: keep its bytes for the next read, but consume any
-        // non-SysEx packets that preceded it so they don't stall the accumulator.
         if sysex_start > 0 {
             return Some((data, 0, sysex_start));
         }
         return None;
     }
-    // Consumed only non-SysEx packets — report them consumed (no command).
     if pos > 0 {
         return Some((data, 0, pos));
     }

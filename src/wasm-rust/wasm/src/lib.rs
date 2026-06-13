@@ -122,7 +122,6 @@ pub extern "C" fn engine_get_event_handles_buffer(ch: u8, pat: u8) -> *const u16
 #[no_mangle]
 pub extern "C" fn engine_set_event_count(ch: u8, pat: u8, count: u16) {
     if (ch as usize) >= NUM_CHANNELS || (pat as usize) >= NUM_PATTERNS { return; }
-    // Clamp: event_handles only has MAX_EVENTS slots.
     state().patterns[ch as usize][pat as usize].event_count = count.min(MAX_EVENTS as u16);
 }
 
@@ -235,7 +234,6 @@ pub extern "C" fn engine_set_current_channel(ch: u8) {
 
 #[no_mangle]
 pub extern "C" fn engine_set_zoom(ticks_per_col: i32) {
-    // Zoom is used as a divisor throughout; never allow 0/negative.
     state().zoom = ticks_per_col.max(1);
 }
 
@@ -504,7 +502,6 @@ fn get_selected_event() -> Option<&'static NoteEvent> {
     let s = state_ref();
     if s.selected_event_idx < 0 { return None; }
     let ch = s.current_channel as usize;
-    // current_channel / current_patterns are host-writable; validate before indexing.
     if ch >= NUM_CHANNELS { return None; }
     let pat = s.current_patterns[ch] as usize;
     if pat >= NUM_PATTERNS { return None; }
@@ -561,8 +558,6 @@ pub extern "C" fn engine_get_voicing_count_export(amount: u8, distance: u8) -> u
 
 static mut VOICING_NAME_BUF: [u8; 32] = [0; 32];
 
-/// Returns a pointer to a NUL-terminated name in a shared static buffer.
-/// Valid only until the next call to any engine string export; copy it out on the JS side.
 #[no_mangle]
 pub extern "C" fn engine_get_voicing_name_export(amount: u8, distance: u8, idx: u8) -> *const u8 {
     let name = engine_core::get_voicing_name(amount, distance, idx);
@@ -663,8 +658,6 @@ pub extern "C" fn engine_note_to_midi_export(row: i16) -> i8 {
 
 static mut SCALE_NAME_BUF: [u8; 32] = [0; 32];
 
-/// Returns a pointer to a NUL-terminated name in a shared static buffer.
-/// Valid only until the next call to any engine string export; copy it out on the JS side.
 #[no_mangle]
 pub extern "C" fn engine_get_scale_name() -> *const u8 {
     let name = engine_core::engine_get_scale_name_str(state_ref());
@@ -744,8 +737,6 @@ fn interval_to_ext(semitones: u8) -> Option<&'static str> {
 
 static mut CHORD_NAME_BUF: [u8; 64] = [0; 64];
 
-/// Returns a pointer to a NUL-terminated name in a shared static buffer.
-/// Valid only until the next call to any engine string export; copy it out on the JS side.
 #[no_mangle]
 pub extern "C" fn engine_get_chord_name() -> *const u8 {
     unsafe { CHORD_NAME_BUF[0] = 0; }
@@ -879,7 +870,6 @@ pub extern "C" fn engine_get_num_channels() -> i32 { NUM_CHANNELS as i32 }
 
 #[no_mangle]
 pub extern "C" fn wasm_alloc(size: u32) -> *mut u8 {
-    // Zero-size alloc is UB for the global allocator; bail out cleanly.
     if size == 0 { return core::ptr::null_mut(); }
     match core::alloc::Layout::from_size_align(size as usize, 1) {
         Ok(layout) => unsafe { alloc::alloc::alloc(layout) },

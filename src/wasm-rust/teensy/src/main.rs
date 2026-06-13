@@ -44,9 +44,7 @@ const USB_VID_PID: UsbVidPid = UsbVidPid(0x16C0, 0x0483);
 const USB_PRODUCT: &str = "Arp3 Sequencer";
 const SYSEX_MFR: u8 = 0x7D;
 
-// DWT cycle counter runs at the CPU clock (600 MHz on the Teensy 4.1).
 const CPU_CYCLES_PER_MS: f32 = 600_000.0;
-// Cap preview note length so the cycle count can't overflow u32 (~7.1 s at 600 MHz).
 const MAX_PREVIEW_MS: f32 = 5000.0;
 
 // ============ SysEx Protocol ============
@@ -275,8 +273,7 @@ fn main() -> ! {
                                 preview_notes[preview_count] = (ev.channel, note);
                                 preview_count += 1;
                             }
-                            // Schedule note-off: length_ticks → ms → DWT cycles.
-                            // Clamp ms so the cycle count stays within u32.
+                            // Schedule note-off: length_ticks → ms → DWT cycles
                             let bpm = state.bpm.max(1.0);
                             let ms = (ev.length_ticks as f32 * 60_000.0
                                 / (bpm * TICKS_PER_QUARTER as f32))
@@ -461,7 +458,6 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     let zoom = (payload[0] as i32)
                         | ((payload[1] as i32) << 7)
                         | ((payload[2] as i32 & 0x03) << 14);
-                    // Zoom is used as a divisor throughout the engine.
                     state.zoom = zoom.max(1);
                 }
             }

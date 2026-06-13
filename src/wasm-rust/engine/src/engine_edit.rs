@@ -140,7 +140,6 @@ pub fn engine_set_event_repeat_amount(s: &mut EngineState, event_idx: u16, repea
     if event_idx >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let ev = &mut s.event_pool.slots[h as usize];
-    // Never store 0 — downstream code divides by repeat_amount.
     let repeat_amount = repeat_amount.max(1);
     ev.repeat_amount = repeat_amount;
     // Setting repeat to 1 on a non-chord arp with a chord: auto-set to chord style
@@ -393,10 +392,7 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
     let src_ec = s.patterns[ch][src].event_count;
     s.patterns[ch][tgt].length_ticks = s.patterns[ch][src].length_ticks;
 
-    // Deep-copy each event: alloc new pool slot, clone data, deep-copy sub-mode handles.
-    // If the event pool is exhausted mid-copy, stop and truncate event_count to what was
-    // actually copied — otherwise a stale (freed) handle would be left counted in the
-    // target, which later double-frees / aliases pool slots.
+    // Deep-copy each event: alloc new pool slot, clone data, deep-copy sub-mode handles
     let mut copied = 0usize;
     for i in 0..src_ec as usize {
         let src_handle = s.patterns[ch][src].event_handles[i];

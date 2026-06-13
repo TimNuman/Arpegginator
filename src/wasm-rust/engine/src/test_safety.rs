@@ -1,7 +1,3 @@
-// test_safety.rs — Regression tests for memory-safety / robustness hardening.
-// These exercise host-reachable edge cases that previously panicked (panic = "abort"
-// in release) or corrupted pool state.
-
 use alloc::boxed::Box;
 use crate::engine_core::*;
 use crate::engine_edit::*;
@@ -13,11 +9,8 @@ fn init_state() -> Box<EngineState> {
     s
 }
 
-// ---- FmtBuf must never split a multi-byte UTF-8 code point on truncation ----
-
 #[test]
 fn fmtbuf_truncates_on_char_boundary() {
-    // 2 bytes used, 1 free; "é" is 2 bytes and must be dropped whole, not split.
     let mut b = FmtBuf::<3>::new();
     b.push_str("aa");
     b.push_str("é");
@@ -32,8 +25,6 @@ fn fmtbuf_keeps_full_multibyte_when_it_fits() {
     assert_eq!(b.as_str(), "é");
 }
 
-// ---- repeat_amount must never be stored as 0 (downstream divides by it) ----
-
 #[test]
 fn repeat_amount_zero_is_clamped() {
     let mut s = init_state();
@@ -45,15 +36,13 @@ fn repeat_amount_zero_is_clamped() {
     assert_eq!(s.event_pool.slots[h as usize].repeat_amount, 1);
 }
 
-// ---- A zero-length loop must not divide-by-zero in the tick path ----
-
 #[test]
 fn tick_with_zero_length_loop_does_not_panic() {
     let mut s = init_state();
     engine_toggle_event(&mut s, 10, 0, 120);
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
-    s.loops[ch][pat].length = 0; // host could write this via the loops buffer
+    s.loops[ch][pat].length = 0;
     s.is_playing = 1;
     engine_core_play_init(&mut s);
     for _ in 0..16 {
@@ -71,9 +60,6 @@ fn scrub_with_zero_length_loop_does_not_panic() {
     engine_core_scrub_to_tick(&mut s, 240);
 }
 
-// ---- Channel-mode render must not index channel arrays out of bounds ----
-// There are VISIBLE_ROWS (8) grid rows but only NUM_CHANNELS (6) channels.
-
 #[test]
 fn channel_mode_render_does_not_panic() {
     let mut s = init_state();
@@ -81,8 +67,6 @@ fn channel_mode_render_does_not_panic() {
     s.ui_mode = UiMode::Channel as u8;
     engine_compute_grid(&mut s, 0.0);
 }
-
-// ---- copy_pattern keeps event_count consistent with copied handles ----
 
 #[test]
 fn copy_pattern_sets_consistent_count() {
@@ -92,7 +76,6 @@ fn copy_pattern_sets_consistent_count() {
     let ch = s.current_channel as usize;
     engine_copy_pattern(&mut s, 1);
     assert_eq!(s.patterns[ch][1].event_count, 2);
-    // Copied handles must be valid pool slots, not stale/POOL_HANDLE_NONE.
     for i in 0..s.patterns[ch][1].event_count as usize {
         assert_ne!(s.patterns[ch][1].event_handles[i], POOL_HANDLE_NONE);
     }

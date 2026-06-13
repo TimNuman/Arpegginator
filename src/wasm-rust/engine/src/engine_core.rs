@@ -23,8 +23,6 @@ impl<const N: usize> FmtBuf<N> {
     pub fn push_str(&mut self, s: &str) {
         let bytes = s.as_bytes();
         let mut copy_len = bytes.len().min(N - self.len);
-        // Don't split a multi-byte UTF-8 code point at the truncation boundary —
-        // as_str() uses from_utf8_unchecked, so a split char would be UB.
         while copy_len > 0 && copy_len < bytes.len() && (bytes[copy_len] & 0xC0) == 0x80 {
             copy_len -= 1;
         }
@@ -356,7 +354,6 @@ pub fn pool_alloc(pool: &mut SubModePool) -> Option<u16> {
 
 pub fn pool_free(pool: &mut SubModePool, handle: u16) {
     if handle == POOL_HANDLE_NONE { return; }
-    // Guard against invalid handles and free-list overflow (e.g. double-free).
     if handle as usize >= POOL_CAPACITY || pool.free_count as usize >= POOL_CAPACITY {
         debug_assert!(false, "pool_free: invalid handle or free-list overflow");
         return;
@@ -417,7 +414,6 @@ pub fn event_alloc(pool: &mut NoteEventPool) -> Option<u16> {
 
 pub fn event_free(pool: &mut NoteEventPool, handle: u16) {
     if handle == POOL_HANDLE_NONE { return; }
-    // Guard against invalid handles and free-list overflow (e.g. double-free).
     if handle as usize >= EVENT_POOL_CAPACITY || pool.free_count as usize >= EVENT_POOL_CAPACITY {
         debug_assert!(false, "event_free: invalid handle or free-list overflow");
         return;
@@ -870,7 +866,6 @@ fn resolve_sub_mode(
     channel: u8,
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
-    // Clamp to 1 to avoid divide-by-zero / underflow on len-1 below.
     let len = (arr.length as u16).max(1);
     let stay = (arr.stay as u16).max(1);
     match arr.mode() {
@@ -899,7 +894,6 @@ pub fn resolve_sub_mode_preview(
     channel: u8,
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
-    // Clamp to 1 to avoid divide-by-zero / underflow on len-1 below.
     let len = (arr.length as u16).max(1);
     let stay = (arr.stay as u16).max(1);
     match arr.mode() {
@@ -1446,17 +1440,14 @@ pub fn engine_core_stop(s: &mut EngineState) {
 pub fn engine_core_tick(s: &mut EngineState) {
     let next_tick = s.current_tick + 1;
 
-    // Fixed-size scratch instead of a per-tick heap Vec (this is the real-time path).
     let mut switch_channels: [(u8, u8); NUM_CHANNELS] = [(0, 0); NUM_CHANNELS];
     let mut switch_count = 0usize;
     let any_soloed = s.soloed.iter().any(|&v| v != 0);
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
         let pat_idx = s.current_patterns[ch as usize];
-        // current_patterns is host-writable; skip out-of-range pattern indices.
         if pat_idx as usize >= NUM_PATTERNS { return; }
         let loop_data = s.loops[ch as usize][pat_idx as usize];
-        // loops are host-writable; a zero/negative length would divide by zero.
         if loop_data.length <= 0 { return; }
         let loop_end = loop_data.start + loop_data.length;
         let channel_tick = loop_data.start + mod_positive(next_tick - loop_data.start, loop_data.length);
@@ -1586,7 +1577,6 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
         let pat_idx = s.current_patterns[ch as usize];
-        // current_patterns / loops are host-writable; guard range and zero length.
         if pat_idx as usize >= NUM_PATTERNS { return; }
         let loop_data = s.loops[ch as usize][pat_idx as usize];
         let loop_len = loop_data.length;
