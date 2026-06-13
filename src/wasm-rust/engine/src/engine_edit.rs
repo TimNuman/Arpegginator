@@ -140,6 +140,8 @@ pub fn engine_set_event_repeat_amount(s: &mut EngineState, event_idx: u16, repea
     if event_idx >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[event_idx as usize];
     let ev = &mut s.event_pool.slots[h as usize];
+    // Never store 0 — downstream code divides by repeat_amount.
+    let repeat_amount = repeat_amount.max(1);
     ev.repeat_amount = repeat_amount;
     // Setting repeat to 1 on a non-chord arp with a chord: auto-set to chord style
     if repeat_amount == 1 && ev.arp_style != ARP_CHORD && ev.chord_amount > 1 {
@@ -389,13 +391,16 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
 
     // Copy metadata
     let src_ec = s.patterns[ch][src].event_count;
-    s.patterns[ch][tgt].event_count = src_ec;
     s.patterns[ch][tgt].length_ticks = s.patterns[ch][src].length_ticks;
 
-    // Deep-copy each event: alloc new pool slot, clone data, deep-copy sub-mode handles
-    (0..src_ec as usize).for_each(|i| {
+    // Deep-copy each event: alloc new pool slot, clone data, deep-copy sub-mode handles.
+    // If the event pool is exhausted mid-copy, stop and truncate event_count to what was
+    // actually copied — otherwise a stale (freed) handle would be left counted in the
+    // target, which later double-frees / aliases pool slots.
+    let mut copied = 0usize;
+    for i in 0..src_ec as usize {
         let src_handle = s.patterns[ch][src].event_handles[i];
-        let Some(new_handle) = event_alloc(&mut s.event_pool) else { return; };
+        let Some(new_handle) = event_alloc(&mut s.event_pool) else { break; };
         s.event_pool.slots[new_handle as usize] = s.event_pool.slots[src_handle as usize].clone();
         s.event_pool.slots[new_handle as usize].event_index = engine_alloc_event_id(s);
 
@@ -413,10 +418,13 @@ pub fn engine_copy_pattern(s: &mut EngineState, target_pattern: u8) {
         }
 
         s.patterns[ch][tgt].event_handles[i] = new_handle;
-    });
+        copied += 1;
+    }
+
+    s.patterns[ch][tgt].event_count = copied as u16;
 
     // Clear remaining handles in target
-    (src_ec as usize..MAX_EVENTS).for_each(|i| {
+    (copied..MAX_EVENTS).for_each(|i| {
         s.patterns[ch][tgt].event_handles[i] = POOL_HANDLE_NONE;
     });
 

@@ -370,6 +370,8 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, _tpc: i32) {
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
+    // selected_event_idx is host-settable; reject stale/out-of-range values.
+    if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     if s.patterns[ch][pat_idx].event_count as usize >= MAX_EVENTS { return; }
 
     engine_place_event(s, s.selected_event_idx as u16);
@@ -593,6 +595,7 @@ fn pattern_press_reset_fill(s: &mut EngineState, row: i16, tick: i32, tpc: i32) 
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
+    if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
     let sel = &s.event_pool.slots[h as usize];
     if sel.row == row && tick == sel.position {
@@ -623,6 +626,7 @@ fn pattern_press_length(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
+    if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
     let sel = &s.event_pool.slots[h as usize];
     if sel.row == row {
@@ -1229,11 +1233,12 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
         (true,  false, true)  => {} // Cmd+Shift: placeholder
         (true,  false, false) => { // Cmd: loop mode (U/D), stay (L/R)
             if s.selected_event_idx < 0 { return; }
+            let ch = s.current_channel as usize;
+            let pat = s.current_patterns[ch] as usize;
+            if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return; }
             if dir == DIR_UP || dir == DIR_DOWN {
                 engine_cycle_sub_mode_loop_mode(s, s.selected_event_idx as u16, s.modify_sub_mode, dir == DIR_UP);
             } else if dir == DIR_LEFT || dir == DIR_RIGHT {
-                let ch = s.current_channel as usize;
-                let pat = s.current_patterns[ch] as usize;
                 let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
                 let cur_stay = get_sub_mode(&s.sub_mode_pool, &s.event_pool.slots[h as usize].sub_mode_handles, s.modify_sub_mode as usize).stay;
                 let new_stay = if dir == DIR_RIGHT { cur_stay + 1 } else { cur_stay.max(2) - 1 };
@@ -1260,6 +1265,7 @@ fn handle_arrow_modify(s: &mut EngineState, dir: u8, mods: u8) {
                 if s.selected_event_idx < 0 { return; }
                 let ch = s.current_channel as usize;
                 let pat = s.current_patterns[ch] as usize;
+                if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return; }
                 let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
                 let cur_len = get_sub_mode(&s.sub_mode_pool, &s.event_pool.slots[h as usize].sub_mode_handles, s.modify_sub_mode as usize).length;
                 let new_len = if dir == DIR_RIGHT { cur_len + 1 } else { cur_len.max(2) - 1 };
@@ -1359,6 +1365,7 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
             if s.selected_event_idx >= 0 {
                 let ch = s.current_channel as usize;
                 let pat_idx = s.current_patterns[ch] as usize;
+                if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
                 let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
                 s.event_pool.slots[h as usize].enabled = 0;
                 s.last_deselected_event_idx = s.selected_event_idx;

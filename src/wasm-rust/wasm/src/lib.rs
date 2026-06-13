@@ -113,16 +113,22 @@ pub extern "C" fn engine_get_event_pool_base_ptr() -> *const NoteEvent {
 #[no_mangle]
 pub extern "C" fn engine_get_event_handles_buffer(ch: u8, pat: u8) -> *const u16 {
     let s = state_ref();
+    if (ch as usize) >= NUM_CHANNELS || (pat as usize) >= NUM_PATTERNS {
+        return core::ptr::null();
+    }
     s.patterns[ch as usize][pat as usize].event_handles.as_ptr()
 }
 
 #[no_mangle]
 pub extern "C" fn engine_set_event_count(ch: u8, pat: u8, count: u16) {
-    state().patterns[ch as usize][pat as usize].event_count = count;
+    if (ch as usize) >= NUM_CHANNELS || (pat as usize) >= NUM_PATTERNS { return; }
+    // Clamp: event_handles only has MAX_EVENTS slots.
+    state().patterns[ch as usize][pat as usize].event_count = count.min(MAX_EVENTS as u16);
 }
 
 #[no_mangle]
 pub extern "C" fn engine_set_pattern_length(ch: u8, pat: u8, len: i32) {
+    if (ch as usize) >= NUM_CHANNELS || (pat as usize) >= NUM_PATTERNS { return; }
     state().patterns[ch as usize][pat as usize].length_ticks = len;
 }
 
@@ -169,26 +175,23 @@ pub extern "C" fn engine_get_note_event_size() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn engine_get_field_offset(field_id: i32) -> i32 {
-    let base = core::ptr::null::<NoteEvent>();
-    unsafe {
-        match field_id {
-            0 => core::ptr::addr_of!((*base).row) as i32,
-            1 => core::ptr::addr_of!((*base).position) as i32,
-            2 => core::ptr::addr_of!((*base).length) as i32,
-            3 => core::ptr::addr_of!((*base).enabled) as i32,
-            4 => core::ptr::addr_of!((*base).repeat_amount) as i32,
-            5 => core::ptr::addr_of!((*base).repeat_space) as i32,
-            6 => core::ptr::addr_of!((*base).sub_mode_handles) as i32,
-            7 => core::ptr::addr_of!((*base).chord_amount) as i32,
-            8 => core::ptr::addr_of!((*base).chord_space) as i32,
-            9 => core::ptr::addr_of!((*base).chord_inversion) as i32,
-            10 => core::ptr::addr_of!((*base).event_index) as i32,
-            11 => core::ptr::addr_of!((*base).arp_style) as i32,
-            12 => core::ptr::addr_of!((*base).arp_offset) as i32,
-            13 => core::ptr::addr_of!((*base).arp_voices) as i32,
-            14 => core::ptr::addr_of!((*base).chord_voicing) as i32,
-            _ => -1,
-        }
+    match field_id {
+        0 => core::mem::offset_of!(NoteEvent, row) as i32,
+        1 => core::mem::offset_of!(NoteEvent, position) as i32,
+        2 => core::mem::offset_of!(NoteEvent, length) as i32,
+        3 => core::mem::offset_of!(NoteEvent, enabled) as i32,
+        4 => core::mem::offset_of!(NoteEvent, repeat_amount) as i32,
+        5 => core::mem::offset_of!(NoteEvent, repeat_space) as i32,
+        6 => core::mem::offset_of!(NoteEvent, sub_mode_handles) as i32,
+        7 => core::mem::offset_of!(NoteEvent, chord_amount) as i32,
+        8 => core::mem::offset_of!(NoteEvent, chord_space) as i32,
+        9 => core::mem::offset_of!(NoteEvent, chord_inversion) as i32,
+        10 => core::mem::offset_of!(NoteEvent, event_index) as i32,
+        11 => core::mem::offset_of!(NoteEvent, arp_style) as i32,
+        12 => core::mem::offset_of!(NoteEvent, arp_offset) as i32,
+        13 => core::mem::offset_of!(NoteEvent, arp_voices) as i32,
+        14 => core::mem::offset_of!(NoteEvent, chord_voicing) as i32,
+        _ => -1,
     }
 }
 
@@ -226,10 +229,15 @@ pub extern "C" fn engine_set_ui_mode(mode: u8) { state().ui_mode = mode; }
 pub extern "C" fn engine_set_modify_sub_mode(sm: u8) { state().modify_sub_mode = sm; }
 
 #[no_mangle]
-pub extern "C" fn engine_set_current_channel(ch: u8) { state().current_channel = ch; }
+pub extern "C" fn engine_set_current_channel(ch: u8) {
+    if (ch as usize) < NUM_CHANNELS { state().current_channel = ch; }
+}
 
 #[no_mangle]
-pub extern "C" fn engine_set_zoom(ticks_per_col: i32) { state().zoom = ticks_per_col; }
+pub extern "C" fn engine_set_zoom(ticks_per_col: i32) {
+    // Zoom is used as a divisor throughout; never allow 0/negative.
+    state().zoom = ticks_per_col.max(1);
+}
 
 #[no_mangle]
 pub extern "C" fn engine_set_selected_event(idx: i16) { state().selected_event_idx = idx; }
@@ -371,11 +379,13 @@ pub extern "C" fn engine_get_brightness() -> u8 {
 
 #[no_mangle]
 pub extern "C" fn engine_get_event_count(ch: u8, pat: u8) -> u16 {
+    if (ch as usize) >= NUM_CHANNELS || (pat as usize) >= NUM_PATTERNS { return 0; }
     state_ref().patterns[ch as usize][pat as usize].event_count
 }
 
 #[no_mangle]
 pub extern "C" fn engine_get_pattern_length(ch: u8, pat: u8) -> i32 {
+    if (ch as usize) >= NUM_CHANNELS || (pat as usize) >= NUM_PATTERNS { return 0; }
     state_ref().patterns[ch as usize][pat as usize].length_ticks
 }
 
@@ -494,9 +504,13 @@ fn get_selected_event() -> Option<&'static NoteEvent> {
     let s = state_ref();
     if s.selected_event_idx < 0 { return None; }
     let ch = s.current_channel as usize;
+    // current_channel / current_patterns are host-writable; validate before indexing.
+    if ch >= NUM_CHANNELS { return None; }
     let pat = s.current_patterns[ch] as usize;
+    if pat >= NUM_PATTERNS { return None; }
     if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return None; }
     let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
+    if h == POOL_HANDLE_NONE || h as usize >= EVENT_POOL_CAPACITY { return None; }
     Some(&s.event_pool.slots[h as usize])
 }
 
@@ -547,6 +561,8 @@ pub extern "C" fn engine_get_voicing_count_export(amount: u8, distance: u8) -> u
 
 static mut VOICING_NAME_BUF: [u8; 32] = [0; 32];
 
+/// Returns a pointer to a NUL-terminated name in a shared static buffer.
+/// Valid only until the next call to any engine string export; copy it out on the JS side.
 #[no_mangle]
 pub extern "C" fn engine_get_voicing_name_export(amount: u8, distance: u8, idx: u8) -> *const u8 {
     let name = engine_core::get_voicing_name(amount, distance, idx);
@@ -647,6 +663,8 @@ pub extern "C" fn engine_note_to_midi_export(row: i16) -> i8 {
 
 static mut SCALE_NAME_BUF: [u8; 32] = [0; 32];
 
+/// Returns a pointer to a NUL-terminated name in a shared static buffer.
+/// Valid only until the next call to any engine string export; copy it out on the JS side.
 #[no_mangle]
 pub extern "C" fn engine_get_scale_name() -> *const u8 {
     let name = engine_core::engine_get_scale_name_str(state_ref());
@@ -726,6 +744,8 @@ fn interval_to_ext(semitones: u8) -> Option<&'static str> {
 
 static mut CHORD_NAME_BUF: [u8; 64] = [0; 64];
 
+/// Returns a pointer to a NUL-terminated name in a shared static buffer.
+/// Valid only until the next call to any engine string export; copy it out on the JS side.
 #[no_mangle]
 pub extern "C" fn engine_get_chord_name() -> *const u8 {
     unsafe { CHORD_NAME_BUF[0] = 0; }
@@ -859,15 +879,20 @@ pub extern "C" fn engine_get_num_channels() -> i32 { NUM_CHANNELS as i32 }
 
 #[no_mangle]
 pub extern "C" fn wasm_alloc(size: u32) -> *mut u8 {
-    let layout = core::alloc::Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { alloc::alloc::alloc(layout) }
+    // Zero-size alloc is UB for the global allocator; bail out cleanly.
+    if size == 0 { return core::ptr::null_mut(); }
+    match core::alloc::Layout::from_size_align(size as usize, 1) {
+        Ok(layout) => unsafe { alloc::alloc::alloc(layout) },
+        Err(_) => core::ptr::null_mut(),
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn wasm_free(ptr: *mut u8, size: u32) {
-    if ptr.is_null() { return; }
-    let layout = core::alloc::Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { alloc::alloc::dealloc(ptr, layout); }
+    if ptr.is_null() || size == 0 { return; }
+    if let Ok(layout) = core::alloc::Layout::from_size_align(size as usize, 1) {
+        unsafe { alloc::alloc::dealloc(ptr, layout); }
+    }
 }
 
 // ============ OLED Exports ============

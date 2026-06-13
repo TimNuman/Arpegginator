@@ -571,6 +571,15 @@ fn render_channel_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
     (0..VISIBLE_ROWS).for_each(|vr| {
         let ch_idx = vr;
+        // There are VISIBLE_ROWS (8) grid rows but only NUM_CHANNELS (6) channels —
+        // dim the extra rows instead of indexing channel arrays out of bounds.
+        if ch_idx >= NUM_CHANNELS {
+            (0..VISIBLE_COLS).for_each(|vc| {
+                s.button_values[vr][vc] = FLAG_DIMMED;
+                s.color_overrides[vr][vc] = 0;
+            });
+            return;
+        }
         let ch_color = s.channel_colors[ch_idx];
         let cur_pat = s.current_patterns[ch_idx];
         let is_muted = s.muted[ch_idx] != 0;
@@ -661,7 +670,8 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
     // Read event data via pool to avoid borrow issues
     let h = s.patterns[ch][pat].event_handles[ev_idx];
     let ev = &s.event_pool.slots[h as usize];
-    let repeat_amount = ev.repeat_amount;
+    // Defensive: downstream uses `counter % repeat_amount`.
+    let repeat_amount = ev.repeat_amount.max(1);
     let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let array_length = sm_arr.length;
     let loop_mode = sm_arr.loop_mode;

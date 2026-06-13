@@ -44,6 +44,11 @@ const USB_VID_PID: UsbVidPid = UsbVidPid(0x16C0, 0x0483);
 const USB_PRODUCT: &str = "Arp3 Sequencer";
 const SYSEX_MFR: u8 = 0x7D;
 
+// DWT cycle counter runs at the CPU clock (600 MHz on the Teensy 4.1).
+const CPU_CYCLES_PER_MS: f32 = 600_000.0;
+// Cap preview note length so the cycle count can't overflow u32 (~7.1 s at 600 MHz).
+const MAX_PREVIEW_MS: f32 = 5000.0;
+
 // ============ SysEx Protocol ============
 
 mod protocol {
@@ -270,10 +275,13 @@ fn main() -> ! {
                                 preview_notes[preview_count] = (ev.channel, note);
                                 preview_count += 1;
                             }
-                            // Schedule note-off: length_ticks → ms → DWT cycles
-                            let ms = ev.length_ticks as f32 * 60_000.0
-                                / (state.bpm * TICKS_PER_QUARTER as f32);
-                            let cycles = (ms * 600_000.0) as u32;
+                            // Schedule note-off: length_ticks → ms → DWT cycles.
+                            // Clamp ms so the cycle count stays within u32.
+                            let bpm = state.bpm.max(1.0);
+                            let ms = (ev.length_ticks as f32 * 60_000.0
+                                / (bpm * TICKS_PER_QUARTER as f32))
+                                .clamp(0.0, MAX_PREVIEW_MS);
+                            let cycles = (ms * CPU_CYCLES_PER_MS) as u32;
                             let now = unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() };
                             preview_off_at = now.wrapping_add(cycles);
                         }
@@ -450,9 +458,11 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
             }
             protocol::CMD_SET_ZOOM => {
                 if payload.len() >= 3 {
-                    state.zoom = (payload[0] as i32)
+                    let zoom = (payload[0] as i32)
                         | ((payload[1] as i32) << 7)
                         | ((payload[2] as i32 & 0x03) << 14);
+                    // Zoom is used as a divisor throughout the engine.
+                    state.zoom = zoom.max(1);
                 }
             }
             protocol::CMD_SET_CURRENT_CHANNEL => {

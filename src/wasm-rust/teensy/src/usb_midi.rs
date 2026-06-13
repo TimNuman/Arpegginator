@@ -209,24 +209,37 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
 // ============ SysEx Parsing Helper ============
 
 /// Extract SysEx data bytes from USB MIDI packets.
-/// Returns (data_without_f0_f7, bytes_consumed) or None if incomplete.
+///
+/// Returns `Some((data_without_f0_f7, data_len, bytes_consumed))`. `bytes_consumed`
+/// always covers any leading non-SysEx packets (note on/off, clock, active sensing,
+/// etc.) so a DAW sending ordinary MIDI to the device can never stall the input
+/// accumulator. When a non-SysEx run is consumed without a complete SysEx message,
+/// `data_len` is 0 (the caller ignores it).
+///
+/// Returns `None` only when the remaining bytes are the prefix of an as-yet-incomplete
+/// SysEx message — the caller should keep them and append the next USB read.
 pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
     // buf contains raw USB MIDI 4-byte packets
-    // Returns: (sysex_data, data_len, total_bytes_consumed)
     let mut data = [0u8; 64];
     let mut data_len = 0;
     let mut pos = 0;
+    let mut in_sysex = false;
+    let mut sysex_start = 0; // byte offset where the current SysEx began
 
     while pos + 4 <= buf.len() {
         let cin = buf[pos] & 0x0F;
         let b1 = buf[pos + 1];
         let b2 = buf[pos + 2];
         let b3 = buf[pos + 3];
-        pos += 4;
 
         match cin {
             0x04 => {
                 // SysEx start or continue — 3 data bytes
+                if !in_sysex {
+                    in_sysex = true;
+                    sysex_start = pos;
+                    data_len = 0;
+                }
                 // Skip F0 if it's the start
                 let start = if b1 == 0xF0 { 1 } else { 0 };
                 let bytes = [b1, b2, b3];
@@ -236,9 +249,11 @@ pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
                         data_len += 1;
                     }
                 }
+                pos += 4;
             }
             0x05 => {
                 // SysEx end — 1 byte (just F7)
+                pos += 4;
                 return Some((data, data_len, pos));
             }
             0x06 => {
@@ -247,6 +262,7 @@ pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
                     data[data_len] = b1;
                     data_len += 1;
                 }
+                pos += 4;
                 return Some((data, data_len, pos));
             }
             0x07 => {
@@ -259,14 +275,30 @@ pub fn parse_sysex_from_usb(buf: &[u8]) -> Option<([u8; 64], usize, usize)> {
                     data[data_len] = b2;
                     data_len += 1;
                 }
+                pos += 4;
                 return Some((data, data_len, pos));
             }
             _ => {
-                // Not SysEx — stop parsing
-                return None;
+                // Not a SysEx packet (note/clock/etc.). Abandon any partial SysEx
+                // (malformed) and skip the packet so it can't block the buffer.
+                in_sysex = false;
+                data_len = 0;
+                pos += 4;
             }
         }
     }
 
-    None // Incomplete
+    if in_sysex {
+        // Incomplete SysEx: keep its bytes for the next read, but consume any
+        // non-SysEx packets that preceded it so they don't stall the accumulator.
+        if sysex_start > 0 {
+            return Some((data, 0, sysex_start));
+        }
+        return None;
+    }
+    // Consumed only non-SysEx packets — report them consumed (no command).
+    if pos > 0 {
+        return Some((data, 0, pos));
+    }
+    None
 }

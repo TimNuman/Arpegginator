@@ -2,7 +2,6 @@
 
 extern crate alloc;
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 
 // ============ FmtBuf — zero-alloc string formatting ============
 
@@ -23,7 +22,12 @@ impl<const N: usize> FmtBuf<N> {
 
     pub fn push_str(&mut self, s: &str) {
         let bytes = s.as_bytes();
-        let copy_len = bytes.len().min(N - self.len);
+        let mut copy_len = bytes.len().min(N - self.len);
+        // Don't split a multi-byte UTF-8 code point at the truncation boundary —
+        // as_str() uses from_utf8_unchecked, so a split char would be UB.
+        while copy_len > 0 && copy_len < bytes.len() && (bytes[copy_len] & 0xC0) == 0x80 {
+            copy_len -= 1;
+        }
         self.buf[self.len..self.len + copy_len].copy_from_slice(&bytes[..copy_len]);
         self.len += copy_len;
     }
@@ -352,6 +356,11 @@ pub fn pool_alloc(pool: &mut SubModePool) -> Option<u16> {
 
 pub fn pool_free(pool: &mut SubModePool, handle: u16) {
     if handle == POOL_HANDLE_NONE { return; }
+    // Guard against invalid handles and free-list overflow (e.g. double-free).
+    if handle as usize >= POOL_CAPACITY || pool.free_count as usize >= POOL_CAPACITY {
+        debug_assert!(false, "pool_free: invalid handle or free-list overflow");
+        return;
+    }
     pool.free_list[pool.free_count as usize] = handle;
     pool.free_count += 1;
 }
@@ -408,12 +417,17 @@ pub fn event_alloc(pool: &mut NoteEventPool) -> Option<u16> {
 
 pub fn event_free(pool: &mut NoteEventPool, handle: u16) {
     if handle == POOL_HANDLE_NONE { return; }
+    // Guard against invalid handles and free-list overflow (e.g. double-free).
+    if handle as usize >= EVENT_POOL_CAPACITY || pool.free_count as usize >= EVENT_POOL_CAPACITY {
+        debug_assert!(false, "event_free: invalid handle or free-list overflow");
+        return;
+    }
     pool.free_list[pool.free_count as usize] = handle;
     pool.free_count += 1;
 }
 
 pub fn event_free_with_sub_modes(event_pool: &mut NoteEventPool, sm_pool: &mut SubModePool, handle: u16) {
-    if handle == POOL_HANDLE_NONE { return; }
+    if handle == POOL_HANDLE_NONE || handle as usize >= EVENT_POOL_CAPACITY { return; }
     pool_free_event_handles(sm_pool, &mut event_pool.slots[handle as usize].sub_mode_handles);
     event_free(event_pool, handle);
 }
@@ -856,7 +870,8 @@ fn resolve_sub_mode(
     channel: u8,
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
-    let len = arr.length as u16;
+    // Clamp to 1 to avoid divide-by-zero / underflow on len-1 below.
+    let len = (arr.length as u16).max(1);
     let stay = (arr.stay as u16).max(1);
     match arr.mode() {
         LoopMode::Continue => {
@@ -884,7 +899,8 @@ pub fn resolve_sub_mode_preview(
     channel: u8,
 ) -> i16 {
     let arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
-    let len = arr.length as u16;
+    // Clamp to 1 to avoid divide-by-zero / underflow on len-1 below.
+    let len = (arr.length as u16).max(1);
     let stay = (arr.stay as u16).max(1);
     match arr.mode() {
         LoopMode::Continue => {
@@ -1430,12 +1446,18 @@ pub fn engine_core_stop(s: &mut EngineState) {
 pub fn engine_core_tick(s: &mut EngineState) {
     let next_tick = s.current_tick + 1;
 
-    let mut switch_channels: Vec<(u8, u8)> = Vec::new();
+    // Fixed-size scratch instead of a per-tick heap Vec (this is the real-time path).
+    let mut switch_channels: [(u8, u8); NUM_CHANNELS] = [(0, 0); NUM_CHANNELS];
+    let mut switch_count = 0usize;
     let any_soloed = s.soloed.iter().any(|&v| v != 0);
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
         let pat_idx = s.current_patterns[ch as usize];
+        // current_patterns is host-writable; skip out-of-range pattern indices.
+        if pat_idx as usize >= NUM_PATTERNS { return; }
         let loop_data = s.loops[ch as usize][pat_idx as usize];
+        // loops are host-writable; a zero/negative length would divide by zero.
+        if loop_data.length <= 0 { return; }
         let loop_end = loop_data.start + loop_data.length;
         let channel_tick = loop_data.start + mod_positive(next_tick - loop_data.start, loop_data.length);
 
@@ -1446,7 +1468,8 @@ pub fn engine_core_tick(s: &mut EngineState) {
             s.rendered_dirty[ch as usize] = 1;
 
             if s.queued_patterns[ch as usize] >= 0 {
-                switch_channels.push((ch, s.queued_patterns[ch as usize] as u8));
+                switch_channels[switch_count] = (ch, s.queued_patterns[ch as usize] as u8);
+                switch_count += 1;
             }
         }
 
@@ -1528,15 +1551,15 @@ pub fn engine_core_tick(s: &mut EngineState) {
     });
 
     // Apply pattern switches
-    if !switch_channels.is_empty() {
-        switch_channels.iter().for_each(|&(ch, target)| {
+    if switch_count > 0 {
+        switch_channels[..switch_count].iter().for_each(|&(ch, target)| {
             s.current_patterns[ch as usize] = target;
             s.queued_patterns[ch as usize] = -1;
             crate::platform::platform_clear_queued_pattern(ch);
         });
         crate::platform::platform_set_current_patterns(&s.current_patterns);
 
-        switch_channels.iter().for_each(|&(ch, _)| {
+        switch_channels[..switch_count].iter().for_each(|&(ch, _)| {
             compute_preview_for_channel(s, ch);
             s.rendered_dirty[ch as usize] = 1;
         });
@@ -1563,8 +1586,11 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
         let pat_idx = s.current_patterns[ch as usize];
+        // current_patterns / loops are host-writable; guard range and zero length.
+        if pat_idx as usize >= NUM_PATTERNS { return; }
         let loop_data = s.loops[ch as usize][pat_idx as usize];
         let loop_len = loop_data.length;
+        if loop_len <= 0 { return; }
         let loop_end = loop_data.start + loop_len;
 
         let should_play = if any_soloed {
@@ -1637,6 +1663,9 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
     });
 
     // Register active notes for UI highlighting on current channel
+    if (s.current_channel as usize) < NUM_CHANNELS
+        && (s.current_patterns[s.current_channel as usize] as usize) < NUM_PATTERNS
+        && s.loops[s.current_channel as usize][s.current_patterns[s.current_channel as usize] as usize].length > 0
     {
         let view_ch = s.current_channel as usize;
         let view_pat = s.current_patterns[view_ch] as usize;
@@ -1704,7 +1733,7 @@ pub fn engine_core_get_version() -> i32 {
 
 pub fn engine_alloc_event_id(s: &mut EngineState) -> u16 {
     let id = s.next_event_id;
-    s.next_event_id += 1;
+    s.next_event_id = s.next_event_id.wrapping_add(1);
     id
 }
 

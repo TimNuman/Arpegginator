@@ -24,3 +24,5 @@ mod test_core;
 mod test_edit;
 #[cfg(test)]
 mod test_rendered;
+#[cfg(test)]
+mod test_safety;
