@@ -202,9 +202,10 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     // Tell WASM to compute the grid
     wasmEngine.computeGrid();
 
-    // Read ARGB grid colors from WASM
-    const buffers = wasmEngine.readGridBuffers();
-    return buffers.gridColors;
+    // Copy ARGB grid colors out of WASM memory into a stable array.
+    // (getGridColors returns a live view; snapshot it so React/ButtonGrid can
+    // hold it across renders without risk of the heap detaching underneath.)
+    return Uint32Array.from(wasmEngine.getGridColors());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmEngine, renderVersion, keyboard.ctrl, keyboard.meta, keyboard.shift]);
 
@@ -273,6 +274,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         <Box css={gridContainerStyles}>
           <ButtonGrid
             gridColors={gridColors}
+            cols={wasmEngine.getVisibleCols()}
             onPress={handleButtonPressFromInput}
             onDragEnter={handleButtonDragEnter}
             onRelease={noop}

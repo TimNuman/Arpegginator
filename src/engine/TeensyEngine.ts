@@ -1,7 +1,7 @@
 // TeensyEngine.ts — Engine backend using Web MIDI to communicate with Teensy 4.1
 //
 // Architecture:
-// - Local WasmEngine handles all rendering (computeGrid, readGridBuffers, OLED)
+// - Local WasmEngine handles all rendering (computeGrid, getGridColors, OLED)
 // - State mutations go to BOTH local WasmEngine AND Teensy via SysEx
 // - Teensy drives tick timing (PIT timer) and outputs MIDI to DAW
 // - Tick position flows back from Teensy via SysEx to update local engine
@@ -365,8 +365,8 @@ export class TeensyEngine implements Engine {
   computeGrid(): void {
     this.wasm.computeGrid();
   }
-  readGridBuffers() {
-    return this.wasm.readGridBuffers();
+  getGridColors() {
+    return this.wasm.getGridColors();
   }
   isAnimating() {
     return this.wasm.isAnimating();

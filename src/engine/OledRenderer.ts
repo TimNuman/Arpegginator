@@ -1,17 +1,10 @@
 // OledRenderer.ts — Canvas-based OLED display renderer using WASM framebuffer
 
+import type { WasmModule } from "./WasmEngine";
+
 // Display dimensions (must match oled_gfx.rs)
 export const OLED_WIDTH = 256;
 export const OLED_HEIGHT = 128;
-
-interface WasmModule {
-  cwrap: (
-    ident: string,
-    returnType: string | null,
-    argTypes: string[],
-  ) => (...args: unknown[]) => unknown;
-  HEAPU8: Uint8Array;
-}
 
 export class OledRenderer {
   private module: WasmModule;
@@ -19,28 +12,9 @@ export class OledRenderer {
   private ctx: CanvasRenderingContext2D | null = null;
   private imageData: ImageData | null = null;
 
-  // WASM function bindings
-  private _render: (modifiers: number) => void;
-  private _getFramebufferPtr: () => number;
-
   constructor(module: WasmModule) {
     this.module = module;
-
-    const cw = (
-      name: string,
-      ret: string | null,
-      args: string[],
-    ): ((...a: unknown[]) => unknown) => module.cwrap(name, ret, args);
-
-    (cw("oled_init", null, []) as () => void)();
-    this._render = cw("oled_render", null, ["number"]) as (
-      modifiers: number,
-    ) => void;
-    this._getFramebufferPtr = cw(
-      "oled_get_framebuffer",
-      "number",
-      [],
-    ) as () => number;
+    module.exports.oled_init();
   }
 
   /** Attach a canvas element for rendering */
@@ -54,19 +28,18 @@ export class OledRenderer {
 
   /** Render the full OLED screen (all logic in Rust). Modifier bitmask: shift=1, meta=2, alt=4, ctrl=8 */
   render(modifiers: number): void {
-    this._render(modifiers);
+    this.module.exports.oled_render(modifiers);
   }
 
   /** Copy the RGB565 framebuffer from WASM to the canvas */
   blit(): void {
     if (!this.ctx || !this.imageData) return;
 
-    const ptr = this._getFramebufferPtr();
-    // RGB565 = 2 bytes per pixel, use HEAPU16 for direct 16-bit access
-    const byteOffset = ptr;
+    const ptr = this.module.exports.oled_get_framebuffer();
+    // RGB565 = 2 bytes per pixel; read a fresh view onto the live heap.
     const fb = new Uint16Array(
-      this.module.HEAPU8.buffer,
-      byteOffset,
+      this.module.buffer,
+      ptr,
       OLED_WIDTH * OLED_HEIGHT,
     );
     const pixels = this.imageData.data;

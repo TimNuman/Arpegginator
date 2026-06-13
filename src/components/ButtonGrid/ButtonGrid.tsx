@@ -64,8 +64,10 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
 GridButtonCell.displayName = "GridButtonCell";
 
 interface ButtonGridProps {
-  /** 2D array of ARGB colors [row][col] from Rust */
-  gridColors: number[][];
+  /** Flat row-major array of ARGB colors from Rust (length rows*cols) */
+  gridColors: Uint32Array;
+  /** Number of columns; rows are derived as gridColors.length / cols */
+  cols: number;
   /** Called when a cell is pressed with (row, col) */
   onPress: (row: number, col: number) => void;
   /** Called when dragging enters a cell with (row, col) */
@@ -74,7 +76,7 @@ interface ButtonGridProps {
   onRelease: () => void;
 }
 
-export const ButtonGrid = memo(({ gridColors, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
+export const ButtonGrid = memo(({ gridColors, cols, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
 
   // Create stable callbacks for each cell
   const handlePress = useCallback((row: number, col: number) => {
@@ -117,14 +119,14 @@ export const ButtonGrid = memo(({ gridColors, onPress, onDragEnter, onRelease }:
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
     >
-      {gridColors.map((row, rowIndex) => (
+      {Array.from({ length: gridColors.length / cols }, (_, rowIndex) => (
         <Box key={rowIndex} css={rowStyles}>
-          {row.map((color, colIndex) => (
+          {Array.from({ length: cols }, (_, colIndex) => (
             <GridButtonCell
               key={colIndex}
               row={rowIndex}
               col={colIndex}
-              color={color}
+              color={gridColors[rowIndex * cols + colIndex]}
               onPress={() => handlePress(rowIndex, colIndex)}
               onDragEnter={() => handleDragEnter(rowIndex, colIndex)}
             />

@@ -48,11 +48,8 @@ export interface Engine {
 
   // Grid rendering
   computeGrid(): void;
-  readGridBuffers(): {
-    buttonValues: number[][];
-    colorOverrides: number[][];
-    gridColors: number[][];
-  };
+  /** Live view of ARGB grid colors, row-major (length rows*cols). Read immediately. */
+  getGridColors(): Uint32Array;
   isAnimating(): boolean;
 
   // Input
