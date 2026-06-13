@@ -2,6 +2,8 @@
 
 use libm::{sqrtf, atan2f};
 
+use crate::cell::Global;
+
 // ============ Anti-aliased font structures ============
 
 #[derive(Clone, Copy)]
@@ -43,28 +45,23 @@ pub const GFX_BLUE: u16 = gfx_rgb565(0xC4, 0xC5, 0xEB);     // grid button color
 pub const GFX_LABEL: u16 = gfx_rgb565(0x79, 0x7F, 0xA2);    // label text
 pub const GFX_VALUE: u16 = gfx_rgb565(0xC4, 0xC5, 0xEB);    // value text
 
-static mut FRAMEBUFFER: [u16; GFX_WIDTH * GFX_HEIGHT] = [0; GFX_WIDTH * GFX_HEIGHT];
+static FRAMEBUFFER: Global<[u16; GFX_WIDTH * GFX_HEIGHT]> =
+    Global::new([0; GFX_WIDTH * GFX_HEIGHT]);
 
 // ============ Core pixel operations ============
 
 pub fn gfx_init() {
-    unsafe {
-        FRAMEBUFFER.iter_mut().for_each(|p| *p = 0);
-    }
+    FRAMEBUFFER.get_mut().iter_mut().for_each(|p| *p = 0);
 }
 
 pub fn gfx_clear(color: u16) {
-    unsafe {
-        FRAMEBUFFER.iter_mut().for_each(|p| *p = color);
-    }
+    FRAMEBUFFER.get_mut().iter_mut().for_each(|p| *p = color);
 }
 
 #[inline(always)]
 pub fn gfx_pixel(x: i16, y: i16, color: u16) {
     if x >= 0 && x < GFX_WIDTH as i16 && y >= 0 && y < GFX_HEIGHT as i16 {
-        unsafe {
-            FRAMEBUFFER[y as usize * GFX_WIDTH + x as usize] = color;
-        }
+        FRAMEBUFFER.get_mut()[y as usize * GFX_WIDTH + x as usize] = color;
     }
 }
 
@@ -72,7 +69,7 @@ pub fn gfx_pixel(x: i16, y: i16, color: u16) {
 #[inline(always)]
 fn gfx_read_pixel(x: i16, y: i16) -> u16 {
     if x >= 0 && x < GFX_WIDTH as i16 && y >= 0 && y < GFX_HEIGHT as i16 {
-        unsafe { FRAMEBUFFER[y as usize * GFX_WIDTH + x as usize] }
+        FRAMEBUFFER.get()[y as usize * GFX_WIDTH + x as usize]
     } else {
         GFX_BLACK
     }
@@ -128,9 +125,7 @@ pub fn gfx_pixel_alpha(x: i16, y: i16, color: u16, alpha: u8) {
     if x >= 0 && x < GFX_WIDTH as i16 && y >= 0 && y < GFX_HEIGHT as i16 {
         let bg = gfx_read_pixel(x, y);
         let blended = gfx_blend(color, bg, alpha);
-        unsafe {
-            FRAMEBUFFER[y as usize * GFX_WIDTH + x as usize] = blended;
-        }
+        FRAMEBUFFER.get_mut()[y as usize * GFX_WIDTH + x as usize] = blended;
     }
 }
 
@@ -153,11 +148,9 @@ pub fn gfx_hline(x: i16, y: i16, w: i16, color: u16) {
         return;
     }
     let start = y as usize * GFX_WIDTH + x as usize;
-    unsafe {
-        FRAMEBUFFER[start..start + w as usize]
-            .iter_mut()
-            .for_each(|p| *p = color);
-    }
+    FRAMEBUFFER.get_mut()[start..start + w as usize]
+        .iter_mut()
+        .for_each(|p| *p = color);
 }
 
 pub fn gfx_vline(x: i16, y: i16, h: i16, color: u16) {
@@ -176,11 +169,10 @@ pub fn gfx_vline(x: i16, y: i16, h: i16, color: u16) {
     if h <= 0 {
         return;
     }
-    unsafe {
-        (0..h as usize).for_each(|i| {
-            FRAMEBUFFER[(y as usize + i) * GFX_WIDTH + x as usize] = color;
-        });
-    }
+    let fb = FRAMEBUFFER.get_mut();
+    (0..h as usize).for_each(|i| {
+        fb[(y as usize + i) * GFX_WIDTH + x as usize] = color;
+    });
 }
 
 /// Bresenham's line algorithm
@@ -487,5 +479,5 @@ pub fn gfx_aa_text_center(center_x: i16, y: i16, s: &str, color: u16, font: &AAF
 // ============ Framebuffer access ============
 
 pub fn gfx_get_framebuffer() -> *mut u16 {
-    unsafe { FRAMEBUFFER.as_mut_ptr() }
+    FRAMEBUFFER.as_ptr() as *mut u16
 }

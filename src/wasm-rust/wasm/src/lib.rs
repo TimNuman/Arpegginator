@@ -1,11 +1,9 @@
 // wasm/lib.rs — WASM exports and JS callback bridges
 // Thin shell around arp3-engine: global state + #[no_mangle] exports
-//
-// Single-threaded WASM — mutable statics are safe in this context.
-#![allow(static_mut_refs)]
 
 extern crate alloc;
 
+use arp3_engine::cell::Global;
 use arp3_engine::engine_core::*;
 use arp3_engine::engine_core;
 use arp3_engine::engine_edit;
@@ -18,20 +16,16 @@ use arp3_engine::oled_display;
 
 // ============ Global Engine State ============
 
-static mut G_STATE: Option<Box<EngineState>> = None;
+static G_STATE: Global<Option<Box<EngineState>>> = Global::new(None);
 
 /// Get a mutable reference to the global state. Panics if not initialized.
 fn state() -> &'static mut EngineState {
-    unsafe {
-        G_STATE.as_deref_mut().expect("engine not initialized")
-    }
+    G_STATE.get_mut().as_deref_mut().expect("engine not initialized")
 }
 
 /// Get an immutable reference to the global state.
 fn state_ref() -> &'static EngineState {
-    unsafe {
-        G_STATE.as_deref().expect("engine not initialized")
-    }
+    G_STATE.get().as_deref().expect("engine not initialized")
 }
 
 // ============ Exported Functions ============
@@ -40,9 +34,7 @@ fn state_ref() -> &'static EngineState {
 pub extern "C" fn engine_init() {
     let mut s = EngineState::new_boxed();
     engine_core::engine_core_init(&mut s);
-    unsafe {
-        G_STATE = Some(s);
-    }
+    *G_STATE.get_mut() = Some(s);
 }
 
 #[no_mangle]
@@ -169,26 +161,24 @@ pub extern "C" fn engine_get_note_event_size() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn engine_get_field_offset(field_id: i32) -> i32 {
-    let base = core::ptr::null::<NoteEvent>();
-    unsafe {
-        match field_id {
-            0 => core::ptr::addr_of!((*base).row) as i32,
-            1 => core::ptr::addr_of!((*base).position) as i32,
-            2 => core::ptr::addr_of!((*base).length) as i32,
-            3 => core::ptr::addr_of!((*base).enabled) as i32,
-            4 => core::ptr::addr_of!((*base).repeat_amount) as i32,
-            5 => core::ptr::addr_of!((*base).repeat_space) as i32,
-            6 => core::ptr::addr_of!((*base).sub_mode_handles) as i32,
-            7 => core::ptr::addr_of!((*base).chord_amount) as i32,
-            8 => core::ptr::addr_of!((*base).chord_space) as i32,
-            9 => core::ptr::addr_of!((*base).chord_inversion) as i32,
-            10 => core::ptr::addr_of!((*base).event_index) as i32,
-            11 => core::ptr::addr_of!((*base).arp_style) as i32,
-            12 => core::ptr::addr_of!((*base).arp_offset) as i32,
-            13 => core::ptr::addr_of!((*base).arp_voices) as i32,
-            14 => core::ptr::addr_of!((*base).chord_voicing) as i32,
-            _ => -1,
-        }
+    use core::mem::offset_of;
+    match field_id {
+        0 => offset_of!(NoteEvent, row) as i32,
+        1 => offset_of!(NoteEvent, position) as i32,
+        2 => offset_of!(NoteEvent, length) as i32,
+        3 => offset_of!(NoteEvent, enabled) as i32,
+        4 => offset_of!(NoteEvent, repeat_amount) as i32,
+        5 => offset_of!(NoteEvent, repeat_space) as i32,
+        6 => offset_of!(NoteEvent, sub_mode_handles) as i32,
+        7 => offset_of!(NoteEvent, chord_amount) as i32,
+        8 => offset_of!(NoteEvent, chord_space) as i32,
+        9 => offset_of!(NoteEvent, chord_inversion) as i32,
+        10 => offset_of!(NoteEvent, event_index) as i32,
+        11 => offset_of!(NoteEvent, arp_style) as i32,
+        12 => offset_of!(NoteEvent, arp_offset) as i32,
+        13 => offset_of!(NoteEvent, arp_voices) as i32,
+        14 => offset_of!(NoteEvent, chord_voicing) as i32,
+        _ => -1,
     }
 }
 
@@ -545,18 +535,21 @@ pub extern "C" fn engine_get_voicing_count_export(amount: u8, distance: u8) -> u
     engine_core::get_voicing_count(amount, distance)
 }
 
-static mut VOICING_NAME_BUF: [u8; 32] = [0; 32];
+fn write_cstr<const N: usize>(buf: &Global<[u8; N]>, s: &str) -> *const u8 {
+    let dst = buf.get_mut();
+    let bytes = s.as_bytes();
+    let len = bytes.len().min(N - 1);
+    dst[..len].copy_from_slice(&bytes[..len]);
+    dst[len] = 0;
+    dst.as_ptr()
+}
+
+static VOICING_NAME_BUF: Global<[u8; 32]> = Global::new([0; 32]);
 
 #[no_mangle]
 pub extern "C" fn engine_get_voicing_name_export(amount: u8, distance: u8, idx: u8) -> *const u8 {
     let name = engine_core::get_voicing_name(amount, distance, idx);
-    unsafe {
-        let bytes = name.as_bytes();
-        let len = bytes.len().min(31);
-        VOICING_NAME_BUF[..len].copy_from_slice(&bytes[..len]);
-        VOICING_NAME_BUF[len] = 0;
-        VOICING_NAME_BUF.as_ptr()
-    }
+    write_cstr(&VOICING_NAME_BUF, name)
 }
 
 #[no_mangle]
@@ -645,18 +638,12 @@ pub extern "C" fn engine_note_to_midi_export(row: i16) -> i8 {
     engine_core::note_to_midi(row, state_ref())
 }
 
-static mut SCALE_NAME_BUF: [u8; 32] = [0; 32];
+static SCALE_NAME_BUF: Global<[u8; 32]> = Global::new([0; 32]);
 
 #[no_mangle]
 pub extern "C" fn engine_get_scale_name() -> *const u8 {
     let name = engine_core::engine_get_scale_name_str(state_ref());
-    unsafe {
-        let bytes = name.as_bytes();
-        let len = bytes.len().min(31);
-        SCALE_NAME_BUF[..len].copy_from_slice(&bytes[..len]);
-        SCALE_NAME_BUF[len] = 0;
-        SCALE_NAME_BUF.as_ptr()
-    }
+    write_cstr(&SCALE_NAME_BUF, name)
 }
 
 
@@ -724,16 +711,14 @@ fn interval_to_ext(semitones: u8) -> Option<&'static str> {
     }
 }
 
-static mut CHORD_NAME_BUF: [u8; 64] = [0; 64];
+static CHORD_NAME_BUF: Global<[u8; 64]> = Global::new([0; 64]);
 
 #[no_mangle]
 pub extern "C" fn engine_get_chord_name() -> *const u8 {
-    unsafe { CHORD_NAME_BUF[0] = 0; }
-
     let s = state_ref();
     let ev = match get_selected_event() {
         Some(e) if e.chord_amount > 1 => e,
-        _ => return unsafe { CHORD_NAME_BUF.as_ptr() },
+        _ => return write_cstr(&CHORD_NAME_BUF, ""),
     };
 
     let mut offsets = [0i8; MAX_CHORD_SIZE];
@@ -755,7 +740,7 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
         }
     });
 
-    if pc_count < 2 { return unsafe { CHORD_NAME_BUF.as_ptr() }; }
+    if pc_count < 2 { return write_cstr(&CHORD_NAME_BUF, ""); }
 
     pitch_classes[..pc_count].sort_unstable();
 
@@ -835,13 +820,7 @@ pub extern "C" fn engine_get_chord_name() -> *const u8 {
         result.push(')');
     }
 
-    unsafe {
-        let bytes = result.as_str().as_bytes();
-        let len = bytes.len().min(63);
-        CHORD_NAME_BUF[..len].copy_from_slice(&bytes[..len]);
-        CHORD_NAME_BUF[len] = 0;
-        CHORD_NAME_BUF.as_ptr()
-    }
+    write_cstr(&CHORD_NAME_BUF, result.as_str())
 }
 
 // ============ Grid Dimension Getters ============

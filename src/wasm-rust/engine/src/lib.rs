@@ -2,10 +2,10 @@
 // Compiles for wasm32-unknown-unknown (browser) and thumbv7em-none-eabihf (Teensy 4.1)
 
 #![no_std]
-#![allow(static_mut_refs)]
 
 extern crate alloc;
 
+pub mod cell;
 pub mod engine_core;
 pub mod engine_edit;
 pub mod engine_ui;

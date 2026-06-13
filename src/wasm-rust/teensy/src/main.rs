@@ -7,7 +7,6 @@
 
 #![no_std]
 #![no_main]
-#![allow(static_mut_refs)]
 
 mod usb_midi;
 
@@ -22,6 +21,7 @@ use usb_device::device::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid};
 
 use embedded_hal::serial::Write as SerialWrite;
 
+use arp3_engine::cell::Global;
 use arp3_engine::engine_core::{self, EngineState, TICKS_PER_QUARTER};
 use arp3_engine::platform;
 
@@ -35,7 +35,7 @@ use embedded_alloc::LlffHeap as Heap;
 static HEAP: Heap = Heap::empty();
 
 const HEAP_SIZE: usize = 256 * 1024;
-static mut HEAP_MEM: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
+static HEAP_MEM: Global<[u8; HEAP_SIZE]> = Global::new([0u8; HEAP_SIZE]);
 
 // ============ Constants ============
 
@@ -129,7 +129,7 @@ impl<'a, B: usb_device::bus::UsbBus> MidiOut<'a, B> {
 
 #[bsp::rt::entry]
 fn main() -> ! {
-    unsafe { HEAP.init(core::ptr::addr_of!(HEAP_MEM) as usize, HEAP_SIZE); }
+    unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE); }
 
     let board::Resources {
         mut gpio2,
