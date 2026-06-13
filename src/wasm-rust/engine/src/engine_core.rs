@@ -2,7 +2,6 @@
 
 extern crate alloc;
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 
 // ============ FmtBuf — zero-alloc string formatting ============
 
@@ -352,6 +351,10 @@ pub fn pool_alloc(pool: &mut SubModePool) -> Option<u16> {
 
 pub fn pool_free(pool: &mut SubModePool, handle: u16) {
     if handle == POOL_HANDLE_NONE { return; }
+    debug_assert!((handle as usize) < POOL_CAPACITY, "pool_free: handle out of range");
+    debug_assert!((pool.free_count as usize) < POOL_CAPACITY, "pool_free: free-list overflow (double free?)");
+    // Reject bad handles / over-full free list rather than write out of bounds.
+    if handle as usize >= POOL_CAPACITY || pool.free_count as usize >= POOL_CAPACITY { return; }
     pool.free_list[pool.free_count as usize] = handle;
     pool.free_count += 1;
 }
@@ -408,6 +411,10 @@ pub fn event_alloc(pool: &mut NoteEventPool) -> Option<u16> {
 
 pub fn event_free(pool: &mut NoteEventPool, handle: u16) {
     if handle == POOL_HANDLE_NONE { return; }
+    debug_assert!((handle as usize) < EVENT_POOL_CAPACITY, "event_free: handle out of range");
+    debug_assert!((pool.free_count as usize) < EVENT_POOL_CAPACITY, "event_free: free-list overflow (double free?)");
+    // Reject bad handles / over-full free list rather than write out of bounds.
+    if handle as usize >= EVENT_POOL_CAPACITY || pool.free_count as usize >= EVENT_POOL_CAPACITY { return; }
     pool.free_list[pool.free_count as usize] = handle;
     pool.free_count += 1;
 }
@@ -1432,7 +1439,10 @@ pub fn engine_core_stop(s: &mut EngineState) {
 pub fn engine_core_tick(s: &mut EngineState) {
     let next_tick = s.current_tick + 1;
 
-    let mut switch_channels: Vec<(u8, u8)> = Vec::new();
+    // Pending pattern switches for this tick. Fixed-size (at most one per
+    // channel) to keep the real-time tick path allocation-free.
+    let mut switch_channels: [(u8, u8); NUM_CHANNELS] = [(0, 0); NUM_CHANNELS];
+    let mut switch_count = 0usize;
     let any_soloed = s.soloed.iter().any(|&v| v != 0);
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
@@ -1451,8 +1461,9 @@ pub fn engine_core_tick(s: &mut EngineState) {
             snapshot_and_preview_channel(s, ch);
             s.rendered_dirty[ch as usize] = 1;
 
-            if s.queued_patterns[ch as usize] >= 0 {
-                switch_channels.push((ch, s.queued_patterns[ch as usize] as u8));
+            if s.queued_patterns[ch as usize] >= 0 && switch_count < NUM_CHANNELS {
+                switch_channels[switch_count] = (ch, s.queued_patterns[ch as usize] as u8);
+                switch_count += 1;
             }
         }
 
@@ -1534,15 +1545,15 @@ pub fn engine_core_tick(s: &mut EngineState) {
     });
 
     // Apply pattern switches
-    if !switch_channels.is_empty() {
-        switch_channels.iter().for_each(|&(ch, target)| {
+    if switch_count > 0 {
+        switch_channels[..switch_count].iter().for_each(|&(ch, target)| {
             s.current_patterns[ch as usize] = target;
             s.queued_patterns[ch as usize] = -1;
             crate::platform::platform_clear_queued_pattern(ch);
         });
         crate::platform::platform_set_current_patterns(&s.current_patterns);
 
-        switch_channels.iter().for_each(|&(ch, _)| {
+        switch_channels[..switch_count].iter().for_each(|&(ch, _)| {
             compute_preview_for_channel(s, ch);
             s.rendered_dirty[ch as usize] = 1;
         });

@@ -6,7 +6,7 @@
 use alloc::boxed::Box;
 use crate::engine_core::*;
 use crate::engine_edit::{engine_toggle_event, engine_copy_pattern, engine_set_event_repeat_amount};
-use crate::engine_input::engine_button_press;
+use crate::engine_input::{engine_button_press, engine_key_action, ACTION_DISABLE_NOTE};
 use crate::engine_ui::engine_compute_grid;
 
 fn init_state() -> Box<EngineState> {
@@ -119,3 +119,35 @@ fn repeat_amount_is_clamped_to_one() {
     let h = s.patterns[ch][pat].event_handles[idx as usize];
     assert_eq!(s.event_pool.slots[h as usize].repeat_amount, 1);
 }
+
+// ============ #8 — pool free rejects bad handles ============
+//
+// The out-of-range / free-list-overflow rejections are release-only defense
+// (in debug builds the paired debug_assert fires first, by design), so they
+// can't be exercised here. The POOL_HANDLE_NONE no-op is the testable case.
+
+#[test]
+fn event_free_none_handle_is_noop() {
+    let mut s = init_state();
+    let before = s.event_pool.free_count;
+    event_free(&mut s.event_pool, POOL_HANDLE_NONE);
+    assert_eq!(s.event_pool.free_count, before);
+}
+
+// ============ #9 — stale selected_event_idx from the host ============
+
+#[test]
+fn out_of_range_selection_does_not_crash_disable_note() {
+    let mut s = init_state();
+    engine_toggle_event(&mut s, 10, 0, 120);
+    // engine_set_selected_event accepts any i16; a stale/huge index must not
+    // index event_handles (len MAX_EVENTS) out of bounds.
+    s.selected_event_idx = 9000;
+    engine_key_action(&mut s, ACTION_DISABLE_NOTE);
+    // The selection was out of range, so the note must remain enabled.
+    let ch = s.current_channel as usize;
+    let pat = s.current_patterns[ch] as usize;
+    let h = s.patterns[ch][pat].event_handles[0];
+    assert_eq!(s.event_pool.slots[h as usize].enabled, 1);
+}
+

@@ -370,6 +370,7 @@ fn pattern_press_copy(s: &mut EngineState, row: i16, tick: i32, _tpc: i32) {
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
+    if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     if s.patterns[ch][pat_idx].event_count as usize >= MAX_EVENTS { return; }
 
     engine_place_event(s, s.selected_event_idx as u16);
@@ -593,6 +594,7 @@ fn pattern_press_reset_fill(s: &mut EngineState, row: i16, tick: i32, tpc: i32) 
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
+    if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
     let sel = &s.event_pool.slots[h as usize];
     if sel.row == row && tick == sel.position {
@@ -623,6 +625,7 @@ fn pattern_press_length(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     if s.selected_event_idx < 0 { return; }
     let ch = s.current_channel as usize;
     let pat_idx = s.current_patterns[ch] as usize;
+    if s.selected_event_idx as u16 >= s.patterns[ch][pat_idx].event_count { return; }
     let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
     let sel = &s.event_pool.slots[h as usize];
     if sel.row == row {
@@ -1357,9 +1360,11 @@ pub fn engine_key_action(s: &mut EngineState, action_id: u8) {
         }
         ACTION_CLEAR_PATTERN => { engine_clear_pattern(s); }
         ACTION_DISABLE_NOTE => {
-            if s.selected_event_idx >= 0 {
-                let ch = s.current_channel as usize;
-                let pat_idx = s.current_patterns[ch] as usize;
+            let ch = s.current_channel as usize;
+            let pat_idx = s.current_patterns[ch] as usize;
+            if s.selected_event_idx >= 0
+                && (s.selected_event_idx as u16) < s.patterns[ch][pat_idx].event_count
+            {
                 let h = s.patterns[ch][pat_idx].event_handles[s.selected_event_idx as usize];
                 s.event_pool.slots[h as usize].enabled = 0;
                 s.last_deselected_event_idx = s.selected_event_idx;
