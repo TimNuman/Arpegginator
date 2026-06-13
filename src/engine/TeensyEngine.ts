@@ -54,13 +54,21 @@ export class TeensyEngine implements Engine {
     this.wasm.onNoteOff = null;
   }
 
+  private _onPlayPreviewNote:
+    | ((channel: number, row: number, lengthTicks: number) => void)
+    | null = null;
+
   get onPlayPreviewNote() {
-    return this.wasm.onPlayPreviewNote;
+    return this._onPlayPreviewNote;
   }
   set onPlayPreviewNote(
     cb: ((channel: number, row: number, lengthTicks: number) => void) | null,
   ) {
-    this.wasm.onPlayPreviewNote = cb;
+    this._onPlayPreviewNote = cb;
+    // Don't forward to wasm — the Teensy generates its own preview note from the
+    // same button press (sent via SysEx), so let it be the sole source and avoid
+    // a doubled preview from the browser.
+    this.wasm.onPlayPreviewNote = null;
   }
 
   // Connection status callback

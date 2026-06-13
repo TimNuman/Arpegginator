@@ -303,7 +303,7 @@ function App() {
 
       // If already a TeensyEngine, grab its inner WASM engine
       const wasmToWrap = currentWasm instanceof TeensyEngine
-        ? (currentWasm as any).wasm as WasmEngine
+        ? (currentWasm as unknown as { wasm: WasmEngine }).wasm
         : currentWasm as WasmEngine;
 
       const teensy = new TeensyEngine(wasmToWrap);
