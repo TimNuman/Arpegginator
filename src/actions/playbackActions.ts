@@ -2,12 +2,6 @@ import { TICKS_PER_QUARTER } from '../components/Grid/Grid.config';
 import type { Engine } from '../engine/types';
 import { markDirty } from '../store/renderStore';
 
-// Extra parameters passed alongside each triggered note
-export interface StepTriggerExtras {
-  timingOffsetPercent?: number;
-  flamCount?: number;
-}
-
 // Engine reference (set from App.tsx when engine loads)
 let engine: Engine | null = null;
 

@@ -7,7 +7,6 @@
 // - Tick position flows back from Teensy via SysEx to update local engine
 // - Browser also runs local tick loop for audio preview callbacks
 
-import type { StepTriggerExtras } from "../actions/playbackActions";
 import { markDirty } from "../store/renderStore";
 import type { OledRenderer } from "./OledRenderer";
 import type { Engine } from "./types";
@@ -27,38 +26,24 @@ export class TeensyEngine implements Engine {
     this.wasm = existingWasm;
   }
 
-  // Callbacks — suppress step trigger and note off (Teensy handles MIDI output).
+  // Callbacks — suppress note on/off (Teensy handles MIDI output).
   // Only forward preview note for audible feedback when placing notes while stopped.
-  private _onStepTrigger:
-    | ((
-        channel: number,
-        midiNote: number,
-        tick: number,
-        noteLengthTicks: number,
-        velocity: number,
-        extras?: StepTriggerExtras,
-      ) => void)
+  private _onNoteOn:
+    | ((channel: number, midiNote: number, velocity: number) => void)
     | null = null;
   private _onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
 
-  get onStepTrigger() {
-    return this._onStepTrigger;
+  get onNoteOn() {
+    return this._onNoteOn;
   }
-  set onStepTrigger(
+  set onNoteOn(
     cb:
-      | ((
-          channel: number,
-          midiNote: number,
-          tick: number,
-          noteLengthTicks: number,
-          velocity: number,
-          extras?: StepTriggerExtras,
-        ) => void)
+      | ((channel: number, midiNote: number, velocity: number) => void)
       | null,
   ) {
-    this._onStepTrigger = cb;
+    this._onNoteOn = cb;
     // Don't forward to wasm — Teensy handles MIDI output during playback
-    this.wasm.onStepTrigger = null;
+    this.wasm.onNoteOn = null;
   }
 
   get onNoteOff() {

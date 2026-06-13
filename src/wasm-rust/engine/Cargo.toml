@@ -6,6 +6,14 @@ edition = "2021"
 [lib]
 crate-type = ["rlib"]
 
+[features]
+# `lookahead` adds a baseline scheduling delay so early (negative) micro-timing
+# and flam grace notes are representable, at the cost of a small fixed latency.
+# Build with `--no-default-features` for zero added latency (early timing clamps
+# to on-the-beat; positive timing and flam still work).
+default = ["lookahead"]
+lookahead = []
+
 [dependencies]
 libm = "0.2"  # f32 math (sqrt, sin, cos, atan2) for no_std
 

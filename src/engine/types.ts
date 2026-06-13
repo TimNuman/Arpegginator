@@ -1,7 +1,6 @@
 // types.ts — Engine interface for WASM and Teensy backends
 
 import type { OledRenderer } from "./OledRenderer";
-import type { StepTriggerExtras } from "../actions/playbackActions";
 
 /**
  * Abstraction over the sequencer engine backend.
@@ -66,16 +65,10 @@ export interface Engine {
   // OLED
   createOledRenderer(): OledRenderer;
 
-  // Callbacks
-  onStepTrigger:
-    | ((
-        channel: number,
-        midiNote: number,
-        tick: number,
-        noteLengthTicks: number,
-        velocity: number,
-        extras?: StepTriggerExtras,
-      ) => void)
+  // Callbacks. The engine emits fully-scheduled note-ons (timing/flam/lookahead
+  // resolved internally); JS just forwards to MIDI.
+  onNoteOn:
+    | ((channel: number, midiNote: number, velocity: number) => void)
     | null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null;
   onPlayPreviewNote:

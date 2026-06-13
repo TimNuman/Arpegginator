@@ -10,7 +10,7 @@ use crate::engine_core::NUM_CHANNELS;
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
 extern "C" {
-    fn js_step_trigger(ch: i32, note: i32, tick: i32, len: i32, vel: i32, timing: i32, flam: i32, ev_idx: i32);
+    fn js_note_on(ch: i32, note: i32, vel: i32);
     fn js_note_off(ch: i32, note: i32);
     fn js_set_current_tick(tick: i32);
     fn js_set_current_patterns(ptr: i32);
@@ -20,20 +20,8 @@ extern "C" {
 }
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_step_trigger(
-    channel: u8, midi_note: u8, tick: i32,
-    note_length_ticks: i32, velocity: u8,
-    timing_offset_pct: i8, flam_count: u8,
-    event_index: u16,
-) {
-    unsafe {
-        js_step_trigger(
-            channel as i32, midi_note as i32, tick,
-            note_length_ticks, velocity as i32,
-            timing_offset_pct as i32, flam_count as i32,
-            event_index as i32,
-        );
-    }
+pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
+    unsafe { js_note_on(channel as i32, midi_note as i32, velocity as i32); }
 }
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -127,12 +115,7 @@ pub mod arm_platform {
 }
 
 #[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_step_trigger(
-    channel: u8, midi_note: u8, _tick: i32,
-    _note_length_ticks: i32, velocity: u8,
-    _timing_offset_pct: i8, _flam_count: u8,
-    _event_index: u16,
-) {
+pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
     arm_platform::enqueue_midi(arm_platform::MidiEvent {
         kind: 0, channel, note: midi_note as i16, velocity, length_ticks: 0,
     });
@@ -170,12 +153,7 @@ pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
 // ============ Test / Native Platform (no-ops) ============
 
 #[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_step_trigger(
-    _channel: u8, _midi_note: u8, _tick: i32,
-    _note_length_ticks: i32, _velocity: u8,
-    _timing_offset_pct: i8, _flam_count: u8,
-    _event_index: u16,
-) {}
+pub fn platform_note_on(_channel: u8, _midi_note: u8, _velocity: u8) {}
 
 #[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
 pub fn platform_note_off(_channel: u8, _midi_note: u8) {}

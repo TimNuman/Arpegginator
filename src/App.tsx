@@ -9,7 +9,6 @@ import type { Engine } from "./engine/types";
 import { useMidi } from "./hooks/useMidi";
 import { useRenderVersion } from "./store/renderStore";
 import * as actions from "./actions";
-import type { StepTriggerExtras } from "./actions";
 import { TICKS_PER_QUARTER } from "./components/Grid/Grid.config";
 
 const darkTheme = createTheme({
@@ -156,62 +155,20 @@ function App() {
     onTempoChange: (bpm) => setBpmRef.current(bpm),
   });
 
-  const handleStepTrigger = useCallback(
-    (
-      channel: number,
-      midiNote: number,
-      _tick: number,
-      noteLengthTicks: number,
-      velocity: number,
-      extras?: StepTriggerExtras,
-    ) => {
-      const note = midiNote;
+  // The engine resolves all timing/flam/lookahead and emits fully-scheduled
+  // note-ons, so JS just sends them. Scrub/preview notes arrive while the
+  // transport is stopped and get no engine note-off, so auto-release those.
+  const handleNoteOn = useCallback(
+    (channel: number, midiNote: number, velocity: number) => {
       const midiChannel = channel + 1;
+      playNote(midiNote, velocity, midiChannel);
 
-      // Scrub preview: play immediately, schedule quick note-off
-      if (noteLengthTicks <= 1) {
-        playNote(note, velocity, midiChannel);
+      if (!engineRef.current?.getIsPlaying()) {
         const id = setTimeout(() => {
           pendingTimeouts.current.delete(id);
-          stopNote(note, midiChannel);
+          stopNote(midiNote, midiChannel);
         }, 80);
         pendingTimeouts.current.add(id);
-        return;
-      }
-
-      const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
-      const stepDurationMs = tickDurationMs * (TICKS_PER_QUARTER / 4);
-
-      const maxOffsetPercent = 70;
-      const lookaheadMs = (maxOffsetPercent / 100) * stepDurationMs;
-      const timingOffsetMs = extras?.timingOffsetPercent
-        ? (extras.timingOffsetPercent / 100) * stepDurationMs
-        : 0;
-      const noteDelayMs = lookaheadMs + timingOffsetMs;
-
-      const flamCount = extras?.flamCount ?? 0;
-      const thirtySecondMs = stepDurationMs / 2;
-
-      const scheduleNote = (fn: () => void, delayMs: number) => {
-        const id = setTimeout(() => {
-          pendingTimeouts.current.delete(id);
-          fn();
-        }, delayMs);
-        pendingTimeouts.current.add(id);
-      };
-
-      if (flamCount > 0) {
-        const flamVelocity = Math.round(velocity * 0.6);
-        scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
-        for (let f = 0; f < flamCount; f++) {
-          const flamTime = noteDelayMs + (f + 1) * thirtySecondMs;
-          scheduleNote(
-            () => playNote(note, flamVelocity, midiChannel),
-            flamTime,
-          );
-        }
-      } else {
-        scheduleNote(() => playNote(note, velocity, midiChannel), noteDelayMs);
       }
     },
     [playNote, stopNote],
@@ -249,7 +206,7 @@ function App() {
     const engine = engineRef.current;
     console.log("[startup] Wiring callbacks: engine=" + !!engine);
     if (engine) {
-      engine.onStepTrigger = handleStepTrigger;
+      engine.onNoteOn = handleNoteOn;
       engine.onNoteOff = handleNoteOff;
       engine.onPlayPreviewNote = (
         channel: number,
@@ -271,12 +228,12 @@ function App() {
     }
     return () => {
       if (engine) {
-        engine.onStepTrigger = null;
+        engine.onNoteOn = null;
         engine.onNoteOff = null;
         engine.onPlayPreviewNote = null;
       }
     };
-  }, [handleStepTrigger, handleNoteOff, handlePlayNote, wasmEngine]);
+  }, [handleNoteOn, handleNoteOff, handlePlayNote, wasmEngine]);
 
   // Keep transport refs in sync for MIDI sync callbacks
   playExternalRef.current = actions.playExternal;

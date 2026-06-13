@@ -89,6 +89,34 @@ pub const VISIBLE_COLS: usize = 16;
 pub const TICKS_PER_QUARTER: i32 = 480;
 pub const MAX_RENDERED_NOTES: usize = 512;
 
+// ============ Note Scheduling (timing / flam / lookahead) ============
+pub const STEP_TICKS: i32 = TICKS_PER_QUARTER / 4; // ticks per 16th-note step (120)
+pub const FLAM_GAP_TICKS: i32 = STEP_TICKS / 2;    // grace-note spacing (32nd = 60)
+pub const FLAM_VEL_PCT: i32 = 60;                  // grace notes at 60% velocity
+
+// Baseline scheduling delay as a percent of a step. With the `lookahead`
+// feature it covers the most-negative micro-timing (-50%, see the Timing
+// sub-mode config) so early notes and flam are representable. Without the
+// feature it is zero — notes fire on their tick with no added latency and
+// early timing clamps to on-the-beat.
+#[cfg(feature = "lookahead")]
+pub const LOOKAHEAD_BASELINE_PCT: i32 = 50;
+#[cfg(not(feature = "lookahead"))]
+pub const LOOKAHEAD_BASELINE_PCT: i32 = 0;
+
+// Pending note-ons awaiting their scheduled fire tick. Drained each engine
+// tick. Note-offs continue to flow through the active-notes / prune system.
+pub const MAX_SCHEDULED_NOTES: usize = 64;
+
+#[derive(Clone, Copy)]
+pub struct ScheduledNote {
+    pub fire: i32,      // current_tick-space tick at which to emit the note-on
+    pub channel: u8,
+    pub note: u8,       // resolved MIDI note
+    pub velocity: u8,
+    pub active: bool,
+}
+
 pub const POOL_CAPACITY: usize = 512;
 pub const EVENT_POOL_CAPACITY: usize = 1024;
 pub const POOL_HANDLE_NONE: u16 = 0xFFFF;
@@ -562,6 +590,7 @@ pub struct EngineState {
     pub swing: i32,
 
     pub active_notes: [ActiveNote; MAX_ACTIVE_NOTES],
+    pub scheduled_notes: [ScheduledNote; MAX_SCHEDULED_NOTES],
 
     pub continue_counters: [[[u16; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],
     pub counter_snapshots: [[[u16; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES],
@@ -1238,6 +1267,7 @@ fn kill_active_notes_for_channel(s: &mut EngineState, ch: u8) {
             crate::platform::platform_note_off(ch, n.midi_note as u8);
             n.active = false;
         });
+    cancel_scheduled_channel(s, ch);
 }
 
 fn prune_active_notes(s: &mut EngineState, ch: u8, channel_tick: i32) {
@@ -1254,6 +1284,9 @@ fn handle_active_note(
     repeat_index: u8, chord_index: u8,
     channel_tick: i32, note_length: i32, midi_note: i8,
 ) {
+    // A retrigger of this exact note supersedes any still-pending note-on for it.
+    cancel_scheduled_note(s, ch, midi_note);
+
     // Kill any active note on same channel with same MIDI note
     let mut free_slot: Option<usize> = None;
     s.active_notes.iter_mut().enumerate().for_each(|(i, n)| {
@@ -1268,16 +1301,23 @@ fn handle_active_note(
     });
 
     // If no free slot, evict the oldest active note to prevent stuck notes
-    let slot = free_slot.unwrap_or_else(|| {
-        let oldest = s.active_notes.iter().enumerate()
-            .filter(|(_, n)| n.active)
-            .min_by_key(|(_, n)| n.start)
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        let old = &s.active_notes[oldest];
-        crate::platform::platform_note_off(old.channel, old.midi_note as u8);
-        oldest
-    });
+    let slot = match free_slot {
+        Some(i) => i,
+        None => {
+            let oldest = s.active_notes.iter().enumerate()
+                .filter(|(_, n)| n.active)
+                .min_by_key(|(_, n)| n.start)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let (old_ch, old_note) = {
+                let old = &s.active_notes[oldest];
+                (old.channel, old.midi_note)
+            };
+            crate::platform::platform_note_off(old_ch, old_note as u8);
+            cancel_scheduled_note(s, old_ch, old_note);
+            oldest
+        }
+    };
 
     let n = &mut s.active_notes[slot];
     n.active = true;
@@ -1288,6 +1328,54 @@ fn handle_active_note(
     n.start = channel_tick;
     n.end = channel_tick + note_length - 1;
     n.midi_note = midi_note;
+}
+
+// ============ Note-On Scheduling ============
+
+/// Convert a micro-timing offset (percent of a step) into the scheduling delay
+/// in ticks, including the compile-time lookahead baseline. Always >= 0: with
+/// the baseline disabled, early (negative) timing clamps to on-the-beat.
+pub fn timing_delay_ticks(timing_pct: i32) -> i32 {
+    ((LOOKAHEAD_BASELINE_PCT + timing_pct).max(0) * STEP_TICKS / 100).max(0)
+}
+
+/// Queue a note-on to be emitted when the engine reaches `fire`. Dropped
+/// silently if the schedule buffer is full (matches the MIDI-queue policy).
+fn schedule_note_on(s: &mut EngineState, fire: i32, channel: u8, note: u8, velocity: u8) {
+    if let Some(slot) = s.scheduled_notes.iter().position(|n| !n.active) {
+        s.scheduled_notes[slot] = ScheduledNote { fire, channel, note, velocity, active: true };
+    }
+}
+
+/// Emit every scheduled note-on whose fire tick has arrived.
+fn drain_scheduled_notes(s: &mut EngineState, now: i32) {
+    for i in 0..s.scheduled_notes.len() {
+        let n = s.scheduled_notes[i];
+        if n.active && n.fire <= now {
+            s.scheduled_notes[i].active = false;
+            crate::platform::platform_note_on(n.channel, n.note, n.velocity);
+        }
+    }
+}
+
+fn clear_scheduled_notes(s: &mut EngineState) {
+    s.scheduled_notes.iter_mut().for_each(|n| n.active = false);
+}
+
+/// Drop every pending note-on on a channel. Used when active notes are killed
+/// so a note silenced during its lookahead window can't fire afterward (stuck).
+fn cancel_scheduled_channel(s: &mut EngineState, ch: u8) {
+    s.scheduled_notes.iter_mut()
+        .filter(|n| n.active && n.channel == ch)
+        .for_each(|n| n.active = false);
+}
+
+/// Drop a pending note-on for one exact (channel, note) — e.g. when that note
+/// is retriggered or stolen before its scheduled note-on has fired.
+fn cancel_scheduled_note(s: &mut EngineState, ch: u8, note: i8) {
+    s.scheduled_notes.iter_mut()
+        .filter(|n| n.active && n.channel == ch && n.note == note as u8)
+        .for_each(|n| n.active = false);
 }
 
 // ============ Preview Computation ============
@@ -1342,6 +1430,7 @@ pub fn engine_core_init(s: &mut EngineState) {
     s.last_scrub_tick = -1;
     s.is_playing = 0;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
+    clear_scheduled_notes(s);
 
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
@@ -1408,6 +1497,7 @@ pub fn engine_core_play_init(s: &mut EngineState) {
     s.current_tick = -1;
     s.last_scrub_tick = -1;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
+    clear_scheduled_notes(s);
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
@@ -1417,6 +1507,7 @@ pub fn engine_core_play_init_from_tick(s: &mut EngineState, tick: i32) {
     s.current_tick = tick - 1;
     s.last_scrub_tick = -1;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
+    clear_scheduled_notes(s);
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
@@ -1429,6 +1520,8 @@ pub fn engine_core_stop(s: &mut EngineState) {
             crate::platform::platform_note_off(n.channel, n.midi_note as u8);
             n.active = false;
         });
+    // Drop pending note-ons so a stopped transport doesn't fire stragglers.
+    clear_scheduled_notes(s);
 
     s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
     s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
@@ -1529,15 +1622,22 @@ pub fn engine_core_tick(s: &mut EngineState) {
                             m
                         };
 
-                        // Extend active note duration by JS-side delay (lookahead + timing)
-                        // so note-off fires after the delayed note-on
-                        let delay_ticks = (70 + timing as i32).max(0) * 120 / 100;
+                        // Schedule the note-on at its micro-timed tick; extend the
+                        // active-note duration by the same delay so note-off (driven
+                        // by prune) still lands `ev.length` after the note-on.
+                        let delay_ticks = timing_delay_ticks(timing as i32);
                         handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, channel_tick, ev.length + delay_ticks, midi_note);
-                        crate::platform::platform_step_trigger(
-                            ch, midi_note as u8, channel_tick,
-                            ev.length, (velocity.clamp(0, 127)) as u8,
-                            timing as i8, flam_count, ev.event_index,
-                        );
+
+                        let vel = velocity.clamp(0, 127) as u8;
+                        let fire = next_tick + delay_ticks;
+                        schedule_note_on(s, fire, ch, midi_note as u8, vel);
+
+                        // Flam: grace note-ons a 32nd apart at reduced velocity. Same
+                        // MIDI note as the main hit, so the single note-off covers them.
+                        let grace_vel = (vel as i32 * FLAM_VEL_PCT / 100) as u8;
+                        (1..=flam_count as i32).for_each(|f| {
+                            schedule_note_on(s, fire + f * FLAM_GAP_TICKS, ch, midi_note as u8, grace_vel);
+                        });
                     });
                 });
             });
@@ -1558,6 +1658,10 @@ pub fn engine_core_tick(s: &mut EngineState) {
             s.rendered_dirty[ch as usize] = 1;
         });
     }
+
+    // Emit any note-ons whose scheduled tick has now arrived (delay 0 fires
+    // this same tick; later ticks pick up the rest as `next_tick` advances).
+    drain_scheduled_notes(s, next_tick);
 
     s.current_tick = next_tick;
     crate::platform::platform_set_current_tick(next_tick);
@@ -1644,12 +1748,9 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                         m
                     };
 
+                    // Scrub preview: fire immediately, no micro-timing or flam.
                     handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, curr_looped, SCRUB_NOTE_LENGTH, midi_note);
-                    crate::platform::platform_step_trigger(
-                        ch, midi_note as u8, ev_tick,
-                        SCRUB_NOTE_LENGTH, velocity.clamp(0, 127) as u8,
-                        0, 0, ev.event_index,
-                    );
+                    crate::platform::platform_note_on(ch, midi_note as u8, velocity.clamp(0, 127) as u8);
                 });
             });
         });

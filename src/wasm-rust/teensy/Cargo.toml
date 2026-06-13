@@ -3,8 +3,15 @@ name = "arp3-teensy"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+# Forwarded to arp3-engine. Default on = early micro-timing + flam at the cost
+# of a small fixed latency. Build `cargo build --release --no-default-features`
+# for zero added MIDI latency on hardware.
+default = ["lookahead"]
+lookahead = ["arp3-engine/lookahead"]
+
 [dependencies]
-arp3-engine = { path = "../engine" }
+arp3-engine = { path = "../engine", default-features = false }
 teensy4-bsp = { version = "0.5", features = ["rt"] }
 teensy4-panic = "0.2"
 cortex-m = "0.7"

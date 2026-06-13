@@ -11,7 +11,6 @@ export {
   stopExternal,
   setEngine,
 } from './playbackActions';
-export type { StepTriggerExtras } from './playbackActions';
 
 // Pattern actions
 export {

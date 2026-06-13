@@ -1,4 +1,3 @@
-import type { StepTriggerExtras } from "../actions/playbackActions";
 import { markDirty } from "../store/renderStore";
 import { OledRenderer } from "./OledRenderer";
 import type { Engine } from "./types";
@@ -41,7 +40,7 @@ async function loadRustWasm(
 ): Promise<WasmModule> {
   const importObject = {
     env: {
-      js_step_trigger: callbacks.stepTrigger ?? (() => {}),
+      js_note_on: callbacks.noteOn ?? (() => {}),
       js_note_off: callbacks.noteOff ?? (() => {}),
       js_set_current_tick: callbacks.setCurrentTick ?? (() => {}),
       js_set_current_patterns: callbacks.setCurrentPatterns ?? (() => {}),
@@ -73,16 +72,10 @@ export class WasmEngine implements Engine {
   private rows = 0;
   private cols = 0;
 
-  // Callbacks
-  onStepTrigger:
-    | ((
-        channel: number,
-        midiNote: number,
-        tick: number,
-        noteLengthTicks: number,
-        velocity: number,
-        extras?: StepTriggerExtras,
-      ) => void)
+  // Callbacks. The engine now resolves all timing/flam/lookahead internally and
+  // emits fully-scheduled note-ons, so JS just forwards them to MIDI.
+  onNoteOn:
+    | ((channel: number, midiNote: number, velocity: number) => void)
     | null = null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
   onPlayPreviewNote:
@@ -94,31 +87,8 @@ export class WasmEngine implements Engine {
 
     // Build callback table
     const callbacks = {
-      stepTrigger: (
-        ch: number,
-        note: number,
-        tick: number,
-        len: number,
-        vel: number,
-        timing: number,
-        flam: number,
-        _evIdx: number, // eslint-disable-line @typescript-eslint/no-unused-vars
-      ) => {
-        if (!this.onStepTrigger) return;
-        const extras: StepTriggerExtras = {};
-        if (timing !== 0) extras.timingOffsetPercent = timing;
-        if (flam > 0) extras.flamCount = flam;
-        const hasExtras =
-          extras.timingOffsetPercent !== undefined ||
-          extras.flamCount !== undefined;
-        this.onStepTrigger(
-          ch,
-          note,
-          tick,
-          len,
-          vel,
-          hasExtras ? extras : undefined,
-        );
+      noteOn: (ch: number, note: number, vel: number) => {
+        this.onNoteOn?.(ch, note, vel);
       },
       noteOff: (ch: number, note: number) => {
         this.onNoteOff?.(ch, note);
