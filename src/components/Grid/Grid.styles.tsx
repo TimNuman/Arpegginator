@@ -99,51 +99,11 @@ export const oledScreenStyles = css`
   overflow: hidden;
 `;
 
-export const rotaryEncoderStyles = css`
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
-  border: 3px solid #333;
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.5),
-    inset 0 2px 4px rgba(255, 255, 255, 0.05);
+export const encoderRowStyles = css`
   display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 16px;
   margin-top: 12px;
-  cursor: pointer;
-  position: relative;
-
-  &::before {
-    content: "";
-    position: absolute;
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    background: linear-gradient(145deg, #222, #181818);
-    border: 2px solid #2a2a2a;
-  }
-
-  &::after {
-    content: "";
-    position: absolute;
-    width: 4px;
-    height: 20px;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 2px;
-    top: 12px;
-  }
-`;
-
-export const rotaryKnobStyles = css`
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #3a3a3a, #252525);
-  border: 1px solid #444;
-  z-index: 1;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  align-items: flex-start;
 `;
 
 export const arrowButtonContainerStyles = css`

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box } from "@mui/material";
 import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
+import { RotaryEncoder } from "../RotaryEncoder";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
 import { useRenderVersion, markDirty, setAnimatingCheck } from "../../store/renderStore";
 import * as actions from "../../actions";
@@ -19,8 +20,7 @@ import {
   oledContainerStyles,
   oledColumnStyles,
   oledScreenStyles,
-  rotaryEncoderStyles,
-  rotaryKnobStyles,
+  encoderRowStyles,
   arrowButtonContainerStyles,
   arrowButtonRowStyles,
   arrowButtonStyles,
@@ -264,11 +264,23 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // ============ Arrow button handlers (on-screen UI) ============
   const handleArrow = useCallback(
     (dir: number) => {
+      console.log("[grid] arrowPress dir=" + dir);
       const modBits = encodeModifiers(modsRef.current);
       wasmEngine.arrowPress(dir, modBits);
       markDirty();
     },
     [wasmEngine],
+  );
+
+  // ============ Rotary encoders -> arrow presses ============
+  // Clockwise (or upward mouse drag) = right / up; steps repeat while dragging
+  const handleEncoderLR = useCallback(
+    (step: 1 | -1) => handleArrow(step > 0 ? DIR_RIGHT : DIR_LEFT),
+    [handleArrow],
+  );
+  const handleEncoderUD = useCallback(
+    (step: 1 | -1) => handleArrow(step > 0 ? DIR_UP : DIR_DOWN),
+    [handleArrow],
   );
 
   // ============ OLED Display (rendered entirely in C/WASM) ============
@@ -358,8 +370,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
               }}
             />
           </Box>
-          <Box css={rotaryEncoderStyles}>
-            <Box css={rotaryKnobStyles} />
+          <Box css={encoderRowStyles}>
+            <RotaryEncoder onStep={handleEncoderLR} label="&#x25C0; &#x25B6;" />
+            <RotaryEncoder onStep={handleEncoderUD} label="&#x25B2; &#x25BC;" />
           </Box>
           <Box css={arrowButtonContainerStyles}>
             <Box css={arrowButtonRowStyles}>
