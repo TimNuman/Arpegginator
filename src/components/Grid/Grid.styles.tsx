@@ -33,46 +33,9 @@ export const verticalStripContainerStyles = css`
 
 export const horizontalStripContainerStyles = css`
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   padding: 0 20px;
-`;
-
-export const modifierKeysContainerStyles = css`
-  display: flex;
-  gap: 4px;
-`;
-
-export const modifierKeyStyles = css`
-  width: 40px;
-  height: 24px;
-  border-radius: 4px;
-  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
-  border: none;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.1s ease;
-  touch-action: manipulation;
-
-  /* Short screens (landscape phone): the whole UI is scaled down, so give
-     these tap-toggles a larger natural size to stay finger-friendly */
-  @media (max-height: 520px) {
-    width: 64px;
-    height: 40px;
-    font-size: 13px;
-  }
-`;
-
-export const modifierKeyActiveStyles = css`
-  background: linear-gradient(145deg, #4a4a4a, #3a3a3a);
-  color: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 `;
 
 export const oledContainerStyles = css`

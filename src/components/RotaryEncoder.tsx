@@ -2,8 +2,8 @@ import { memo, useCallback, useRef } from "react";
 import { css } from "@emotion/react";
 
 // Rotation/steps tuning
-const TOUCH_DEG_PER_STEP = 22; // ~16 steps per full circle
-const MOUSE_PX_PER_STEP = 14; // vertical drag distance per step
+const TOUCH_DEG_PER_STEP = 44; // ~8 steps per full circle
+const MOUSE_PX_PER_STEP = 28; // vertical drag distance per step
 const MOUSE_DEG_PER_PX = 1.6; // visual spin feedback for mouse drags
 
 const encoderStyles = css`
