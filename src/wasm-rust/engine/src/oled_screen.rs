@@ -117,9 +117,7 @@ const MOD_CTRL: u8 = 8;
 
 // ============ String helpers ============
 
-static NOTE_NAMES: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-];
+use crate::chords::NOTE_NAMES;
 
 fn midi_note_to_name(note: i8) -> FmtBuf<8> {
     let mut buf = FmtBuf::<8>::new();
@@ -275,11 +273,16 @@ fn parse_i32(s: &str) -> i32 {
 /// Uppercase an ASCII string (for display purposes)
 fn to_upper(s: &str) -> FmtBuf<32> {
     let mut buf = FmtBuf::<32>::new();
-    for c in s.chars() {
-        if c.is_ascii_lowercase() { buf.push((c as u8 - 32) as char); }
-        else { buf.push(c); }
-    }
+    buf.push_str(s);
+    buf.make_ascii_uppercase();
     buf
+}
+
+/// Chord name for an event, uppercased for the OLED.
+fn chord_name_upper(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
+    let mut name = crate::chords::format_chord_name(s, ev);
+    name.make_ascii_uppercase();
+    name
 }
 
 // ============ Sub-mode / loop mode labels ============
@@ -784,7 +787,7 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
                 display_str.push_str(INTERVAL_NAMES[semitones as usize]);
             }
         } else if ev.chord_amount > 2 {
-            let cn = get_chord_name_str(s, ev);
+            let cn = chord_name_upper(s, ev);
             display_str.push_str(cn.as_str());
         } else if is_drum {
             let dn = get_drum_name(ev.row.clamp(0, 127) as i8);
@@ -963,11 +966,8 @@ fn render_modify(s: &EngineState, mods: u8) {
                 display_str.push_str(dn.as_str());
             }
         } else if ev.chord_amount > 1 {
-            let cn = get_chord_name_str(s, ev);
-            if !cn.is_empty() {
-                let upper = to_upper(cn.as_str());
-                display_str.push_str(upper.as_str());
-            }
+            let cn = chord_name_upper(s, ev);
+            display_str.push_str(cn.as_str());
         } else {
             display_str.push_str("SINGLE NOTE");
         }
@@ -1115,134 +1115,6 @@ fn render_loop(s: &EngineState, mods: u8) {
     } else {
         draw_icon_legend(ROW_Y[2], "END", step_str, OLED_YELLOW);
     }
-}
-
-// ============ Chord name (simplified inline version for screen rendering) ============
-
-fn get_chord_name_str(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
-    let mut result = FmtBuf::<64>::new();
-    if ev.chord_amount <= 1 {
-        return result;
-    }
-
-    let mut offsets = [0i8; MAX_CHORD_SIZE];
-    let chord_count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
-
-    let mut pitch_classes = [0u8; MAX_CHORD_SIZE];
-    let mut pc_count = 0usize;
-    let mut lowest_midi: i8 = 127;
-    let mut bass_pc: u8 = 0;
-
-    (0..chord_count).for_each(|i| {
-        let midi = note_to_midi(ev.row + offsets[i] as i16, s);
-        if midi < 0 { return; }
-        if midi < lowest_midi { lowest_midi = midi; bass_pc = (midi % 12) as u8; }
-        let pc = (midi % 12) as u8;
-        if !pitch_classes[..pc_count].contains(&pc) && pc_count < MAX_CHORD_SIZE {
-            pitch_classes[pc_count] = pc;
-            pc_count += 1;
-        }
-    });
-
-    if pc_count < 2 { return result; }
-
-    pitch_classes[..pc_count].sort_unstable();
-
-    let bass_idx = pitch_classes[..pc_count].iter().position(|&p| p == bass_pc).unwrap_or(0);
-
-    struct ChordTemplate {
-        intervals: [u8; 4],
-        count: u8,
-        suffix: &'static str,
-    }
-
-    static TEMPLATES: &[ChordTemplate] = &[
-        ChordTemplate { intervals: [4,7,0,0], count: 2, suffix: "" },
-        ChordTemplate { intervals: [3,7,0,0], count: 2, suffix: "M" },
-        ChordTemplate { intervals: [3,6,0,0], count: 2, suffix: "DIM" },
-        ChordTemplate { intervals: [4,8,0,0], count: 2, suffix: "AUG" },
-        ChordTemplate { intervals: [2,7,0,0], count: 2, suffix: "SUS2" },
-        ChordTemplate { intervals: [5,7,0,0], count: 2, suffix: "SUS4" },
-        ChordTemplate { intervals: [4,7,11,0], count: 3, suffix: "MAJ7" },
-        ChordTemplate { intervals: [4,7,10,0], count: 3, suffix: "7" },
-        ChordTemplate { intervals: [3,7,10,0], count: 3, suffix: "M7" },
-        ChordTemplate { intervals: [3,7,11,0], count: 3, suffix: "MM7" },
-        ChordTemplate { intervals: [3,6,10,0], count: 3, suffix: "M7B5" },
-        ChordTemplate { intervals: [3,6,9,0], count: 3, suffix: "DIM7" },
-        ChordTemplate { intervals: [4,8,10,0], count: 3, suffix: "AUG7" },
-        ChordTemplate { intervals: [4,7,9,0], count: 3, suffix: "6" },
-        ChordTemplate { intervals: [3,7,9,0], count: 3, suffix: "M6" },
-        ChordTemplate { intervals: [5,7,10,0], count: 3, suffix: "7SUS4" },
-        ChordTemplate { intervals: [7,0,0,0], count: 1, suffix: "5" },
-    ];
-
-    static ROMAN: [&str; 7] = ["I","II","III","IV","V","VI","VII"];
-    static NOTE_NAMES_L: [&str; 12] = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-
-    let mut best_suffix: Option<&str> = None;
-    let mut best_root_pc: u8 = 0;
-    let mut best_match_count: u8 = 0;
-
-    (0..pc_count).for_each(|r| {
-        let rot = if r == 0 { bass_idx } else if r <= bass_idx { r - 1 } else { r };
-        let root_pc = pitch_classes[rot];
-        let mut intervals = [0u8; MAX_CHORD_SIZE - 1];
-        let mut n_intervals = 0usize;
-
-        (0..pc_count).filter(|&i| i != rot).for_each(|i| {
-            intervals[n_intervals] = ((pitch_classes[i] as i16 - root_pc as i16 + 12) % 12) as u8;
-            n_intervals += 1;
-        });
-        intervals[..n_intervals].sort_unstable();
-
-        TEMPLATES.iter().for_each(|tmpl| {
-            if tmpl.count > n_intervals as u8 || tmpl.count <= best_match_count { return; }
-            let all_found = (0..tmpl.count as usize).all(|k| {
-                intervals[..n_intervals].contains(&tmpl.intervals[k])
-            });
-            if all_found {
-                best_suffix = Some(tmpl.suffix);
-                best_root_pc = root_pc;
-                best_match_count = tmpl.count;
-            }
-        });
-    });
-
-    if let Some(suffix) = best_suffix {
-        result.push_str(NOTE_NAMES_L[best_root_pc as usize]);
-        result.push_str(suffix);
-        if best_root_pc != bass_pc {
-            result.push('/');
-            result.push_str(NOTE_NAMES_L[bass_pc as usize]);
-        }
-    } else {
-        let root_pc = pitch_classes[0];
-        result.push_str(NOTE_NAMES_L[root_pc as usize]);
-        result.push('(');
-        (1..pc_count).for_each(|i| {
-            if i > 1 { result.push(','); }
-            let iv = ((pitch_classes[i] as i16 - root_pc as i16 + 12) % 12) as u8;
-            let _ = write!(result, "{}", iv);
-        });
-        result.push(')');
-        best_root_pc = root_pc;
-    }
-
-    // Scale degree
-    let zi = s.scale_zero_index as usize;
-    let octave_size = s.scale_octave_size as usize;
-    let degree = (0..octave_size.min(12))
-        .find(|&d| zi + d < s.scale_count as usize && s.scale_notes[zi + d] % 12 == best_root_pc)
-        .map(|d| d as i8)
-        .unwrap_or(-1);
-
-    if degree >= 0 && degree < 7 {
-        result.push_str(" (");
-        result.push_str(ROMAN[degree as usize]);
-        result.push(')');
-    }
-
-    result
 }
 
 // ============ Public entry point ============

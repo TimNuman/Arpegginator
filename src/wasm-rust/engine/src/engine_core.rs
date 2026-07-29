@@ -37,6 +37,10 @@ impl<const N: usize> FmtBuf<N> {
         self.len = 0;
     }
 
+    pub fn make_ascii_uppercase(&mut self) {
+        self.buf[..self.len].make_ascii_uppercase();
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

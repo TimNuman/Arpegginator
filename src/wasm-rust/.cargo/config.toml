@@ -1,2 +1,8 @@
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-args=--import-undefined --initial-memory=16777216 -z stack-size=2097152"]
+
+# The engine's Global<T> statics are sound only single-threaded (see
+# engine/src/cell.rs). Host tests must not run in parallel threads, or
+# shared scratch buffers like TEMP_RENDERED race and tests flake.
+[env]
+RUST_TEST_THREADS = "1"
