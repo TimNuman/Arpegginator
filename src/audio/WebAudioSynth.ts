@@ -31,6 +31,8 @@ export class WebAudioSynth {
   private noiseBuffer: AudioBuffer | null = null;
   /** Active piano voices keyed by channel * 128 + note */
   private pianoVoices = new Map<number, PianoVoice>();
+  private unlocked = false;
+  private silentLoop: HTMLAudioElement | null = null;
 
   /** Create (or return) the AudioContext. Safe to call any time. */
   private ensure(): AudioContext {
@@ -67,13 +69,63 @@ export class WebAudioSynth {
   }
 
   /**
-   * Resume the AudioContext. Must be called from a user gesture at least once
-   * on iOS/Safari before any sound can play. Cheap no-op when already running.
+   * Resume/unlock the AudioContext. Must be called from a user gesture at
+   * least once on iOS/Safari before any sound can play. Cheap no-op when
+   * already running and unlocked.
    */
   resume(): void {
     const ctx = this.ensure();
+    // iOS also reports a non-standard "interrupted" state after phone calls
+    // or app switches — resume() recovers from that too
     if (ctx.state !== "running") {
       void ctx.resume();
+    }
+    if (!this.unlocked) {
+      // Classic iOS unlock: play a silent one-sample buffer from the gesture
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = ctx.createBuffer(1, 1, 22050);
+        src.connect(ctx.destination);
+        src.start(0);
+        this.unlocked = true;
+      } catch {
+        // ignore — retried on the next gesture
+      }
+    }
+    this.startSilentMediaLoop();
+  }
+
+  /**
+   * Loop a silent <audio> element. This flips iOS's audio session into
+   * "playback" mode, so Web Audio output is NOT muted by the ring/silent
+   * switch — without it an iPhone with the switch on silent hears nothing.
+   * Must be started from a user gesture; retried until play() succeeds.
+   */
+  private startSilentMediaLoop(): void {
+    if (this.silentLoop) return;
+    try {
+      const audio = document.createElement("audio");
+      audio.setAttribute("playsinline", "");
+      audio.loop = true;
+      audio.src = URL.createObjectURL(
+        new Blob([buildSilentWav()], { type: "audio/wav" }),
+      );
+      // Keep it in the DOM (hidden) — iOS can stop detached media elements
+      audio.style.display = "none";
+      document.body.appendChild(audio);
+      const p = audio.play();
+      if (p) {
+        p.then(() => {
+          this.silentLoop = audio;
+        }).catch(() => {
+          // Not a valid gesture yet — remove and retry on the next resume()
+          audio.remove();
+        });
+      } else {
+        this.silentLoop = audio;
+      }
+    } catch {
+      // ignore — audio element is a best-effort enhancement
     }
   }
 
@@ -81,7 +133,12 @@ export class WebAudioSynth {
 
   noteOn(channel: number, note: number, velocity: number, isDrum: boolean): void {
     const ctx = this.ensure();
-    if (ctx.state !== "running") return;
+    if (ctx.state !== "running") {
+      // Try to recover (e.g. iOS "interrupted" after an app switch); drop the
+      // note if the context still isn't running
+      void ctx.resume();
+      if ((ctx.state as string) !== "running") return;
+    }
     const vel = Math.max(0, Math.min(1, velocity / 127));
     if (isDrum) {
       this.playDrum(note, vel);
@@ -591,6 +648,33 @@ export class WebAudioSynth {
     noise.start(t0);
     noise.stop(t0 + 0.12);
   }
+}
+
+/** Build a minimal valid WAV file of silence (~0.1s, 8kHz mono 16-bit). */
+function buildSilentWav(): ArrayBuffer {
+  const sampleRate = 8000;
+  const numSamples = 800;
+  const dataSize = numSamples * 2;
+  const buf = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buf);
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true); // fmt chunk size
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeStr(36, "data");
+  view.setUint32(40, dataSize, true);
+  // samples stay zero — silence
+  return buf;
 }
 
 /** Shared synth instance — context is created lazily on first use. */

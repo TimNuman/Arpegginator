@@ -234,13 +234,21 @@ function App() {
     () => localStorage.getItem(STORAGE_KEY_BUILTIN_SOUND) !== "0",
   );
 
-  // iOS/Safari requires the AudioContext to be resumed from a user gesture.
+  // iOS/Safari requires the AudioContext to be resumed from a user gesture —
+  // and only some gestures qualify (touchend/click do; touchstart/pointerdown
+  // may not). Listen to all of them, permanently: iOS can re-suspend the
+  // context after interruptions (calls, app switches), so every gesture is a
+  // chance to recover. All are cheap no-ops once audio is running.
   useEffect(() => {
     const unlock = () => synth.resume();
     window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("touchend", unlock, { passive: true });
+    window.addEventListener("click", unlock);
     window.addEventListener("keydown", unlock);
     return () => {
       window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchend", unlock);
+      window.removeEventListener("click", unlock);
       window.removeEventListener("keydown", unlock);
     };
   }, []);
