@@ -15,13 +15,7 @@ interface TouchStripProps {
 const IDLE_TIMEOUT_MS = 80;
 
 export const TouchStrip = memo(
-  ({
-    orientation,
-    strip,
-    wasmEngine,
-    length = 300,
-    thickness = 28,
-  }: TouchStripProps) => {
+  ({ orientation, strip, wasmEngine, length = 300, thickness = 28 }: TouchStripProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const isDragging = useRef(false);
     const idleTimer = useRef(0);
@@ -63,12 +57,7 @@ export const TouchStrip = memo(
         container.setPointerCapture(e.pointerId);
         pointerId.current = e.pointerId;
         isDragging.current = true;
-        wasmEngine.stripStart(
-          strip,
-          toRawPointer(e),
-          e.shiftKey,
-          performance.now(),
-        );
+        wasmEngine.stripStart(strip, toRawPointer(e), e.shiftKey, performance.now());
         markDirty();
         resetIdleTimer();
       };

@@ -47,9 +47,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const renderVersion = useRenderVersion();
 
   useEffect(() => {
-    console.log(
-      "[startup] Grid mounted, wasmEngine version=" + wasmEngine.getVersion(),
-    );
+    console.log("[startup] Grid mounted, wasmEngine version=" + wasmEngine.getVersion());
     // Initialize OLED renderer
     if (!oledRendererRef.current) {
       oledRendererRef.current = wasmEngine.createOledRenderer();
@@ -65,11 +63,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // Attach canvas to renderer once
   const oledCanvasAttached = useRef(false);
   useEffect(() => {
-    if (
-      !oledCanvasAttached.current &&
-      oledCanvasRef.current &&
-      oledRendererRef.current
-    ) {
+    if (!oledCanvasAttached.current && oledCanvasRef.current && oledRendererRef.current) {
       oledRendererRef.current.setCanvas(oledCanvasRef.current);
       oledCanvasAttached.current = true;
     }
@@ -93,12 +87,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const oledRendererRef = useRef<OledRenderer | null>(null);
 
   const handleKeyDown = useCallback(
-    (
-      key: string,
-      code: string,
-      event: KeyboardEvent,
-      state: KeyboardState,
-    ): boolean => {
+    (key: string, code: string, event: KeyboardEvent, state: KeyboardState): boolean => {
       // Debug: log all modified keypresses
       if (state.ctrl || state.shift || state.meta || state.alt) {
         const mods = [
@@ -106,7 +95,9 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           state.shift && "Shift",
           state.meta && "Cmd",
           state.alt && "Alt",
-        ].filter(Boolean).join("+");
+        ]
+          .filter(Boolean)
+          .join("+");
         console.log(`[key] ${mods}+${code} (key="${key}")`);
       }
 
@@ -325,22 +316,13 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
               </Box>
             </Box>
             <Box css={arrowButtonRowStyles}>
-              <Box
-                css={arrowButtonStyles}
-                onClick={() => handleArrow(DIR_LEFT)}
-              >
+              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_LEFT)}>
                 &#x25C0;
               </Box>
-              <Box
-                css={arrowButtonStyles}
-                onClick={() => handleArrow(DIR_DOWN)}
-              >
+              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_DOWN)}>
                 &#x25BC;
               </Box>
-              <Box
-                css={arrowButtonStyles}
-                onClick={() => handleArrow(DIR_RIGHT)}
-              >
+              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_RIGHT)}>
                 &#x25B6;
               </Box>
             </Box>

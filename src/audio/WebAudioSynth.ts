@@ -40,8 +40,7 @@ export class WebAudioSynth {
 
     const Ctx =
       window.AudioContext ??
-      (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext;
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctx();
 
     // master gain -> soft compressor -> speakers
@@ -107,9 +106,7 @@ export class WebAudioSynth {
       const audio = document.createElement("audio");
       audio.setAttribute("playsinline", "");
       audio.loop = true;
-      audio.src = URL.createObjectURL(
-        new Blob([buildSilentWav()], { type: "audio/wav" }),
-      );
+      audio.src = URL.createObjectURL(new Blob([buildSilentWav()], { type: "audio/wav" }));
       // Keep it in the DOM (hidden) — iOS can stop detached media elements
       audio.style.display = "none";
       document.body.appendChild(audio);
@@ -434,11 +431,7 @@ export class WebAudioSynth {
   }
 
   /** Square-bank metallic source shared by hats/cymbals. */
-  private metalBank(
-    t0: number,
-    dest: AudioNode,
-    stopAt: number,
-  ): OscillatorNode[] {
+  private metalBank(t0: number, dest: AudioNode, stopAt: number): OscillatorNode[] {
     const ctx = this.ctx!;
     return METAL_FREQS.map((f) => {
       const osc = ctx.createOscillator();

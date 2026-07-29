@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { WebMidi, Output, Input } from 'webmidi';
+import { useEffect, useRef, useState, useCallback } from "react";
+import { WebMidi, Output, Input } from "webmidi";
 
 // Transport event callbacks
 interface MidiTransportCallbacks {
@@ -16,11 +16,11 @@ const TEMPO_SAMPLE_SIZE = 96; // Average over 4 quarter notes for stability
 const TEMPO_HYSTERESIS = 2; // BPM must change by more than this to update
 
 // localStorage keys for persisting MIDI device selections
-const STORAGE_KEY_OUTPUT = 'arpegginator-midi-output';
-const STORAGE_KEY_INPUT = 'arpegginator-midi-input';
+const STORAGE_KEY_OUTPUT = "arpegginator-midi-output";
+const STORAGE_KEY_INPUT = "arpegginator-midi-input";
 // '1' when the user explicitly chose the built-in Web Audio sounds — suppresses
 // the fall-back auto-select of the first MIDI output on load
-export const STORAGE_KEY_BUILTIN_SOUND = 'arpegginator-sound-builtin';
+export const STORAGE_KEY_BUILTIN_SOUND = "arpegginator-sound-builtin";
 
 export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   const [isEnabled, setIsEnabled] = useState(false);
@@ -42,10 +42,15 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   }, [transportCallbacks]);
 
   useEffect(() => {
-    console.log('[startup] Enabling WebMidi...');
+    console.log("[startup] Enabling WebMidi...");
     WebMidi.enable()
       .then(() => {
-        console.log('[startup] WebMidi enabled, outputs=' + WebMidi.outputs.length + ' inputs=' + WebMidi.inputs.length);
+        console.log(
+          "[startup] WebMidi enabled, outputs=" +
+            WebMidi.outputs.length +
+            " inputs=" +
+            WebMidi.inputs.length,
+        );
         setIsEnabled(true);
         setOutputs(WebMidi.outputs);
         setInputs(WebMidi.inputs);
@@ -53,13 +58,12 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
         // Try to restore previously selected output from localStorage
         const savedOutputName = localStorage.getItem(STORAGE_KEY_OUTPUT);
         const savedInputName = localStorage.getItem(STORAGE_KEY_INPUT);
-        const preferBuiltin =
-          localStorage.getItem(STORAGE_KEY_BUILTIN_SOUND) === '1';
+        const preferBuiltin = localStorage.getItem(STORAGE_KEY_BUILTIN_SOUND) === "1";
 
         // Find and select the saved output, or fall back to first available
         // (unless the user explicitly chose the built-in synth)
         if (savedOutputName) {
-          const savedOutput = WebMidi.outputs.find(o => o.name === savedOutputName);
+          const savedOutput = WebMidi.outputs.find((o) => o.name === savedOutputName);
           if (savedOutput) {
             setSelectedOutput(savedOutput);
           } else if (!preferBuiltin && WebMidi.outputs.length > 0) {
@@ -71,27 +75,27 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
 
         // Find and select the saved input (no fallback - input is optional)
         if (savedInputName) {
-          const savedInput = WebMidi.inputs.find(i => i.name === savedInputName);
+          const savedInput = WebMidi.inputs.find((i) => i.name === savedInputName);
           if (savedInput) {
             setSelectedInput(savedInput);
           }
         }
 
-        WebMidi.addListener('connected', (e) => {
-          console.log('[midi] Device connected:', e.port?.name, e.port?.type);
+        WebMidi.addListener("connected", (e) => {
+          console.log("[midi] Device connected:", e.port?.name, e.port?.type);
           setOutputs([...WebMidi.outputs]);
           setInputs([...WebMidi.inputs]);
         });
 
-        WebMidi.addListener('disconnected', (e) => {
-          console.log('[midi] Device disconnected:', e.port?.name, e.port?.type);
+        WebMidi.addListener("disconnected", (e) => {
+          console.log("[midi] Device disconnected:", e.port?.name, e.port?.type);
           setOutputs([...WebMidi.outputs]);
           setInputs([...WebMidi.inputs]);
         });
       })
       .catch((err) => {
         setError(err.message);
-        console.error('WebMidi could not be enabled:', err);
+        console.error("WebMidi could not be enabled:", err);
       });
 
     return () => {
@@ -155,16 +159,16 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
     };
 
     // Listen for MIDI transport messages
-    selectedInput.addListener('start', handleStart);
-    selectedInput.addListener('stop', handleStop);
-    selectedInput.addListener('continue', handleContinue);
-    selectedInput.addListener('clock', handleClock);
+    selectedInput.addListener("start", handleStart);
+    selectedInput.addListener("stop", handleStop);
+    selectedInput.addListener("continue", handleContinue);
+    selectedInput.addListener("clock", handleClock);
 
     return () => {
-      selectedInput.removeListener('start', handleStart);
-      selectedInput.removeListener('stop', handleStop);
-      selectedInput.removeListener('continue', handleContinue);
-      selectedInput.removeListener('clock', handleClock);
+      selectedInput.removeListener("start", handleStart);
+      selectedInput.removeListener("stop", handleStop);
+      selectedInput.removeListener("continue", handleContinue);
+      selectedInput.removeListener("clock", handleClock);
     };
   }, [selectedInput]);
 
@@ -175,19 +179,16 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
         activeNotes.current.set(note, selectedOutput);
       }
     },
-    [selectedOutput]
+    [selectedOutput],
   );
 
-  const stopNote = useCallback(
-    (note: number, channel = 1) => {
-      const output = activeNotes.current.get(note);
-      if (output) {
-        output.channels[channel].stopNote(note);
-        activeNotes.current.delete(note);
-      }
-    },
-    []
-  );
+  const stopNote = useCallback((note: number, channel = 1) => {
+    const output = activeNotes.current.get(note);
+    if (output) {
+      output.channels[channel].stopNote(note);
+      activeNotes.current.delete(note);
+    }
+  }, []);
 
   const stopAllNotes = useCallback(() => {
     if (selectedOutput) {

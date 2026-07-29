@@ -35,8 +35,7 @@ export const useFitScale = (
       const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
       // visualViewport tracks iOS Safari's collapsing toolbars
       const availW = (window.visualViewport?.width ?? window.innerWidth) - padX;
-      const availH =
-        (window.visualViewport?.height ?? window.innerHeight) - padY;
+      const availH = (window.visualViewport?.height ?? window.innerHeight) - padY;
       const scale = Math.min(1, availW / w, availH / h);
       setFit((prev) =>
         prev.scale === scale && prev.width === w && prev.height === h

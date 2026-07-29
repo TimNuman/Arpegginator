@@ -28,19 +28,13 @@ export class TeensyEngine implements Engine {
 
   // Callbacks — suppress note on/off (Teensy handles MIDI output).
   // Only forward preview note for audible feedback when placing notes while stopped.
-  private _onNoteOn:
-    | ((channel: number, midiNote: number, velocity: number) => void)
-    | null = null;
+  private _onNoteOn: ((channel: number, midiNote: number, velocity: number) => void) | null = null;
   private _onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
 
   get onNoteOn() {
     return this._onNoteOn;
   }
-  set onNoteOn(
-    cb:
-      | ((channel: number, midiNote: number, velocity: number) => void)
-      | null,
-  ) {
+  set onNoteOn(cb: ((channel: number, midiNote: number, velocity: number) => void) | null) {
     this._onNoteOn = cb;
     // Don't forward to wasm — Teensy handles MIDI output during playback
     this.wasm.onNoteOn = null;
@@ -54,16 +48,13 @@ export class TeensyEngine implements Engine {
     this.wasm.onNoteOff = null;
   }
 
-  private _onPlayPreviewNote:
-    | ((channel: number, row: number, lengthTicks: number) => void)
-    | null = null;
+  private _onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null =
+    null;
 
   get onPlayPreviewNote() {
     return this._onPlayPreviewNote;
   }
-  set onPlayPreviewNote(
-    cb: ((channel: number, row: number, lengthTicks: number) => void) | null,
-  ) {
+  set onPlayPreviewNote(cb: ((channel: number, row: number, lengthTicks: number) => void) | null) {
     this._onPlayPreviewNote = cb;
     // Don't forward to wasm — the Teensy generates its own preview note from the
     // same button press (sent via SysEx), so let it be the sole source and avoid
@@ -93,13 +84,12 @@ export class TeensyEngine implements Engine {
     const access = await navigator.requestMIDIAccess({ sysex: true });
 
     // Find Arp3 Sequencer in MIDI ports
-    const output = Array.from(access.outputs.values()).find(p => p.name?.includes("Arp3")) ?? null;
-    const input = Array.from(access.inputs.values()).find(p => p.name?.includes("Arp3")) ?? null;
+    const output =
+      Array.from(access.outputs.values()).find((p) => p.name?.includes("Arp3")) ?? null;
+    const input = Array.from(access.inputs.values()).find((p) => p.name?.includes("Arp3")) ?? null;
 
     if (!output) {
-      throw new Error(
-        'Arp3 Sequencer not found. Make sure Teensy is plugged in.',
-      );
+      throw new Error("Arp3 Sequencer not found. Make sure Teensy is plugged in.");
     }
 
     this.midiOutput = output;
@@ -122,11 +112,7 @@ export class TeensyEngine implements Engine {
 
     // Listen for disconnection
     access.onstatechange = (event: MIDIConnectionEvent) => {
-      if (
-        event.port &&
-        event.port.name?.includes("Arp3") &&
-        event.port.state === "disconnected"
-      ) {
+      if (event.port && event.port.name?.includes("Arp3") && event.port.state === "disconnected") {
         this.handleDisconnect();
       }
     };
@@ -146,29 +132,31 @@ export class TeensyEngine implements Engine {
   /** Send all current WASM engine state to Teensy so it matches */
   private syncStateToTeensy(): void {
     try {
-    const bpm = this.wasm.getBpm();
-    const swing = this.wasm.getSwing();
-    const zoom = this.wasm.getZoom();
-    const ch = this.wasm.getCurrentChannel();
+      const bpm = this.wasm.getBpm();
+      const swing = this.wasm.getSwing();
+      const zoom = this.wasm.getZoom();
+      const ch = this.wasm.getCurrentChannel();
 
-    this.send(proto.encodeSetBpm(bpm));
-    this.send(proto.encodeSetSwing(swing));
-    this.send(proto.encodeSetZoom(zoom));
-    this.send(proto.encodeSetCurrentChannel(ch));
+      this.send(proto.encodeSetBpm(bpm));
+      this.send(proto.encodeSetSwing(swing));
+      this.send(proto.encodeSetZoom(zoom));
+      this.send(proto.encodeSetCurrentChannel(ch));
 
-    // Channel types
-    const types = Array.from({ length: 6 }, (_, i) => this.wasm.getChannelType(i));
-    this.send(proto.encodeSetChannelTypes(types));
+      // Channel types
+      const types = Array.from({ length: 6 }, (_, i) => this.wasm.getChannelType(i));
+      this.send(proto.encodeSetChannelTypes(types));
 
-    // Row offsets for all channels
-    for (let i = 0; i < 6; i++) {
-      const offset = this.wasm.getRowOffset(i);
-      this.send(proto.encodeSetRowOffset(i, offset));
-    }
+      // Row offsets for all channels
+      for (let i = 0; i < 6; i++) {
+        const offset = this.wasm.getRowOffset(i);
+        this.send(proto.encodeSetRowOffset(i, offset));
+      }
 
-    console.log(`[Teensy sync] bpm=${bpm} zoom=${zoom} ch=${ch} types=[${types}] offsets=[${[0,1,2,3,4,5].map(i => this.wasm.getRowOffset(i).toFixed(3))}]`);
+      console.log(
+        `[Teensy sync] bpm=${bpm} zoom=${zoom} ch=${ch} types=[${types}] offsets=[${[0, 1, 2, 3, 4, 5].map((i) => this.wasm.getRowOffset(i).toFixed(3))}]`,
+      );
     } catch (e) {
-      console.error('[Teensy sync] ERROR:', e);
+      console.error("[Teensy sync] ERROR:", e);
     }
   }
 
@@ -389,12 +377,7 @@ export class TeensyEngine implements Engine {
 
   // ============ Touch Strip (local + Teensy) ============
 
-  stripStart(
-    strip: number,
-    pos: number,
-    shift: boolean,
-    timeMs: number,
-  ): void {
+  stripStart(strip: number, pos: number, shift: boolean, timeMs: number): void {
     this.wasm.stripStart(strip, pos, shift, timeMs);
     this.send(proto.encodeStripStart(strip, pos, shift, timeMs));
   }

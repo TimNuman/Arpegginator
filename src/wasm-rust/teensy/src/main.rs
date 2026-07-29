@@ -14,12 +14,13 @@ use teensy4_bsp as bsp;
 use teensy4_panic as _;
 
 use bsp::board;
-use bsp::hal::usbd::{BusAdapter, EndpointMemory, EndpointState, Speed, gpt};
+use bsp::hal::pit::Channel as PitChannel;
+use bsp::usbd::{BusAdapter, EndpointMemory, EndpointState, Speed, gpt};
 
 use usb_device::bus::UsbBusAllocator;
-use usb_device::device::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid};
+use usb_device::device::{StringDescriptors, UsbDeviceBuilder, UsbDeviceState, UsbVidPid};
 
-use embedded_hal::serial::Write as SerialWrite;
+use embedded_io::Write as _;
 
 use arp3_engine::cell::Global;
 use arp3_engine::engine_core::{self, EngineState, TICKS_PER_QUARTER};
@@ -100,25 +101,21 @@ mod protocol {
 // ============ MIDI Output Helper ============
 
 struct MidiOut<'a, B: usb_device::bus::UsbBus> {
-    uart: &'a mut board::Lpuart4,
+    uart: &'a mut board::Lpuart,
     usb: &'a MidiClass<'a, B>,
     usb_ok: bool,
 }
 
 impl<'a, B: usb_device::bus::UsbBus> MidiOut<'a, B> {
     fn note_on(&mut self, ch: u8, note: u8, vel: u8) {
-        let _ = nb::block!(self.uart.write(0x90 | (ch & 0x0F)));
-        let _ = nb::block!(self.uart.write(note & 0x7F));
-        let _ = nb::block!(self.uart.write(vel & 0x7F));
+        let _ = self.uart.write_all(&[0x90 | (ch & 0x0F), note & 0x7F, vel & 0x7F]);
         if self.usb_ok {
             let _ = self.usb.note_on(ch, note, vel);
         }
     }
 
     fn note_off(&mut self, ch: u8, note: u8) {
-        let _ = nb::block!(self.uart.write(0x80 | (ch & 0x0F)));
-        let _ = nb::block!(self.uart.write(note & 0x7F));
-        let _ = nb::block!(self.uart.write(0));
+        let _ = self.uart.write_all(&[0x80 | (ch & 0x0F), note & 0x7F, 0]);
         if self.usb_ok {
             let _ = self.usb.note_off(ch, note);
         }
@@ -134,16 +131,19 @@ fn main() -> ! {
     let board::Resources {
         mut gpio2,
         pins,
-        pit: (mut pit0, ..),
+        mut pit,
         lpuart4,
         usb,
         ..
     } = board::t41(board::instances());
 
-    let led = gpio2.output(pins.p13);
+    // PIT channel used for the sequencer tick timer.
+    const PIT_CH: PitChannel = PitChannel::Chan0;
+
+    let led = gpio2.output(pins.p13).ok().unwrap();
 
     // ---- MIDI UART (LPUART4 on pins 8/7) at 31250 baud ----
-    let mut midi_uart: board::Lpuart4 = board::lpuart(lpuart4, pins.p8, pins.p7, 31250);
+    let mut midi_uart: board::Lpuart = board::lpuart(lpuart4, pins.p8, pins.p7, 31250);
 
     // ---- USB MIDI Device ----
     let bus_adapter = BusAdapter::with_speed(usb, &EP_MEMORY, &EP_STATE, Speed::LowFull);
@@ -165,7 +165,8 @@ fn main() -> ! {
 
     let mut usb_midi = MidiClass::new(usb_bus);
     let mut usb_device = UsbDeviceBuilder::new(usb_bus, USB_VID_PID)
-        .product(USB_PRODUCT)
+        .strings(&[StringDescriptors::default().product(USB_PRODUCT)])
+        .unwrap()
         .device_class(0x00)
         .device_sub_class(0x00)
         .device_protocol(0x00)
@@ -179,7 +180,7 @@ fn main() -> ! {
 
     // ---- Configure PIT0 ----
     let mut pit_reload = bpm_to_pit_reload(DEFAULT_BPM);
-    pit0.set_load_timer_value(pit_reload);
+    pit.set_load_timer_value(PIT_CH, pit_reload);
 
     let mut tick_counter: u32 = 0;
 
@@ -215,13 +216,13 @@ fn main() -> ! {
         }
 
         // 2. Process sequencer tick
-        if state.is_playing != 0 && pit0.is_elapsed() {
-            pit0.clear_elapsed();
+        if state.is_playing != 0 && pit.is_elapsed(PIT_CH) {
+            pit.clear_elapsed(PIT_CH);
 
             let new_reload = bpm_to_pit_reload(state.bpm);
             if new_reload != pit_reload {
                 pit_reload = new_reload;
-                pit0.set_load_timer_value(pit_reload);
+                pit.set_load_timer_value(PIT_CH, pit_reload);
             }
 
             engine_core::engine_core_tick(&mut state);
@@ -309,7 +310,7 @@ fn main() -> ! {
             }
             if accum_len > 0 {
                 let consumed = process_midi_input(
-                    &accum_buf[..accum_len], &mut state, &mut pit0, &usb_midi,
+                    &accum_buf[..accum_len], &mut state, &mut pit, &usb_midi,
                 );
                 if consumed > 0 && consumed < accum_len {
                     accum_buf.copy_within(consumed..accum_len, 0);
@@ -337,7 +338,7 @@ static EP_STATE: EndpointState = EndpointState::max_endpoints();
 fn process_midi_input<B: usb_device::bus::UsbBus>(
     buf: &[u8],
     state: &mut EngineState,
-    pit: &mut bsp::hal::pit::Pit<0>,
+    pit: &mut bsp::hal::pit::Pit,
     midi: &MidiClass<B>,
 ) -> usize {
     let mut offset = 0;
@@ -365,20 +366,20 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     engine_core::engine_core_play_init(state);
                 }
                 state.is_playing = 1;
-                pit.set_load_timer_value(bpm_to_pit_reload(state.bpm));
-                pit.enable();
+                pit.set_load_timer_value(PitChannel::Chan0, bpm_to_pit_reload(state.bpm));
+                pit.enable(PitChannel::Chan0);
             }
             protocol::CMD_STOP => {
                 engine_core::engine_core_stop(state);
                 state.is_playing = 0;
-                pit.disable();
+                pit.disable(PitChannel::Chan0);
             }
             protocol::CMD_RESET => {
                 engine_core::engine_core_stop(state);
                 state.is_playing = 0;
                 state.current_tick = -1;
                 state.resume_tick = -1;
-                pit.disable();
+                pit.disable(PitChannel::Chan0);
             }
             protocol::CMD_SET_BPM => {
                 if payload.len() >= 3 {

@@ -15,7 +15,7 @@ default = ["lookahead"]
 lookahead = []
 
 [dependencies]
-libm = "0.2"  # f32 math (sqrt, sin, cos, atan2) for no_std
+libm = "0.2" # f32 math (sqrt, sin, cos, atan2) for no_std
 
 [build-dependencies]
 fontdue = "0.9"

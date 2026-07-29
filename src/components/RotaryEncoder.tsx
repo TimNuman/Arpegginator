@@ -173,14 +173,11 @@ export const RotaryEncoder = memo(({ onStep, label }: RotaryEncoderProps) => {
     [angleAt, onStep, spinTo],
   );
 
-  const handlePointerEnd = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (drag.current?.pointerId !== e.pointerId) return;
-      drag.current = null;
-      containerRef.current?.releasePointerCapture(e.pointerId);
-    },
-    [],
-  );
+  const handlePointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== e.pointerId) return;
+    drag.current = null;
+    containerRef.current?.releasePointerCapture(e.pointerId);
+  }, []);
 
   return (
     <div>

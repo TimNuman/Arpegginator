@@ -52,10 +52,7 @@ async function loadRustWasm(
 
   const base = import.meta.env.BASE_URL ?? "/";
   const response = await fetch(`${base}wasm-rust/engine.wasm`);
-  const { instance } = await WebAssembly.instantiateStreaming(
-    response,
-    importObject,
-  );
+  const { instance } = await WebAssembly.instantiateStreaming(response, importObject);
   return new WasmModule(instance);
 }
 
@@ -74,13 +71,9 @@ export class WasmEngine implements Engine {
 
   // Callbacks. The engine now resolves all timing/flam/lookahead internally and
   // emits fully-scheduled note-ons, so JS just forwards them to MIDI.
-  onNoteOn:
-    | ((channel: number, midiNote: number, velocity: number) => void)
-    | null = null;
+  onNoteOn: ((channel: number, midiNote: number, velocity: number) => void) | null = null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
-  onPlayPreviewNote:
-    | ((channel: number, row: number, lengthTicks: number) => void)
-    | null = null;
+  onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
 
   async load(): Promise<void> {
     if (this.module) return;

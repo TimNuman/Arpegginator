@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from "react";
 
 // ============ Render Loop ============
 // Fixed-framerate render loop. Event handlers call markDirty() to flag that

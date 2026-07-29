@@ -37,11 +37,7 @@ export class OledRenderer {
 
     const ptr = this.module.exports.oled_get_framebuffer();
     // RGB565 = 2 bytes per pixel; read a fresh view onto the live heap.
-    const fb = new Uint16Array(
-      this.module.buffer,
-      ptr,
-      OLED_WIDTH * OLED_HEIGHT,
-    );
+    const fb = new Uint16Array(this.module.buffer, ptr, OLED_WIDTH * OLED_HEIGHT);
     const pixels = this.imageData.data;
 
     for (let i = 0; i < OLED_WIDTH * OLED_HEIGHT; i++) {

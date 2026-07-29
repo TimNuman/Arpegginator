@@ -142,7 +142,7 @@ function App() {
       // Request MIDI access (may prompt user once for sysex permission)
       const access = await navigator.requestMIDIAccess({ sysex: true });
       // Check if Arp3 Sequencer is present
-      const found = Array.from(access.outputs.values()).some(p => p.name?.includes("Arp3"));
+      const found = Array.from(access.outputs.values()).some((p) => p.name?.includes("Arp3"));
       if (!found) {
         console.log("[startup] No Teensy found, using WASM engine");
         return;
@@ -178,12 +178,7 @@ function App() {
         engineRef.current = engine;
         setWasmEngine(engine);
         actions.setEngine(engine);
-        console.log(
-          "[startup] WASM engine v" +
-            engine.getVersion() +
-            " ready, isEnabled=" +
-            isEnabled,
-        );
+        console.log("[startup] WASM engine v" + engine.getVersion() + " ready");
 
         // Auto-connect to Teensy if one is present
         tryAutoConnectTeensy(engine);
@@ -307,7 +302,9 @@ function App() {
   const [swing, setSwingLocal] = useState(50);
 
   // Keep bpmRef in sync with actual BPM
-  bpmRef.current = bpm;
+  useEffect(() => {
+    bpmRef.current = bpm;
+  });
 
   const handlePlayNote = useCallback(
     (note: number, channel: number, lengthTicks?: number) => {
@@ -327,21 +324,11 @@ function App() {
     if (engine) {
       engine.onNoteOn = handleNoteOn;
       engine.onNoteOff = handleNoteOff;
-      engine.onPlayPreviewNote = (
-        channel: number,
-        row: number,
-        lengthTicks: number,
-      ) => {
+      engine.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
         const isDrum = engine.getChannelType(channel) === 1;
-        const midiNote = isDrum
-          ? Math.max(0, Math.min(127, row))
-          : engine.noteToMidi(row);
+        const midiNote = isDrum ? Math.max(0, Math.min(127, row)) : engine.noteToMidi(row);
         if (midiNote >= 0) {
-          handlePlayNote(
-            midiNote,
-            channel,
-            lengthTicks > 0 ? lengthTicks : undefined,
-          );
+          handlePlayNote(midiNote, channel, lengthTicks > 0 ? lengthTicks : undefined);
         }
       };
     }
@@ -354,21 +341,23 @@ function App() {
     };
   }, [handleNoteOn, handleNoteOff, handlePlayNote, wasmEngine]);
 
-  // Keep transport refs in sync for MIDI sync callbacks
-  playExternalRef.current = actions.playExternal;
   const clearPendingTimeouts = () => {
     pendingTimeouts.current.forEach(clearTimeout);
     pendingTimeouts.current.clear();
   };
 
-  stopExternalRef.current = () => {
-    clearPendingTimeouts();
-    actions.stopExternal();
-    stopAllNotes();
-    synth.allNotesOff();
-  };
-  externalTickRef.current = actions.externalTick;
-  setBpmRef.current = actions.setBpm;
+  // Keep transport refs in sync for MIDI sync callbacks
+  useEffect(() => {
+    playExternalRef.current = actions.playExternal;
+    stopExternalRef.current = () => {
+      clearPendingTimeouts();
+      actions.stopExternal();
+      stopAllNotes();
+      synth.allNotesOff();
+    };
+    externalTickRef.current = actions.externalTick;
+    setBpmRef.current = actions.setBpm;
+  });
 
   const handlePlay = useCallback(() => {
     synth.resume();
@@ -444,9 +433,10 @@ function App() {
       if (!currentWasm || !currentWasm.isReady()) return;
 
       // If already a TeensyEngine, grab its inner WASM engine
-      const wasmToWrap = currentWasm instanceof TeensyEngine
-        ? (currentWasm as unknown as { wasm: WasmEngine }).wasm
-        : currentWasm as WasmEngine;
+      const wasmToWrap =
+        currentWasm instanceof TeensyEngine
+          ? (currentWasm as unknown as { wasm: WasmEngine }).wasm
+          : (currentWasm as WasmEngine);
 
       const teensy = new TeensyEngine(wasmToWrap);
       teensy.onConnectionChange = (connected) => {
@@ -467,9 +457,7 @@ function App() {
   // Don't render until the WASM engine is ready. MIDI is optional — on
   // platforms without Web MIDI (e.g. iPad Safari) the built-in synth is used.
   if (!wasmEngine) {
-    console.log(
-      "[startup] Gated: wasmEngine=" + !!wasmEngine + " isEnabled=" + isEnabled,
-    );
+    console.log("[startup] Gated: wasmEngine=" + !!wasmEngine + " isEnabled=" + isEnabled);
     return (
       <ThemeProvider theme={darkTheme}>
         <CssBaseline />

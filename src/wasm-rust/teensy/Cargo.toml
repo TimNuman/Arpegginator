@@ -12,10 +12,9 @@ lookahead = ["arp3-engine/lookahead"]
 
 [dependencies]
 arp3-engine = { path = "../engine", default-features = false }
-teensy4-bsp = { version = "0.5", features = ["rt"] }
-teensy4-panic = "0.2"
+teensy4-bsp = { version = "0.6", features = ["rt"] }
+teensy4-panic = "0.3"
 cortex-m = "0.7"
-embedded-alloc = "0.6"
-embedded-hal = "0.2"         # serial Write/Read traits for UART MIDI
-nb = "1.1"                   # nb::block! for UART serial
-usb-device = "0.2"           # USB device framework (matches teensy4-bsp's version)
+embedded-alloc = "0.7"
+embedded-io = "0.7" # blocking Write trait for UART MIDI (impl'd by imxrt-hal's Lpuart)
+usb-device = "0.3" # USB device framework (matches teensy4-bsp's version)
