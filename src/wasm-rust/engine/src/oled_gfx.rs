@@ -266,7 +266,7 @@ pub fn gfx_aa_circle_thick(cx: i16, cy: i16, radius: i16, thickness: i16, color:
             (-r_outer..=r_outer).for_each(|dx| {
                 let d2 = (dx as i32) * (dx as i32) + (dy as i32) * (dy as i32);
                 if d2 <= ro2 && d2 >= ri2 {
-                    gfx_pixel(cx + dx as i16, cy + dy as i16, color);
+                    gfx_pixel(cx + dx, cy + dy, color);
                 }
             });
         });
@@ -349,7 +349,7 @@ pub fn gfx_aa_arc(cx: i16, cy: i16, radius: i16, thickness: i16, start_deg: i16,
                     0u8
                 };
                 if alpha > 0 {
-                    gfx_pixel_alpha(cx + dx as i16, cy + dy as i16, color, alpha);
+                    gfx_pixel_alpha(cx + dx, cy + dy, color, alpha);
                 }
             }
         });

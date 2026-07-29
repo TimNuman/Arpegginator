@@ -165,7 +165,7 @@ pub fn engine_render_events(
 
     (0..pat.event_count as usize).for_each(|e| {
         let h = pat.event_handles[e];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         if ev.enabled == 0 || count >= max_out { return; }
 
         (0..ev.repeat_amount).for_each(|r| {
@@ -258,37 +258,20 @@ pub fn engine_ensure_rendered(s: &mut EngineState, channel: u8) {
 // ============ Grid coordinate helpers ============
 
 fn get_start_tick(s: &EngineState) -> i32 {
-    let ticks_per_col = s.zoom;
-    let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
-    let pat_len = s.patterns[ch][pat].length_ticks;
-    let total_cols = if pat_len > 0 && ticks_per_col > 0 {
-        (pat_len + ticks_per_col - 1) / ticks_per_col
-    } else { 0 };
-
-    if total_cols <= VISIBLE_COLS as i32 { return 0; }
-    let max_col_offset = total_cols - VISIBLE_COLS as i32;
-    let start_col = (s.col_offset * max_col_offset as f32 + 0.5).min(max_col_offset as f32).max(0.0) as i32;
-    start_col * ticks_per_col
-}
-
-fn get_min_row(s: &EngineState) -> i16 {
-    if s.channel_types[s.current_channel as usize] == ChannelType::Drum as u8 {
-        0
-    } else {
-        -(s.scale_zero_index as i16)
-    }
+    let max_col_offset = s.max_col_offset();
+    if max_col_offset <= 0 { return 0; }
+    let start_col = (s.col_offset * max_col_offset as f32 + 0.5)
+        .clamp(0.0, max_col_offset as f32) as i32;
+    start_col * s.zoom
 }
 
 fn get_start_row(s: &EngineState, total_rows: i16) -> i16 {
-    let min_row = get_min_row(s);
+    let min_row = s.min_row();
     if total_rows <= VISIBLE_ROWS as i16 { return min_row; }
-    let ch = s.current_channel as usize;
-    let offset = s.row_offsets[ch];
+    let offset = s.row_offsets[s.current_channel as usize];
     let max_offset = total_rows - VISIBLE_ROWS as i16;
     let start_array_index = ((1.0 - offset) * max_offset as f32 + 0.5)
-        .max(0.0)
-        .min(max_offset as f32) as i16;
+        .clamp(0.0, max_offset as f32) as i16;
     start_array_index + min_row
 }
 
@@ -323,7 +306,8 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     let looped_tick = get_looped_tick(s);
     let loop_end = lp_start + lp_length;
 
-    let total_rows = if s.channel_types[ch] == ChannelType::Drum as u8 { 128 } else { s.scale_count as i16 };
+    let is_drum = s.is_drum_channel(ch);
+    let total_rows = if is_drum { 128 } else { s.scale_count as i16 };
     let start_row = get_start_row(s, total_rows);
     let ch_color = s.channel_colors[ch];
 
@@ -336,11 +320,11 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     let mut ev_vel_snapshots = [0u16; MAX_EVENTS];
     (0..event_count).for_each(|i| {
         let h = s.patterns[ch][pat].event_handles[i];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         let ev_idx = ev.event_index;
         ev_indexes[i] = ev_idx;
-        for sm in 0..NUM_SUB_MODES {
-            ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
+        for (sm, slot) in ev_sub_modes[i].iter_mut().enumerate() {
+            *slot = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
         }
         ev_hit_snapshots[i] = s.counter_snapshots[SubModeId::Hit as usize][ch][(ev_idx as usize) % MAX_EVENTS];
         ev_vel_snapshots[i] = s.counter_snapshots[SubModeId::Velocity as usize][ch][(ev_idx as usize) % MAX_EVENTS];
@@ -351,7 +335,6 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     let scale_zero_index = s.scale_zero_index;
     let scale_count = s.scale_count;
     let scale_root = s.scale_root;
-    let is_drum = s.channel_types[ch] == ChannelType::Drum as u8;
 
     (0..VISIBLE_ROWS).for_each(|vr| {
         let flipped = VISIBLE_ROWS - 1 - vr;
@@ -378,7 +361,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
                 if selected_idx >= 0 && rn.source_idx == selected_idx as u16 {
                     let rn_starts = rn.position >= actual_tick && rn.position < col_end_tick;
-                    let prev_starts = selected_here.map_or(false, |si|
+                    let prev_starts = selected_here.is_some_and(|si|
                         notes[si].position >= actual_tick && notes[si].position < col_end_tick
                     );
                     // Prefer a selected note that starts in this cell over one just continuing
@@ -436,7 +419,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 if !is_start { value |= FLAG_CONTINUATION; }
                 // Show playing highlight if the displayed note itself is playing,
                 // but not if a different note's hold is underneath a hit
-                let chosen_playing = playing_note.map_or(false, |pn| pn == ni);
+                let chosen_playing = playing_note == Some(ni);
                 if chosen_playing || (playing_note.is_some() && !is_start) {
                     value |= FLAG_PLAYING;
                 }
@@ -563,61 +546,76 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     });
 }
 
+// ============ Channel/Pattern Row Rendering (channel mode + Ctrl overlay) ============
+
+/// Paint grid row `row` as channel `ch_idx`'s strip: mute/solo cell at col 0,
+/// pattern cells after. Cells with no pattern content are dimmed — ORed over
+/// the existing value when `dim_overlays` (channel mode keeps the pattern
+/// visible underneath), overwritten otherwise (Ctrl overlay).
+fn paint_channel_row(s: &mut EngineState, row: usize, ch_idx: usize, any_soloed: bool, dim_overlays: bool) {
+    let dim_cell = |s: &mut EngineState, vc: usize| {
+        if dim_overlays {
+            s.button_values[row][vc] |= FLAG_DIMMED;
+        } else {
+            s.button_values[row][vc] = FLAG_DIMMED;
+        }
+    };
+
+    let ch_color = s.channel_colors[ch_idx];
+    let cur_pat = s.current_patterns[ch_idx] as usize;
+    let is_soloed = s.soloed[ch_idx] != 0;
+    let is_eff_muted = s.muted[ch_idx] != 0 || (any_soloed && !is_soloed);
+    let is_ch_playing = s.channels_playing_now[ch_idx] != 0;
+
+    (0..VISIBLE_COLS).for_each(|vc| {
+        if vc == 0 {
+            let val = if is_soloed { BTN_WHITE_25 }
+                else if is_eff_muted { BTN_COLOR_25 }
+                else { BTN_COLOR_100 };
+            s.button_values[row][vc] = val | if is_ch_playing { FLAG_PLAYHEAD } else { 0 };
+            s.color_overrides[row][vc] = ch_color;
+            return;
+        }
+
+        let pat_idx = vc - 1;
+        if pat_idx >= NUM_PATTERNS {
+            dim_cell(s, vc);
+            return;
+        }
+
+        let has_notes = s.patterns_have_notes[ch_idx][pat_idx] != 0;
+        let is_selected = ch_idx == s.current_channel as usize && pat_idx == cur_pat;
+        let is_active = pat_idx == cur_pat;
+        let is_queued = s.queued_patterns[ch_idx] == pat_idx as i8;
+        let is_playing_now = is_active && is_ch_playing;
+
+        if has_notes || is_queued {
+            let mut val = if is_selected { BTN_COLOR_100 } else { BTN_COLOR_50 };
+            if is_eff_muted { val = BTN_COLOR_25; }
+            else if is_soloed && !is_selected { val = BTN_WHITE_25; }
+            if is_playing_now || is_queued { val |= FLAG_PLAYHEAD; }
+            s.button_values[row][vc] = val;
+            s.color_overrides[row][vc] = ch_color;
+        } else {
+            dim_cell(s, vc);
+        }
+    });
+}
+
 // ============ Channel Mode Rendering ============
 
 fn render_channel_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: usize) {
-    let any_soloed = s.soloed.iter().any(|&v| v != 0);
+    let any_soloed = s.any_soloed();
 
     render_pattern_mode(s, notes, note_count);
 
     (0..VISIBLE_ROWS).for_each(|vr| {
-        let ch_idx = vr;
-        if ch_idx >= NUM_CHANNELS {
+        if vr >= NUM_CHANNELS {
             // More grid rows than channels — no channel maps here, dim the row.
             (0..VISIBLE_COLS).for_each(|vc| s.button_values[vr][vc] |= FLAG_DIMMED);
-            return;
+        } else {
+            paint_channel_row(s, vr, vr, any_soloed, true);
         }
-        let ch_color = s.channel_colors[ch_idx];
-        let cur_pat = s.current_patterns[ch_idx];
-        let is_muted = s.muted[ch_idx] != 0;
-        let is_soloed = s.soloed[ch_idx] != 0;
-        let is_eff_muted = is_muted || (any_soloed && !is_soloed);
-
-        (0..VISIBLE_COLS).for_each(|vc| {
-            if vc == 0 {
-                let is_playing_now = s.channels_playing_now[ch_idx] != 0;
-                let val = if is_soloed { BTN_WHITE_25 }
-                    else if is_eff_muted { BTN_COLOR_25 }
-                    else { BTN_COLOR_100 };
-                s.button_values[vr][vc] = val | if is_playing_now { FLAG_PLAYHEAD } else { 0 };
-                s.color_overrides[vr][vc] = ch_color;
-                return;
-            }
-
-            let pat_idx = vc - 1;
-            if pat_idx >= NUM_PATTERNS {
-                s.button_values[vr][vc] |= FLAG_DIMMED;
-                return;
-            }
-
-            let has_notes = s.patterns_have_notes[ch_idx][pat_idx] != 0;
-            let is_selected = ch_idx == s.current_channel as usize && pat_idx == cur_pat as usize;
-            let is_active = pat_idx == cur_pat as usize;
-            let is_queued = s.queued_patterns[ch_idx] == pat_idx as i8;
-            let is_playing_now = is_active && s.channels_playing_now[ch_idx] != 0;
-            let is_empty = !has_notes && !is_queued;
-
-            if !is_empty {
-                let mut val = if is_selected { BTN_COLOR_100 } else { BTN_COLOR_50 };
-                if is_eff_muted { val = BTN_COLOR_25; }
-                else if is_soloed && !is_selected { val = BTN_WHITE_25; }
-                if is_playing_now || is_queued { val |= FLAG_PLAYHEAD; }
-                s.button_values[vr][vc] = val;
-                s.color_overrides[vr][vc] = ch_color;
-            } else {
-                s.button_values[vr][vc] |= FLAG_DIMMED;
-            }
-        });
     });
 }
 
@@ -666,7 +664,7 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
 
     // Read event data via pool to avoid borrow issues
     let h = s.patterns[ch][pat].event_handles[ev_idx];
-    let ev = &s.event_pool.slots[h as usize];
+    let ev = &s.event_pool[h];
     let repeat_amount = ev.repeat_amount;
     let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let array_length = sm_arr.length;
@@ -751,10 +749,11 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
             let is_playing_col = vc as i16 == playing_col;
             let is_explicit = (vc as u8) < array_length;
             let is_in_repeat = (vc as u16) < repeat_amount;
-            let is_unreachable = (is_explicit && !is_in_repeat
-                && loop_mode != LoopMode::Continue as u8)
-                || (loop_mode == LoopMode::Continue as u8
-                    && is_explicit && !cnt_active[vc]);
+            let is_unreachable = is_explicit && if loop_mode == LoopMode::Continue as u8 {
+                !cnt_active[vc]
+            } else {
+                !is_in_repeat
+            };
 
             if !is_explicit && !is_in_repeat {
                 s.button_values[vr][vc] = if is_playing_col { FLAG_PLAYHEAD } else { BTN_OFF };
@@ -801,7 +800,7 @@ fn compute_ghost_notes(s: &mut EngineState) {
         return;
     }
     let current_ch = s.current_channel as usize;
-    if s.channel_types[current_ch] == ChannelType::Drum as u8 {
+    if s.is_drum_channel(current_ch) {
         s.ghost_count = 0;
         return;
     }
@@ -810,15 +809,14 @@ fn compute_ghost_notes(s: &mut EngineState) {
     let scale_cnt = s.scale_count;
     let mut count = 0usize;
     for ch in 0..NUM_CHANNELS {
-        if s.channel_types[ch] == ChannelType::Drum as u8 { continue; }
+        if s.is_drum_channel(ch) { continue; }
 
         let pat = s.current_patterns[ch];
         let temp_buf = TEMP_RENDERED.get_mut();
         let cnt = engine_render_events(s, ch as u8, pat, temp_buf, MAX_RENDERED_NOTES);
 
-        for i in 0..cnt as usize {
+        for rn in temp_buf[..cnt as usize].iter().copied() {
             if count >= MAX_GHOST_NOTES { break; }
-            let rn = temp_buf[i];
             let midi_idx = scale_zero as i32 + rn.row as i32;
             if midi_idx < 0 || midi_idx >= scale_cnt as i32 { continue; }
             let midi = s.scale_notes[midi_idx as usize];
@@ -841,52 +839,11 @@ fn compute_ghost_notes(s: &mut EngineState) {
 fn apply_ctrl_overlay(s: &mut EngineState) {
     if (s.modifiers_held & MOD_CTRL) == 0 { return; }
 
-    let any_soloed = s.soloed.iter().any(|&v| v != 0);
+    let any_soloed = s.any_soloed();
 
     // Rows 0..NUM_CHANNELS: channel/pattern grid
     (0..NUM_CHANNELS).for_each(|ch_idx| {
-        let ch_color = s.channel_colors[ch_idx];
-        let cur_pat = s.current_patterns[ch_idx];
-        let is_muted = s.muted[ch_idx] != 0;
-        let is_soloed = s.soloed[ch_idx] != 0;
-        let is_eff_muted = is_muted || (any_soloed && !is_soloed);
-
-        (0..VISIBLE_COLS).for_each(|vc| {
-            if vc == 0 {
-                // Mute/Solo button
-                let is_playing_now = s.channels_playing_now[ch_idx] != 0;
-                let val = if is_soloed { BTN_WHITE_25 }
-                    else if is_eff_muted { BTN_COLOR_25 }
-                    else { BTN_COLOR_100 };
-                s.button_values[ch_idx][vc] = val | if is_playing_now { FLAG_PLAYHEAD } else { 0 };
-                s.color_overrides[ch_idx][vc] = ch_color;
-                return;
-            }
-
-            let pat_idx = vc - 1;
-            if pat_idx >= NUM_PATTERNS {
-                s.button_values[ch_idx][vc] = FLAG_DIMMED;
-                return;
-            }
-
-            let has_notes = s.patterns_have_notes[ch_idx][pat_idx] != 0;
-            let is_selected = ch_idx == s.current_channel as usize && pat_idx == cur_pat as usize;
-            let is_active = pat_idx == cur_pat as usize;
-            let is_queued = s.queued_patterns[ch_idx] == pat_idx as i8;
-            let is_playing_now = is_active && s.channels_playing_now[ch_idx] != 0;
-            let is_empty = !has_notes && !is_queued;
-
-            if !is_empty {
-                let mut val = if is_selected { BTN_COLOR_100 } else { BTN_COLOR_50 };
-                if is_eff_muted { val = BTN_COLOR_25; }
-                else if is_soloed && !is_selected { val = BTN_WHITE_25; }
-                if is_playing_now || is_queued { val |= FLAG_PLAYHEAD; }
-                s.button_values[ch_idx][vc] = val;
-                s.color_overrides[ch_idx][vc] = ch_color;
-            } else {
-                s.button_values[ch_idx][vc] = FLAG_DIMMED;
-            }
-        });
+        paint_channel_row(s, ch_idx, ch_idx, any_soloed, false);
     });
 
     // Rows NUM_CHANNELS..VISIBLE_ROWS-1: dimmed separator
@@ -929,6 +886,12 @@ fn apply_ctrl_overlay(s: &mut EngineState) {
 const EASE_FACTOR: f32 = 0.12;
 const EASE_SNAP: f32 = 0.001;
 
+/// One step of exponential easing from `cur` toward `tgt`, snapping when close.
+fn ease_toward(cur: f32, tgt: f32) -> f32 {
+    let diff = tgt - cur;
+    if diff.abs() < EASE_SNAP { tgt } else { cur + diff * EASE_FACTOR }
+}
+
 pub fn engine_compute_grid(s: &mut EngineState, timestamp_ms: f32) {
     // Auto-scroll to follow playhead
     crate::engine_strip::engine_playhead_follow(s);
@@ -937,33 +900,10 @@ pub fn engine_compute_grid(s: &mut EngineState, timestamp_ms: f32) {
     crate::engine_strip::engine_strip_inertia_tick(s, 0);
     crate::engine_strip::engine_strip_inertia_tick(s, 1);
 
+    // Ease scroll offsets toward their targets
     let ch = s.current_channel as usize;
-
-    // Ease row offset toward target
-    let cur = s.row_offsets[ch];
-    let tgt = s.target_row_offsets[ch];
-    if cur != tgt {
-        let diff = tgt - cur;
-        if diff.abs() < EASE_SNAP {
-            s.row_offsets[ch] = tgt;
-        } else {
-            s.row_offsets[ch] = cur + diff * EASE_FACTOR;
-        }
-    }
-
-    // Ease col offset toward target
-    {
-        let cur = s.col_offset;
-        let tgt = s.target_col_offset;
-        if cur != tgt {
-            let diff = tgt - cur;
-            if diff.abs() < EASE_SNAP {
-                s.col_offset = tgt;
-            } else {
-                s.col_offset = cur + diff * EASE_FACTOR;
-            }
-        }
-    }
+    s.row_offsets[ch] = ease_toward(s.row_offsets[ch], s.target_row_offsets[ch]);
+    s.col_offset = ease_toward(s.col_offset, s.target_col_offset);
 
     // Clear buffers
     s.button_values = [[0; VISIBLE_COLS]; VISIBLE_ROWS];
@@ -1046,6 +986,16 @@ fn blend_toward_white(r: u8, g: u8, b: u8, mix: f32) -> (u8, u8, u8) {
         (r as f32 + (255.0 - r as f32) * mix) as u8,
         (g as f32 + (255.0 - g as f32) * mix) as u8,
         (b as f32 + (255.0 - b as f32) * mix) as u8,
+    )
+}
+
+/// Scale all four ARGB components by `factor` (0.0-1.0).
+fn scale_argb(argb: u32, factor: f32) -> u32 {
+    pack_argb(
+        (((argb >> 24) & 0xFF) as f32 * factor) as u8,
+        (((argb >> 16) & 0xFF) as f32 * factor) as u8,
+        (((argb >> 8) & 0xFF) as f32 * factor) as u8,
+        ((argb & 0xFF) as f32 * factor) as u8,
     )
 }
 
@@ -1159,39 +1109,9 @@ fn compute_grid_colors(s: &mut EngineState) {
                 }
             };
 
-            // Apply dimming overlay
-            let argb = if dimmed {
-                let a = ((argb >> 24) & 0xFF) as f32;
-                let r = ((argb >> 16) & 0xFF) as f32;
-                let g = ((argb >> 8) & 0xFF) as f32;
-                let b = (argb & 0xFF) as f32;
-                // Darken by 60%
-                pack_argb(
-                    (a * 0.4) as u8,
-                    (r * 0.4) as u8,
-                    (g * 0.4) as u8,
-                    (b * 0.4) as u8,
-                )
-            } else {
-                argb
-            };
-
-            // Apply pulse brightness
-            let argb = if pulsing {
-                let pulse = s.brightness as f32 / 255.0;
-                let a = ((argb >> 24) & 0xFF) as f32;
-                let r = ((argb >> 16) & 0xFF) as f32;
-                let g = ((argb >> 8) & 0xFF) as f32;
-                let b = (argb & 0xFF) as f32;
-                pack_argb(
-                    (a * pulse) as u8,
-                    (r * pulse) as u8,
-                    (g * pulse) as u8,
-                    (b * pulse) as u8,
-                )
-            } else {
-                argb
-            };
+            // Apply dimming overlay (darken by 60%), then pulse brightness
+            let argb = if dimmed { scale_argb(argb, 0.4) } else { argb };
+            let argb = if pulsing { scale_argb(argb, s.brightness as f32 / 255.0) } else { argb };
 
             s.grid_colors[vr][vc] = argb;
         }

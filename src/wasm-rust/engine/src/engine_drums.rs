@@ -164,7 +164,7 @@ static PERC: &[DrumPattern] = &[
 fn drum_category(midi_note: i16) -> u8 {
     match midi_note {
         35 | 36 => 0,                         // Kick
-        37 | 38 | 39 | 40 => 1,               // Snare
+        37..=40 => 1,               // Snare
         42 | 44 | 46 => 2,                     // HiHat
         41 | 43 | 45 | 47 | 48 | 50 => 3,     // Tom
         49 | 51 | 52 | 53 | 55 | 57 | 59 => 4, // Cymbal

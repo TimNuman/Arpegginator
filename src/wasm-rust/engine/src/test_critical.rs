@@ -117,7 +117,7 @@ fn repeat_amount_is_clamped_to_one() {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let h = s.patterns[ch][pat].event_handles[idx as usize];
-    assert_eq!(s.event_pool.slots[h as usize].repeat_amount, 1);
+    assert_eq!(s.event_pool[h].repeat_amount, 1);
 }
 
 // ============ #8 — pool free rejects bad handles ============
@@ -129,9 +129,9 @@ fn repeat_amount_is_clamped_to_one() {
 #[test]
 fn event_free_none_handle_is_noop() {
     let mut s = init_state();
-    let before = s.event_pool.free_count;
-    event_free(&mut s.event_pool, POOL_HANDLE_NONE);
-    assert_eq!(s.event_pool.free_count, before);
+    let before = s.event_pool.free_count();
+    s.event_pool.free(POOL_HANDLE_NONE);
+    assert_eq!(s.event_pool.free_count(), before);
 }
 
 // ============ #9 — stale selected_event_idx from the host ============
@@ -148,6 +148,6 @@ fn out_of_range_selection_does_not_crash_disable_note() {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let h = s.patterns[ch][pat].event_handles[0];
-    assert_eq!(s.event_pool.slots[h as usize].enabled, 1);
+    assert_eq!(s.event_pool[h].enabled, 1);
 }
 

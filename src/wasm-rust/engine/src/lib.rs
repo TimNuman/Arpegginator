@@ -6,6 +6,7 @@
 extern crate alloc;
 
 pub mod cell;
+pub mod chords;
 pub mod engine_core;
 pub mod engine_edit;
 pub mod engine_ui;

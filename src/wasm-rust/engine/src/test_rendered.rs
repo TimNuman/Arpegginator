@@ -61,7 +61,7 @@ fn disable_note_marks_dirty() {
 
     let (c, p) = (ch(&s), pat_idx(&s));
     let h = s.patterns[c][p].event_handles[idx as usize];
-    s.event_pool.slots[h as usize].enabled = 0;
+    s.event_pool[h].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[ch(&s)], 1);
 
@@ -77,12 +77,12 @@ fn reenable_note_marks_dirty() {
 
     let (c, p) = (ch(&s), pat_idx(&s));
     let h = s.patterns[c][p].event_handles[idx as usize];
-    s.event_pool.slots[h as usize].enabled = 0;
+    s.event_pool[h].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
     assert_eq!(s.rendered_count, 0);
 
-    s.event_pool.slots[h as usize].enabled = 1;
+    s.event_pool[h].enabled = 1;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
@@ -104,7 +104,7 @@ fn cmd_click_disable_marks_dirty() {
 
     let (c, p) = (ch(&s), pat_idx(&s));
     let h = s.patterns[c][p].event_handles[found as usize];
-    s.event_pool.slots[h as usize].enabled = 0;
+    s.event_pool[h].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
@@ -207,7 +207,7 @@ fn direct_length_change_needs_dirty() {
 
     let (c, p) = (ch(&s), pat_idx(&s));
     let h = s.patterns[c][p].event_handles[idx as usize];
-    s.event_pool.slots[h as usize].length = 480;
+    s.event_pool[h].length = 480;
     engine_mark_dirty(&mut s, c as u8);
     assert_eq!(s.rendered_dirty[c], 1);
 
@@ -341,7 +341,7 @@ fn rendered_excludes_disabled_events() {
 
     let p = pat_idx(&s);
     let h = s.patterns[c][p].event_handles[idx0 as usize];
-    s.event_pool.slots[h as usize].enabled = 0;
+    s.event_pool[h].enabled = 0;
     engine_mark_dirty(&mut s, c as u8);
     engine_ensure_rendered(&mut s, c as u8);
 
