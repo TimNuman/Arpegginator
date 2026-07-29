@@ -1,66 +1,69 @@
 // platform.rs — Platform callback abstraction
-// Each target provides implementations of these functions.
-// WASM: calls JS imports via extern "C"
-// Teensy (ARM): enqueues MIDI events into a ring buffer for main loop to drain
-// Test: no-ops
+//
+// One implementation module per target; exactly one is compiled in and
+// re-exported as the crate-visible `platform_*` API:
+//   WASM:         calls JS imports via extern "C"
+//   Teensy (ARM): enqueues MIDI events into a ring buffer for main loop to drain
+//   Test/native:  no-ops
 
+#[allow(unused_imports)]
 use crate::engine_core::NUM_CHANNELS;
 
 // ============ WASM Platform ============
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
-extern "C" {
-    fn js_note_on(ch: i32, note: i32, vel: i32);
-    fn js_note_off(ch: i32, note: i32);
-    fn js_set_current_tick(tick: i32);
-    fn js_set_current_patterns(ptr: i32);
-    fn js_clear_queued_pattern(ch: i32);
-    fn js_preview_value(sm: i32, ch: i32, ev_idx: i32, tick: i32, val: i32);
-    fn js_play_preview_note(ch: i32, row: i32, length_ticks: i32);
-}
+mod wasm {
+    use super::NUM_CHANNELS;
 
-#[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
-    unsafe { js_note_on(channel as i32, midi_note as i32, velocity as i32); }
-}
+    extern "C" {
+        fn js_note_on(ch: i32, note: i32, vel: i32);
+        fn js_note_off(ch: i32, note: i32);
+        fn js_set_current_tick(tick: i32);
+        fn js_set_current_patterns(ptr: i32);
+        fn js_clear_queued_pattern(ch: i32);
+        fn js_preview_value(sm: i32, ch: i32, ev_idx: i32, tick: i32, val: i32);
+        fn js_play_preview_note(ch: i32, row: i32, length_ticks: i32);
+    }
 
-#[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_note_off(channel: u8, midi_note: u8) {
-    unsafe { js_note_off(channel as i32, midi_note as i32); }
-}
+    pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
+        unsafe { js_note_on(channel as i32, midi_note as i32, velocity as i32); }
+    }
 
-#[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_set_current_tick(tick: i32) {
-    unsafe { js_set_current_tick(tick); }
-}
+    pub fn platform_note_off(channel: u8, midi_note: u8) {
+        unsafe { js_note_off(channel as i32, midi_note as i32); }
+    }
 
-#[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_set_current_patterns(patterns: &[u8; NUM_CHANNELS]) {
-    unsafe { js_set_current_patterns(patterns.as_ptr() as i32); }
-}
+    pub fn platform_set_current_tick(tick: i32) {
+        unsafe { js_set_current_tick(tick); }
+    }
 
-#[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_clear_queued_pattern(channel: u8) {
-    unsafe { js_clear_queued_pattern(channel as i32); }
-}
+    pub fn platform_set_current_patterns(patterns: &[u8; NUM_CHANNELS]) {
+        unsafe { js_set_current_patterns(patterns.as_ptr() as i32); }
+    }
 
-#[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_preview_value(
-    sub_mode: u8, channel: u8,
-    event_index: u16, tick: i32, value: i16,
-) {
-    unsafe {
-        js_preview_value(
-            sub_mode as i32, channel as i32,
-            event_index as i32, tick, value as i32,
-        );
+    pub fn platform_clear_queued_pattern(channel: u8) {
+        unsafe { js_clear_queued_pattern(channel as i32); }
+    }
+
+    pub fn platform_preview_value(
+        sub_mode: u8, channel: u8,
+        event_index: u16, tick: i32, value: i16,
+    ) {
+        unsafe {
+            js_preview_value(
+                sub_mode as i32, channel as i32,
+                event_index as i32, tick, value as i32,
+            );
+        }
+    }
+
+    pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
+        unsafe { js_play_preview_note(channel as i32, row as i32, length_ticks); }
     }
 }
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
-pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
-    unsafe { js_play_preview_note(channel as i32, row as i32, length_ticks); }
-}
+pub use wasm::*;
 
 // ============ Teensy / ARM Platform ============
 
@@ -74,14 +77,18 @@ pub mod arm_platform {
     #[derive(Clone, Copy)]
     #[repr(C)]
     pub struct MidiEvent {
-        pub kind: u8,       // 0 = note_on, 1 = note_off, 2 = preview
+        pub kind: u8,       // one of the KIND_* constants
         pub channel: u8,
-        pub note: i16,      // MIDI note (kind 0/1) or scale row (kind 2, can be negative)
+        pub note: i16,      // MIDI note (on/off) or scale row (preview, can be negative)
         pub velocity: u8,
-        pub length_ticks: i32, // only used for kind=2 (preview)
+        pub length_ticks: i32, // only used for KIND_PREVIEW
     }
 
     impl MidiEvent {
+        pub const KIND_NOTE_ON: u8 = 0;
+        pub const KIND_NOTE_OFF: u8 = 1;
+        pub const KIND_PREVIEW: u8 = 2;
+
         const fn zero() -> Self {
             MidiEvent { kind: 0, channel: 0, note: 0, velocity: 0, length_ticks: 0 }
         }
@@ -115,63 +122,66 @@ pub mod arm_platform {
 }
 
 #[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
-    arm_platform::enqueue_midi(arm_platform::MidiEvent {
-        kind: 0, channel, note: midi_note as i16, velocity, length_ticks: 0,
-    });
+mod arm {
+    use super::NUM_CHANNELS;
+    use super::arm_platform::{enqueue_midi, MidiEvent};
+
+    pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
+        enqueue_midi(MidiEvent {
+            kind: MidiEvent::KIND_NOTE_ON, channel, note: midi_note as i16, velocity, length_ticks: 0,
+        });
+    }
+
+    pub fn platform_note_off(channel: u8, midi_note: u8) {
+        enqueue_midi(MidiEvent {
+            kind: MidiEvent::KIND_NOTE_OFF, channel, note: midi_note as i16, velocity: 0, length_ticks: 0,
+        });
+    }
+
+    pub fn platform_set_current_tick(_tick: i32) {}
+
+    pub fn platform_set_current_patterns(_patterns: &[u8; NUM_CHANNELS]) {}
+
+    pub fn platform_clear_queued_pattern(_channel: u8) {}
+
+    pub fn platform_preview_value(
+        _sub_mode: u8, _channel: u8,
+        _event_index: u16, _tick: i32, _value: i16,
+    ) {}
+
+    pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
+        enqueue_midi(MidiEvent {
+            kind: MidiEvent::KIND_PREVIEW, channel, note: row, velocity: 100, length_ticks,
+        });
+    }
 }
 
 #[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_note_off(channel: u8, midi_note: u8) {
-    arm_platform::enqueue_midi(arm_platform::MidiEvent {
-        kind: 1, channel, note: midi_note as i16, velocity: 0, length_ticks: 0,
-    });
-}
-
-#[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_set_current_tick(_tick: i32) {}
-
-#[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_set_current_patterns(_patterns: &[u8; NUM_CHANNELS]) {}
-
-#[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_clear_queued_pattern(_channel: u8) {}
-
-#[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_preview_value(
-    _sub_mode: u8, _channel: u8,
-    _event_index: u16, _tick: i32, _value: i16,
-) {}
-
-#[cfg(all(target_arch = "arm", not(test)))]
-pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
-    arm_platform::enqueue_midi(arm_platform::MidiEvent {
-        kind: 2, channel, note: row, velocity: 100, length_ticks,
-    });
-}
+pub use arm::*;
 
 // ============ Test / Native Platform (no-ops) ============
 
 #[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_note_on(_channel: u8, _midi_note: u8, _velocity: u8) {}
+mod noop {
+    use super::NUM_CHANNELS;
+
+    pub fn platform_note_on(_channel: u8, _midi_note: u8, _velocity: u8) {}
+
+    pub fn platform_note_off(_channel: u8, _midi_note: u8) {}
+
+    pub fn platform_set_current_tick(_tick: i32) {}
+
+    pub fn platform_set_current_patterns(_patterns: &[u8; NUM_CHANNELS]) {}
+
+    pub fn platform_clear_queued_pattern(_channel: u8) {}
+
+    pub fn platform_preview_value(
+        _sub_mode: u8, _channel: u8,
+        _event_index: u16, _tick: i32, _value: i16,
+    ) {}
+
+    pub fn platform_play_preview_note(_channel: u8, _row: i16, _length_ticks: i32) {}
+}
 
 #[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_note_off(_channel: u8, _midi_note: u8) {}
-
-#[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_set_current_tick(_tick: i32) {}
-
-#[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_set_current_patterns(_patterns: &[u8; NUM_CHANNELS]) {}
-
-#[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_clear_queued_pattern(_channel: u8) {}
-
-#[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_preview_value(
-    _sub_mode: u8, _channel: u8,
-    _event_index: u16, _tick: i32, _value: i16,
-) {}
-
-#[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
-pub fn platform_play_preview_note(_channel: u8, _row: i16, _length_ticks: i32) {}
+pub use noop::*;

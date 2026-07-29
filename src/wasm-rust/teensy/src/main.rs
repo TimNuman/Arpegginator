@@ -247,11 +247,12 @@ fn main() -> ! {
             let mut midi = MidiOut { uart: &mut midi_uart, usb: &usb_midi, usb_ok: usb_configured };
             let mut new_preview_started = false;
 
+            use platform::arm_platform::MidiEvent;
             while let Some(ev) = platform::arm_platform::dequeue_midi() {
                 match ev.kind {
-                    0 => midi.note_on(ev.channel, ev.note as u8, ev.velocity),
-                    1 => midi.note_off(ev.channel, ev.note as u8),
-                    2 => {
+                    MidiEvent::KIND_NOTE_ON => midi.note_on(ev.channel, ev.note as u8, ev.velocity),
+                    MidiEvent::KIND_NOTE_OFF => midi.note_off(ev.channel, ev.note as u8),
+                    MidiEvent::KIND_PREVIEW => {
                         // Kill old preview notes on first note of a new batch
                         if !new_preview_started && preview_count > 0 {
                             for i in 0..preview_count {
