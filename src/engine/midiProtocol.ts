@@ -99,11 +99,7 @@ export function encodeSetSolo(ch: number, soloed: boolean): Uint8Array {
   return sysex(CMD_SET_SOLO, ch, soloed ? 1 : 0);
 }
 
-export function encodeButtonPress(
-  row: number,
-  col: number,
-  mods: number,
-): Uint8Array {
+export function encodeButtonPress(row: number, col: number, mods: number): Uint8Array {
   return sysex(CMD_BUTTON_PRESS, row, col, mods);
 }
 
@@ -111,10 +107,7 @@ export function encodeKeyAction(actionId: number): Uint8Array {
   return sysex(CMD_KEY_ACTION, actionId);
 }
 
-export function encodeArrowPress(
-  direction: number,
-  mods: number,
-): Uint8Array {
+export function encodeArrowPress(direction: number, mods: number): Uint8Array {
   return sysex(CMD_ARROW_PRESS, direction, mods);
 }
 
@@ -128,23 +121,25 @@ export function encodeStripStart(
   return sysex(
     CMD_STRIP_START,
     strip,
-    pos & 0x7f, (pos >> 7) & 0x7f,
+    pos & 0x7f,
+    (pos >> 7) & 0x7f,
     shift ? 1 : 0,
-    t & 0x7f, (t >> 7) & 0x7f, (t >> 14) & 0x7f,
+    t & 0x7f,
+    (t >> 7) & 0x7f,
+    (t >> 14) & 0x7f,
   );
 }
 
-export function encodeStripMove(
-  strip: number,
-  pos: number,
-  timeMs: number,
-): Uint8Array {
+export function encodeStripMove(strip: number, pos: number, timeMs: number): Uint8Array {
   const t = Math.round(timeMs) & 0x1fffff;
   return sysex(
     CMD_STRIP_MOVE,
     strip,
-    pos & 0x7f, (pos >> 7) & 0x7f,
-    t & 0x7f, (t >> 7) & 0x7f, (t >> 14) & 0x7f,
+    pos & 0x7f,
+    (pos >> 7) & 0x7f,
+    t & 0x7f,
+    (t >> 7) & 0x7f,
+    (t >> 14) & 0x7f,
   );
 }
 
@@ -178,7 +173,6 @@ export function encodeSetZoom(zoom: number): Uint8Array {
 export function encodeSetCurrentChannel(ch: number): Uint8Array {
   return sysex(CMD_SET_CURRENT_CHANNEL, ch);
 }
-
 
 export function encodeGetState(): Uint8Array {
   return sysex(CMD_GET_STATE);
@@ -240,7 +234,7 @@ export function decodeSysex(data: Uint8Array): TeensyResponse | null {
       const pong: PongResponse = { type: "pong" };
       // Diagnostic data if present
       if (data.length >= payloadStart + 6 + 1) {
-        pong.rowOffset0 = ((data[payloadStart] | (data[payloadStart + 1] << 7)) / 1000);
+        pong.rowOffset0 = (data[payloadStart] | (data[payloadStart + 1] << 7)) / 1000;
         pong.scaleCount = data[payloadStart + 2] | (data[payloadStart + 3] << 7);
         pong.scaleZeroIndex = data[payloadStart + 4] | (data[payloadStart + 5] << 7);
       }
@@ -267,17 +261,26 @@ export function decodeSysex(data: Uint8Array): TeensyResponse | null {
       if (data.length < payloadStart + 27 + 1) return null;
       const p = payloadStart;
       const isPlaying = data[p] !== 0;
-      const bpmX100 = data[p+1] | (data[p+2] << 7) | ((data[p+3] & 0x03) << 14);
+      const bpmX100 = data[p + 1] | (data[p + 2] << 7) | ((data[p + 3] & 0x03) << 14);
       const bpm = bpmX100 / 100;
-      const swing = data[p+4];
-      const zoom = data[p+5] | (data[p+6] << 7) | ((data[p+7] & 0x03) << 14);
-      const currentChannel = data[p+8];
-      const channelTypes = Array.from(data.slice(p+9, p+15));
+      const swing = data[p + 4];
+      const zoom = data[p + 5] | (data[p + 6] << 7) | ((data[p + 7] & 0x03) << 14);
+      const currentChannel = data[p + 8];
+      const channelTypes = Array.from(data.slice(p + 9, p + 15));
       const rowOffsets = Array.from({ length: 6 }, (_, i) => {
-        const off = data[p+15+i*2] | (data[p+16+i*2] << 7);
+        const off = data[p + 15 + i * 2] | (data[p + 16 + i * 2] << 7);
         return off / 1000;
       });
-      return { type: "state", bpm, swing, zoom, currentChannel, channelTypes, rowOffsets, isPlaying };
+      return {
+        type: "state",
+        bpm,
+        swing,
+        zoom,
+        currentChannel,
+        channelTypes,
+        rowOffsets,
+        isPlaying,
+      };
     }
 
     default:

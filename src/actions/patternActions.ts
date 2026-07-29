@@ -1,5 +1,5 @@
-import { getEngine } from './playbackActions';
-import { markDirty } from '../store/renderStore';
+import { getEngine } from "./playbackActions";
+import { markDirty } from "../store/renderStore";
 
 /**
  * Clear current pattern.

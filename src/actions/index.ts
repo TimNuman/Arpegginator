@@ -10,9 +10,7 @@ export {
   externalTick,
   stopExternal,
   setEngine,
-} from './playbackActions';
+} from "./playbackActions";
 
 // Pattern actions
-export {
-  clearPattern,
-} from './patternActions';
+export { clearPattern } from "./patternActions";

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from "react";
 
 export interface KeyboardState {
   // Currently pressed keys (lowercase)
@@ -15,7 +15,12 @@ interface UseKeyboardOptions {
   /**
    * Called on keydown, return true to prevent default
    */
-  onKeyDown?: (key: string, code: string, event: KeyboardEvent, state: KeyboardState) => boolean | void;
+  onKeyDown?: (
+    key: string,
+    code: string,
+    event: KeyboardEvent,
+    state: KeyboardState,
+  ) => boolean | void;
 
   /**
    * Called on keyup
@@ -110,14 +115,14 @@ export function useKeyboard(options: UseKeyboardOptions = {}): KeyboardState {
       setState(createInitialState());
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleBlur);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
       // Reset state when listeners are removed (disabled or unmount)
       setState(createInitialState());
     };

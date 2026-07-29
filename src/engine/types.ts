@@ -67,13 +67,9 @@ export interface Engine {
 
   // Callbacks. The engine emits fully-scheduled note-ons (timing/flam/lookahead
   // resolved internally); JS just forwards to MIDI.
-  onNoteOn:
-    | ((channel: number, midiNote: number, velocity: number) => void)
-    | null;
+  onNoteOn: ((channel: number, midiNote: number, velocity: number) => void) | null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null;
-  onPlayPreviewNote:
-    | ((channel: number, row: number, lengthTicks: number) => void)
-    | null;
+  onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null;
 
   // Backend identification
   readonly isTeensy: boolean;

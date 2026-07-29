@@ -1,9 +1,18 @@
-import { Box, IconButton, Slider, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
-import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import { Output, Input } from 'webmidi';
+import {
+  Box,
+  IconButton,
+  Slider,
+  Typography,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+} from "@mui/material";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
+import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
+import { Output, Input } from "webmidi";
 import {
   transportStyles,
   controlGroupStyles,
@@ -14,7 +23,7 @@ import {
   labelStyles,
   bpmValueStyles,
   midiSelectStyles,
-} from './Transport.styles';
+} from "./Transport.styles";
 
 interface TransportProps {
   isPlaying: boolean;
@@ -39,7 +48,7 @@ interface TransportProps {
 }
 
 // Sentinel value for the built-in Web Audio synth in the output selector
-const BUILTIN_SOUND_ID = 'builtin';
+const BUILTIN_SOUND_ID = "builtin";
 
 export const Transport = ({
   isPlaying,
@@ -69,11 +78,23 @@ export const Transport = ({
     <Box css={transportStyles}>
       <Box css={controlGroupStyles}>
         <IconButton
-          css={showDisabledPlayButton ? playButtonStyles : (isPlaying ? stopButtonStyles : playButtonStyles)}
-          onClick={showDisabledPlayButton ? undefined : (isPlaying ? onStop : onPlay)}
+          css={
+            showDisabledPlayButton
+              ? playButtonStyles
+              : isPlaying
+                ? stopButtonStyles
+                : playButtonStyles
+          }
+          onClick={showDisabledPlayButton ? undefined : isPlaying ? onStop : onPlay}
           disabled={showDisabledPlayButton}
         >
-          {showDisabledPlayButton ? <PlayArrowIcon /> : (isPlaying ? <PauseIcon /> : <PlayArrowIcon />)}
+          {showDisabledPlayButton ? (
+            <PlayArrowIcon />
+          ) : isPlaying ? (
+            <PauseIcon />
+          ) : (
+            <PlayArrowIcon />
+          )}
         </IconButton>
         <IconButton css={clearButtonStyles} onClick={onReset}>
           <SkipPreviousIcon />
@@ -109,13 +130,13 @@ export const Transport = ({
           }}
           style={{
             width: 48,
-            background: 'transparent',
-            border: '1px solid rgba(102, 255, 204, 0.3)',
+            background: "transparent",
+            border: "1px solid rgba(102, 255, 204, 0.3)",
             borderRadius: 4,
-            color: '#66ffcc',
+            color: "#66ffcc",
             fontSize: 14,
-            padding: '2px 4px',
-            textAlign: 'center',
+            padding: "2px 4px",
+            textAlign: "center",
           }}
         />
       </Box>
@@ -123,10 +144,7 @@ export const Transport = ({
       <FormControl css={midiSelectStyles} size="small">
         <InputLabel>Sound Output</InputLabel>
         <Select
-          value={
-            selectedOutput?.id ||
-            (builtinSoundSelected ? BUILTIN_SOUND_ID : '')
-          }
+          value={selectedOutput?.id || (builtinSoundSelected ? BUILTIN_SOUND_ID : "")}
           label="Sound Output"
           onChange={(e) => {
             if (e.target.value === BUILTIN_SOUND_ID) {
@@ -152,7 +170,7 @@ export const Transport = ({
       <FormControl css={midiSelectStyles} size="small">
         <InputLabel>MIDI Input (Sync)</InputLabel>
         <Select
-          value={selectedInput?.id || ''}
+          value={selectedInput?.id || ""}
           label="MIDI Input (Sync)"
           onChange={(e) => {
             const input = midiInputs.find((i) => i.id === e.target.value) || null;
@@ -172,7 +190,7 @@ export const Transport = ({
       </FormControl>
 
       {!midiEnabled && (
-        <Typography sx={{ color: 'rgba(255, 255, 255, 0.45)', fontSize: '12px' }}>
+        <Typography sx={{ color: "rgba(255, 255, 255, 0.45)", fontSize: "12px" }}>
           Web MIDI unavailable — built-in sounds active
         </Typography>
       )}
