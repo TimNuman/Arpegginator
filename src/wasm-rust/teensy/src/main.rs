@@ -227,12 +227,12 @@ fn main() -> ! {
             engine_core::engine_core_tick(&mut state);
             tick_counter = tick_counter.wrapping_add(1);
 
-            if tick_counter % (TICKS_PER_QUARTER as u32) == 0 {
+            if tick_counter.is_multiple_of(TICKS_PER_QUARTER as u32) {
                 led.toggle();
             }
 
             // Send tick update via SysEx every 48 ticks (~10× per beat)
-            if usb_configured && tick_counter % 48 == 0 {
+            if usb_configured && tick_counter.is_multiple_of(48) {
                 let mut tb = [0u8; 5];
                 protocol::encode_i32(state.current_tick, &mut tb);
                 let _ = usb_midi.send_sysex(&[
@@ -255,8 +255,7 @@ fn main() -> ! {
                     MidiEvent::KIND_PREVIEW => {
                         // Kill old preview notes on first note of a new batch
                         if !new_preview_started && preview_count > 0 {
-                            for i in 0..preview_count {
-                                let (ch, n) = preview_notes[i];
+                            for &(ch, n) in &preview_notes[..preview_count] {
                                 midi.note_off(ch, n);
                             }
                             preview_count = 0;
@@ -287,8 +286,7 @@ fn main() -> ! {
             if preview_count > 0 {
                 let now = unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() };
                 if now.wrapping_sub(preview_off_at) < 0x8000_0000 {
-                    for i in 0..preview_count {
-                        let (ch, note) = preview_notes[i];
+                    for &(ch, note) in &preview_notes[..preview_count] {
                         midi.note_off(ch, note);
                     }
                     preview_count = 0;
@@ -388,7 +386,7 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                         | ((payload[1] as u16) << 7)
                         | (((payload[2] & 0x03) as u16) << 14);
                     let bpm = bpm_x100 as f32 / 100.0;
-                    if bpm >= 20.0 && bpm <= 300.0 { state.bpm = bpm; }
+                    if (20.0..=300.0).contains(&bpm) { state.bpm = bpm; }
                 }
             }
             protocol::CMD_SET_SWING => {

@@ -492,10 +492,8 @@ pub extern "C" fn engine_key_action_export(action_id: u8) {
 fn get_selected_event() -> Option<&'static NoteEvent> {
     let s = state_ref();
     if s.selected_event_idx < 0 { return None; }
-    let ch = s.current_channel as usize;
-    if ch >= NUM_CHANNELS { return None; }
-    let pat = s.current_patterns[ch] as usize;
-    if pat >= NUM_PATTERNS { return None; }
+    let (ch, pat) = s.current_indices();
+    if ch >= NUM_CHANNELS || pat >= NUM_PATTERNS { return None; }
     if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return None; }
     let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
     if h == POOL_HANDLE_NONE { return None; }
@@ -600,24 +598,21 @@ pub extern "C" fn engine_get_sel_sub_mode_array_length(sm: u8) -> u8 {
 #[no_mangle]
 pub extern "C" fn engine_get_current_loop_start() -> i32 {
     let s = state_ref();
-    let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
+    let (ch, pat) = s.current_indices();
     s.loops[ch][pat].start
 }
 
 #[no_mangle]
 pub extern "C" fn engine_get_current_loop_length() -> i32 {
     let s = state_ref();
-    let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
+    let (ch, pat) = s.current_indices();
     s.loops[ch][pat].length
 }
 
 #[no_mangle]
 pub extern "C" fn engine_get_current_pattern_length_ticks() -> i32 {
     let s = state_ref();
-    let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
+    let (ch, pat) = s.current_indices();
     s.patterns[ch][pat].length_ticks
 }
 
@@ -700,8 +695,10 @@ pub extern "C" fn wasm_alloc(size: u32) -> *mut u8 {
     unsafe { alloc::alloc::alloc(layout) }
 }
 
+/// # Safety
+/// `ptr` must be null or come from `wasm_alloc` with the same `size`.
 #[no_mangle]
-pub extern "C" fn wasm_free(ptr: *mut u8, size: u32) {
+pub unsafe extern "C" fn wasm_free(ptr: *mut u8, size: u32) {
     if ptr.is_null() { return; }
     let layout = core::alloc::Layout::from_size_align(size as usize, 1).unwrap();
     unsafe { alloc::alloc::dealloc(ptr, layout); }
