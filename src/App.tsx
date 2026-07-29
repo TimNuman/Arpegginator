@@ -178,12 +178,7 @@ function App() {
         engineRef.current = engine;
         setWasmEngine(engine);
         actions.setEngine(engine);
-        console.log(
-          "[startup] WASM engine v" +
-            engine.getVersion() +
-            " ready, isEnabled=" +
-            isEnabled,
-        );
+        console.log("[startup] WASM engine v" + engine.getVersion() + " ready");
 
         // Auto-connect to Teensy if one is present
         tryAutoConnectTeensy(engine);
@@ -307,7 +302,9 @@ function App() {
   const [swing, setSwingLocal] = useState(50);
 
   // Keep bpmRef in sync with actual BPM
-  bpmRef.current = bpm;
+  useEffect(() => {
+    bpmRef.current = bpm;
+  });
 
   const handlePlayNote = useCallback(
     (note: number, channel: number, lengthTicks?: number) => {
@@ -354,21 +351,23 @@ function App() {
     };
   }, [handleNoteOn, handleNoteOff, handlePlayNote, wasmEngine]);
 
-  // Keep transport refs in sync for MIDI sync callbacks
-  playExternalRef.current = actions.playExternal;
   const clearPendingTimeouts = () => {
     pendingTimeouts.current.forEach(clearTimeout);
     pendingTimeouts.current.clear();
   };
 
-  stopExternalRef.current = () => {
-    clearPendingTimeouts();
-    actions.stopExternal();
-    stopAllNotes();
-    synth.allNotesOff();
-  };
-  externalTickRef.current = actions.externalTick;
-  setBpmRef.current = actions.setBpm;
+  // Keep transport refs in sync for MIDI sync callbacks
+  useEffect(() => {
+    playExternalRef.current = actions.playExternal;
+    stopExternalRef.current = () => {
+      clearPendingTimeouts();
+      actions.stopExternal();
+      stopAllNotes();
+      synth.allNotesOff();
+    };
+    externalTickRef.current = actions.externalTick;
+    setBpmRef.current = actions.setBpm;
+  });
 
   const handlePlay = useCallback(() => {
     synth.resume();

@@ -2,7 +2,7 @@ import { Box, IconButton, Slider, Typography, Select, MenuItem, FormControl, Inp
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import { Output, Input } from 'webmidi';
 import {
   transportStyles,
