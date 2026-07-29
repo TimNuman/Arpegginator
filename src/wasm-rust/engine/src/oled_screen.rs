@@ -73,10 +73,13 @@ fn simple_hash(s: &str) -> u32 {
 
 /// Compute the scroll offset for a wrapping ticker.
 /// `scroll_dist` = total_w + TICKER_WRAP_GAP (full wrap distance).
-/// Returns 0..scroll_dist; callers draw two copies separated by scroll_dist.
-fn ticker_offset_hash(slot: usize, hash: u32, scroll_dist: i16) -> i16 {
+/// The cycle holds still for `pause_frames`, then scrolls one pixel every
+/// `TICKER_PX_FRAMES`. Returns 0..scroll_dist; callers draw two copies
+/// separated by scroll_dist.
+fn ticker_offset(slot: usize, text: &str, scroll_dist: i16, pause_frames: u32) -> i16 {
     if scroll_dist <= 0 || slot >= NUM_TICKERS { return 0; }
 
+    let hash = simple_hash(text);
     let frame = FRAME_COUNT.load(Ordering::Relaxed);
     let tk = &mut TICKERS.get_mut()[slot];
 
@@ -88,18 +91,8 @@ fn ticker_offset_hash(slot: usize, hash: u32, scroll_dist: i16) -> i16 {
 
     let elapsed = frame.wrapping_sub(tk.frame_start);
     let scroll_frames = scroll_dist as u32 * TICKER_PX_FRAMES;
-    let cycle_len = TICKER_PAUSE_FRAMES + scroll_frames;
-
-    let phase = elapsed % cycle_len;
-    if phase < TICKER_PAUSE_FRAMES {
-        0
-    } else {
-        ((phase - TICKER_PAUSE_FRAMES) / TICKER_PX_FRAMES) as i16
-    }
-}
-
-fn ticker_offset(slot: usize, text: &str, scroll_dist: i16) -> i16 {
-    ticker_offset_hash(slot, simple_hash(text), scroll_dist)
+    let phase = elapsed % (pause_frames + scroll_frames);
+    (phase.saturating_sub(pause_frames) / TICKER_PX_FRAMES) as i16
 }
 
 /// Returns true if any ticker is currently scrolling (needs continuous rendering)
@@ -249,7 +242,7 @@ const GM_DRUM_MAX: i8 = 81;
 
 fn get_drum_name(midi: i8) -> FmtBuf<8> {
     let mut buf = FmtBuf::<8>::new();
-    if midi >= GM_DRUM_MIN && midi <= GM_DRUM_MAX {
+    if (GM_DRUM_MIN..=GM_DRUM_MAX).contains(&midi) {
         buf.push_str(GM_DRUM_NAMES[(midi - GM_DRUM_MIN) as usize]);
     } else {
         let _ = write!(buf, "D{}", midi);
@@ -261,7 +254,7 @@ fn get_drum_name(midi: i8) -> FmtBuf<8> {
 fn parse_i32(s: &str) -> i32 {
     let mut result: i32 = 0;
     for &b in s.as_bytes() {
-        if b >= b'0' && b <= b'9' {
+        if b.is_ascii_digit() {
             result = result * 10 + (b - b'0') as i32;
         } else {
             break;
@@ -296,6 +289,18 @@ static INTERVAL_NAMES: [&str; 12] = [
 
 // ============ Note display helper ============
 
+/// Append comma-separated GM drum names for every note of a (possibly
+/// stacked) drum event.
+fn push_drum_names(s: &EngineState, ev: &NoteEvent, out: &mut FmtBuf<128>) {
+    let mut offsets = [0i8; MAX_CHORD_SIZE];
+    let count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
+    for (i, &off) in offsets[..count].iter().enumerate() {
+        if i > 0 { out.push_str(", "); }
+        let row = ev.row + off as i16;
+        out.push_str(get_drum_name(row.clamp(0, 127) as i8).as_str());
+    }
+}
+
 fn get_note_display(row: i16, is_drum: bool, s: &EngineState) -> FmtBuf<8> {
     if is_drum {
         get_drum_name(row.clamp(0, 127) as i8)
@@ -305,6 +310,27 @@ fn get_note_display(row: i16, is_drum: bool, s: &EngineState) -> FmtBuf<8> {
 }
 
 // ============ Drawing helpers ============
+
+/// Draw `text` left-anchored at `x`. If it overflows `clip_right`, scroll it
+/// as a seamless wrapping marquee (two clipped copies) using `ticker_slot`.
+/// `pause_frames` is the hold time at the start of each wrap cycle.
+#[allow(clippy::too_many_arguments)]
+fn draw_marquee(ticker_slot: usize, x: i16, clip_right: i16, y: i16,
+                text: &str, color: u16, font: &AAFont, pause_frames: u32) {
+    let text_w = gfx_aa_text_width(text, font);
+    if text_w <= clip_right - x {
+        gfx_aa_text(x, y, text, color, font);
+        return;
+    }
+    let wrap_dist = text_w + TICKER_WRAP_GAP;
+    let offset = ticker_offset(ticker_slot, text, wrap_dist, pause_frames);
+    let x1 = x - offset;
+    gfx_aa_text_clipped(x1, y, text, color, font, x, clip_right);
+    let x2 = x1 + wrap_dist;
+    if x2 < clip_right {
+        gfx_aa_text_clipped(x2, y, text, color, font, x, clip_right);
+    }
+}
 
 /// Draw label (left-aligned, normal weight) + value (right-aligned, bold) on a row
 fn draw_row(y: i16, label: &str, value: &str, val_color: u16) {
@@ -326,16 +352,8 @@ fn draw_row_tickered(y: i16, label: &str, value: &str, val_color: u16, ticker_sl
         gfx_aa_text_right(CONTENT_RIGHT, y, value, val_color, &FONT_AA_SMALL_BOLD);
     } else {
         // Overflow — wrapping ticker, left-aligned after label
-        let val_x = PAD_X + label_w + gap;
-        let wrap_dist = val_w + TICKER_WRAP_GAP;
-        let offset = ticker_offset(ticker_slot, value, wrap_dist);
-        // Draw two copies for seamless wrap
-        let x1 = val_x - offset;
-        gfx_aa_text_clipped(x1, y, value, val_color, &FONT_AA_SMALL_BOLD, val_x, CONTENT_RIGHT);
-        let x2 = x1 + wrap_dist;
-        if x2 < CONTENT_RIGHT {
-            gfx_aa_text_clipped(x2, y, value, val_color, &FONT_AA_SMALL_BOLD, val_x, CONTENT_RIGHT);
-        }
+        draw_marquee(ticker_slot, PAD_X + label_w + gap, CONTENT_RIGHT, y,
+                     value, val_color, &FONT_AA_SMALL_BOLD, TICKER_PAUSE_FRAMES);
     }
 }
 
@@ -347,6 +365,28 @@ fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
     gfx_aa_text_right(PAD_X + HALF_W - 4, y, val1, val1_color, &FONT_AA_SMALL_BOLD);
     gfx_aa_text(col2_x, y, label2, GFX_LABEL, &FONT_AA_SMALL);
     gfx_aa_text_right(CONTENT_RIGHT, y, val2, val2_color, &FONT_AA_SMALL_BOLD);
+}
+
+/// Draw the "MODE" row: every sub-mode label in cycle order, the current one
+/// highlighted (yellow when actively editable). With `handles`, sub-modes
+/// that have explicit data render bold.
+fn draw_mode_row(y: i16, sub_mode: usize, highlight: bool, handles: Option<&[u16; NUM_SUB_MODES]>) {
+    // Cycle order: VEL(0), MOD(4), INV(5), HIT(1), FLAM(3), TIME(2)
+    static MODE_DISPLAY_ORDER: [usize; 6] = [0, 4, 5, 1, 3, 2];
+    gfx_aa_text(PAD_X, y, "MODE", GFX_LABEL, &FONT_AA_SMALL);
+    let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
+    for &i in MODE_DISPLAY_ORDER.iter() {
+        let label = SUB_MODE_LABELS.get(i).unwrap_or(&"?");
+        let has_data = handles.is_some_and(|h| h[i] != POOL_HANDLE_NONE);
+        let font = if has_data { &FONT_AA_SMALL_BOLD } else { &FONT_AA_SMALL };
+        let color = if i == sub_mode {
+            if highlight { GFX_YELLOW } else { GFX_VALUE }
+        } else {
+            GFX_DIM
+        };
+        gfx_aa_text(x, y, label, color, font);
+        x += gfx_aa_text_width(label, font) + 4;
+    }
 }
 
 /// Text segment with color for multi-color right-aligned rendering
@@ -363,48 +403,6 @@ fn draw_segs_right(right_x: i16, y: i16, segs: &[TextSeg], font: &AAFont) {
         gfx_aa_text(x, y, seg.text, seg.color, font);
         x += gfx_aa_text_width(seg.text, font);
     }
-}
-
-/// Draw multi-segment value with ticker scrolling within [clip_left, clip_right).
-/// Right-aligns if it fits; otherwise wraps with marquee ticker.
-#[allow(dead_code)]
-fn draw_segs_tickered(y: i16, segs: &[TextSeg], font: &AAFont, clip_left: i16, clip_right: i16, ticker_slot: usize) {
-    let total_w: i16 = segs.iter().map(|seg| gfx_aa_text_width(seg.text, font)).sum();
-    let avail = clip_right - clip_left;
-
-    if total_w <= avail {
-        let mut x = clip_right - total_w;
-        for seg in segs {
-            gfx_aa_text(x, y, seg.text, seg.color, font);
-            x += gfx_aa_text_width(seg.text, font);
-        }
-    } else {
-        let hash_val: u32 = segs.iter().fold(5381u32, |h, seg|
-            seg.text.bytes().fold(h, |h, b| h.wrapping_mul(33).wrapping_add(b as u32))
-        );
-        let wrap_dist = total_w + TICKER_WRAP_GAP;
-        let offset = ticker_offset_hash(ticker_slot, hash_val, wrap_dist);
-
-        for copy_off in [0i16, wrap_dist] {
-            let mut x = clip_left - offset + copy_off;
-            for seg in segs {
-                let sw = gfx_aa_text_width(seg.text, font);
-                if x + sw > clip_left && x < clip_right {
-                    gfx_aa_text_clipped(x, y, seg.text, seg.color, font, clip_left, clip_right);
-                }
-                x += sw;
-            }
-        }
-    }
-}
-
-/// Draw label + multi-segment value with ticker scrolling if it overflows.
-#[allow(dead_code)]
-fn draw_segs_row_tickered(y: i16, label: &str, segs: &[TextSeg], font: &AAFont, ticker_slot: usize) {
-    gfx_aa_text(PAD_X, y, label, GFX_LABEL, &FONT_AA_SMALL);
-    let label_w = gfx_aa_text_width(label, &FONT_AA_SMALL);
-    let val_x = PAD_X + label_w + 6;
-    draw_segs_tickered(y, segs, font, val_x, CONTENT_RIGHT, ticker_slot);
 }
 
 /// Draw scale interval visualization (12 squares for chromatic notes)
@@ -542,26 +540,6 @@ fn draw_icon_lr_carets(x: i16, y: i16, color: u16) {
     gfx_pixel(x + 9, cy, color);
 }
 
-/// Compute ticker offset with no initial pause — starts scrolling immediately.
-/// Used for legend text that only appears while modifier keys are held.
-fn ticker_offset_immediate(slot: usize, text: &str, scroll_dist: i16) -> i16 {
-    if scroll_dist <= 0 || slot >= NUM_TICKERS { return 0; }
-
-    let hash = simple_hash(text);
-    let frame = FRAME_COUNT.load(Ordering::Relaxed);
-    let tk = &mut TICKERS.get_mut()[slot];
-
-    if tk.text_hash != hash || tk.scroll_dist != scroll_dist {
-        tk.text_hash = hash;
-        tk.frame_start = frame;
-        tk.scroll_dist = scroll_dist;
-    }
-
-    let elapsed = frame.wrapping_sub(tk.frame_start);
-    let scroll_frames = scroll_dist as u32 * TICKER_PX_FRAMES;
-    (elapsed % scroll_frames / TICKER_PX_FRAMES) as i16
-}
-
 /// Draw a legend item in the bottom bar with ticker if text overflows column.
 /// If label is empty, draw icon in muted color only (no label).
 fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
@@ -579,23 +557,9 @@ fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
 
     if !label.is_empty() {
         let text_x = x + ICON_SIZE + ICON_LABEL_GAP;
-        let text_w = gfx_aa_text_width(label, &FONT_AA_SMALL);
         let clip_right = (col + 1) * LEGEND_COL_W;
-        let avail = clip_right - text_x;
-
-        if text_w <= avail {
-            gfx_aa_text(text_x, LEGEND_Y, label, color, &FONT_AA_SMALL);
-        } else {
-            let ticker_slot = 4 + col as usize;
-            let wrap_dist = text_w + TICKER_WRAP_GAP;
-            let offset = ticker_offset_immediate(ticker_slot, label, wrap_dist);
-            let x1 = text_x - offset;
-            gfx_aa_text_clipped(x1, LEGEND_Y, label, color, &FONT_AA_SMALL, text_x, clip_right);
-            let x2 = x1 + wrap_dist;
-            if x2 < clip_right {
-                gfx_aa_text_clipped(x2, LEGEND_Y, label, color, &FONT_AA_SMALL, text_x, clip_right);
-            }
-        }
+        // No initial pause: legend text only appears while modifiers are held.
+        draw_marquee(4 + col as usize, text_x, clip_right, LEGEND_Y, label, color, &FONT_AA_SMALL, 0);
     }
 }
 
@@ -767,14 +731,7 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
         // Build display string: extended name + optional stack name
         let mut display_str = FmtBuf::<128>::new();
         if is_drum && ev.chord_amount > 1 {
-            let mut offsets = [0i8; MAX_CHORD_SIZE];
-            let count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
-            for i in 0..count {
-                if i > 0 { display_str.push_str(", "); }
-                let row = ev.row + offsets[i] as i16;
-                let dn = get_drum_name(row.clamp(0, 127) as i8);
-                display_str.push_str(dn.as_str());
-            }
+            push_drum_names(s, ev, &mut display_str);
         } else if ev.chord_amount == 2 {
             let midi1 = note_to_midi(ev.row, s);
             let midi2 = note_to_midi(ev.row + ev.chord_space as i16, s);
@@ -813,20 +770,8 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
         }
         // Shift up/down = inversion, Alt+Shift up/down = voicing — both affect row 0
         let row0_color = if em.ud_rows & 1 != 0 { GFX_YELLOW } else { GFX_VALUE };
-        let text_w = gfx_aa_text_width(&display_str, &FONT_AA_SMALL_BOLD);
-        let avail = CONTENT_RIGHT - PAD_X;
-        if text_w <= avail {
-            gfx_aa_text(PAD_X, ROW_Y5[0], &display_str, row0_color, &FONT_AA_SMALL_BOLD);
-        } else {
-            let wrap_dist = text_w + TICKER_WRAP_GAP;
-            let offset = ticker_offset(0, &display_str, wrap_dist);
-            let x1 = PAD_X - offset;
-            gfx_aa_text_clipped(x1, ROW_Y5[0], &display_str, row0_color, &FONT_AA_SMALL_BOLD, PAD_X, CONTENT_RIGHT);
-            let x2 = x1 + wrap_dist;
-            if x2 < CONTENT_RIGHT {
-                gfx_aa_text_clipped(x2, ROW_Y5[0], &display_str, row0_color, &FONT_AA_SMALL_BOLD, PAD_X, CONTENT_RIGHT);
-            }
-        }
+        draw_marquee(0, PAD_X, CONTENT_RIGHT, ROW_Y5[0], &display_str, row0_color,
+                     &FONT_AA_SMALL_BOLD, TICKER_PAUSE_FRAMES);
     }
 
     // Color rules: yellow = up/down edits this, red = left/right edits this
@@ -856,10 +801,11 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     };
 
     gfx_aa_text(PAD_X, ROW_Y5[1], "NOTE", GFX_LABEL, &FONT_AA_SMALL);
-    let note_color = if row_ud_color(1) != GFX_VALUE {
+    // Highlighted when U/D edits it, incl. Shift+U/D octave move on single notes
+    let note_color = if row_ud_color(1) != GFX_VALUE
+        || (shift && !meta && !alt && ev.chord_amount <= 1)
+    {
         GFX_YELLOW
-    } else if shift && !meta && !alt && ev.chord_amount <= 1 {
-        GFX_YELLOW // Shift+U/D on single note = octave move
     } else {
         GFX_VALUE
     };
@@ -952,59 +898,19 @@ fn render_modify(s: &EngineState, mods: u8) {
         display_str.push_str(note_name.as_str());
         display_str.push(' ');
         if is_drum {
-            if ev.chord_amount > 1 {
-                let mut offsets = [0i8; MAX_CHORD_SIZE];
-                let count = engine_ui::get_chord_offsets(s, ev, &mut offsets, 0);
-                for i in 0..count {
-                    if i > 0 { display_str.push_str(", "); }
-                    let row = ev.row + offsets[i] as i16;
-                    let dn = get_drum_name(row.clamp(0, 127) as i8);
-                    display_str.push_str(dn.as_str());
-                }
-            } else {
-                let dn = get_drum_name(ev.row.clamp(0, 127) as i8);
-                display_str.push_str(dn.as_str());
-            }
+            // Single-note events get one name (get_chord_offsets yields [0])
+            push_drum_names(s, ev, &mut display_str);
         } else if ev.chord_amount > 1 {
             let cn = chord_name_upper(s, ev);
             display_str.push_str(cn.as_str());
         } else {
             display_str.push_str("SINGLE NOTE");
         }
-        let text_w = gfx_aa_text_width(&display_str, &FONT_AA_SMALL_BOLD);
-        let avail = CONTENT_RIGHT - PAD_X;
-        if text_w <= avail {
-            gfx_aa_text(PAD_X, ROW_Y5[0], &display_str, GFX_VALUE, &FONT_AA_SMALL_BOLD);
-        } else {
-            let wrap_dist = text_w + TICKER_WRAP_GAP;
-            let offset = ticker_offset(0, &display_str, wrap_dist);
-            let x1 = PAD_X - offset;
-            gfx_aa_text_clipped(x1, ROW_Y5[0], &display_str, GFX_VALUE, &FONT_AA_SMALL_BOLD, PAD_X, CONTENT_RIGHT);
-            let x2 = x1 + wrap_dist;
-            if x2 < CONTENT_RIGHT {
-                gfx_aa_text_clipped(x2, ROW_Y5[0], &display_str, GFX_VALUE, &FONT_AA_SMALL_BOLD, PAD_X, CONTENT_RIGHT);
-            }
-        }
+        draw_marquee(0, PAD_X, CONTENT_RIGHT, ROW_Y5[0], &display_str, GFX_VALUE,
+                     &FONT_AA_SMALL_BOLD, TICKER_PAUSE_FRAMES);
 
         // ---- Row 1: MODE label + all sub-mode labels in cycle order ----
-        // Cycle order: VEL(0), MOD(4), INV(5), HIT(1), FLAM(3), TIME(2)
-        {
-            static MODE_DISPLAY_ORDER: [usize; 6] = [0, 4, 5, 1, 3, 2];
-            gfx_aa_text(PAD_X, ROW_Y5[1], "MODE", GFX_LABEL, &FONT_AA_SMALL);
-            let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
-            for &i in MODE_DISPLAY_ORDER.iter() {
-                let label = SUB_MODE_LABELS.get(i).unwrap_or(&"?");
-                let has_data = ev.sub_mode_handles[i] != POOL_HANDLE_NONE;
-                let font = if has_data { &FONT_AA_SMALL_BOLD } else { &FONT_AA_SMALL };
-                let color = if i == sub_mode {
-                    if !m_meta { GFX_YELLOW } else { GFX_VALUE }
-                } else {
-                    GFX_DIM
-                };
-                gfx_aa_text(x, ROW_Y5[1], label, color, font);
-                x += gfx_aa_text_width(label, font) + 4;
-            }
-        }
+        draw_mode_row(ROW_Y5[1], sub_mode, !m_meta, Some(&ev.sub_mode_handles));
 
         // ---- Row 2: LOOP [CNT/RST/FIL] — all modes shown, current highlighted ----
         {
@@ -1043,21 +949,7 @@ fn render_modify(s: &EngineState, mods: u8) {
         }
     } else {
         // No note selected — show MODE label + sub-mode labels in cycle order
-        {
-            static MODE_DISPLAY_ORDER: [usize; 6] = [0, 4, 5, 1, 3, 2];
-            gfx_aa_text(PAD_X, ROW_Y5[0], "MODE", GFX_LABEL, &FONT_AA_SMALL);
-            let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
-            for &i in MODE_DISPLAY_ORDER.iter() {
-                let label = SUB_MODE_LABELS.get(i).unwrap_or(&"?");
-                let color = if i == sub_mode {
-                    if !m_meta { GFX_YELLOW } else { GFX_VALUE }
-                } else {
-                    GFX_DIM
-                };
-                gfx_aa_text(x, ROW_Y5[0], label, color, &FONT_AA_SMALL);
-                x += gfx_aa_text_width(label, &FONT_AA_SMALL) + 4;
-            }
-        }
+        draw_mode_row(ROW_Y5[0], sub_mode, !m_meta, None);
         gfx_aa_text(PAD_X, ROW_Y5[1], "SELECT A NOTE", GFX_DIM, &FONT_AA_SMALL);
 
         draw_legend_item(0, 0, "", GFX_DIM);
@@ -1123,18 +1015,12 @@ pub fn oled_render(s: &EngineState, modifiers: u8) {
     FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
     gfx_clear(GFX_BLACK);
 
-    let mode = s.ui_mode;
-    let has_sel = s.selected_event_idx >= 0;
-
-    match mode {
-        0 => { // UI_PATTERN
-            if has_sel { render_pattern_selected(s, modifiers); }
-            else { render_pattern_default(s, modifiers); }
-        },
-        1 => render_channel(s),             // UI_CHANNEL
-        2 => render_loop(s, modifiers),     // UI_LOOP
-        3 => render_modify(s, modifiers),   // UI_MODIFY
-        _ => render_pattern_default(s, modifiers),
+    match UiMode::from_u8(s.ui_mode) {
+        UiMode::Pattern if s.selected_event_idx >= 0 => render_pattern_selected(s, modifiers),
+        UiMode::Pattern => render_pattern_default(s, modifiers),
+        UiMode::Channel => render_channel(s),
+        UiMode::Loop => render_loop(s, modifiers),
+        UiMode::Modify => render_modify(s, modifiers),
     }
 }
 

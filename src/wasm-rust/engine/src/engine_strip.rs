@@ -91,7 +91,7 @@ pub fn engine_strip_move(s: &mut EngineState, strip: u8, pos: i32, time_ms: f32)
         s.col_offset
     };
 
-    let next = (offset + value_delta).max(0.0).min(1.0);
+    let next = (offset + value_delta).clamp(0.0, 1.0);
 
     if strip == STRIP_VERTICAL {
         let ch = s.current_channel as usize;
@@ -119,7 +119,6 @@ pub fn engine_strip_end(s: &mut EngineState, strip: u8) {
         let t = s.current_tick;
         if t >= 0 { s.resume_tick = t; }
         engine_core_scrub_end(s);
-        return;
     }
 
     // Inertia: velocity is already set from strip_move
@@ -145,11 +144,11 @@ pub fn engine_strip_inertia_tick(s: &mut EngineState, strip: u8) -> u8 {
 
     if strip == STRIP_VERTICAL {
         let ch = s.current_channel as usize;
-        let next = (s.row_offsets[ch] + v).max(0.0).min(1.0);
+        let next = (s.row_offsets[ch] + v).clamp(0.0, 1.0);
         s.row_offsets[ch] = next;
         s.target_row_offsets[ch] = next;
     } else {
-        let next = (s.col_offset + v).max(0.0).min(1.0);
+        let next = (s.col_offset + v).clamp(0.0, 1.0);
         s.col_offset = next;
         s.target_col_offset = next;
     }
@@ -220,10 +219,10 @@ pub fn engine_playhead_follow(s: &mut EngineState) {
     target_start_col = target_start_col.max(loop_start_col);
     let max_loop_start_col = loop_end_col - VISIBLE_COLS as i32;
     target_start_col = target_start_col.min(max_loop_start_col);
-    target_start_col = target_start_col.max(0).min(max_col_offset);
+    target_start_col = target_start_col.clamp(0, max_col_offset);
 
     let new_col_offset = target_start_col as f32 / max_col_offset as f32;
-    let new_col_offset = new_col_offset.max(0.0).min(1.0);
+    let new_col_offset = new_col_offset.clamp(0.0, 1.0);
 
     if (new_col_offset - s.col_offset).abs() > 0.001 {
         s.col_offset = new_col_offset;

@@ -11,6 +11,12 @@ pub struct FmtBuf<const N: usize> {
     len: usize,
 }
 
+impl<const N: usize> Default for FmtBuf<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize> FmtBuf<N> {
     pub const fn new() -> Self {
         Self { buf: [0u8; N], len: 0 }
@@ -1131,7 +1137,7 @@ pub fn engine_reseed_random_arp() {
 pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: i8) -> u8 {
     if style == ARP_CHORD || chord_count <= 1 { return 255; }
 
-    if style >= ARP_CHORD_UP && style <= ARP_CHORD_DOWN_UP {
+    if (ARP_CHORD_UP..=ARP_CHORD_DOWN_UP).contains(&style) {
         let base_styles = [ARP_UP, ARP_DOWN, ARP_UP_DOWN, ARP_DOWN_UP];
         let base = base_styles[(style - ARP_CHORD_UP) as usize];
 
@@ -1140,7 +1146,7 @@ pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: 
             _ => 2 * (chord_count as u16 - 1),
         };
 
-        if repeat_idx % cycle == 0 { return 255; }
+        if repeat_idx.is_multiple_of(cycle) { return 255; }
         return get_arp_chord_index(base, chord_count, repeat_idx % cycle, offset);
     }
 
@@ -1205,7 +1211,7 @@ pub fn get_arp_chord_index(style: u8, chord_count: u8, repeat_idx: u16, offset: 
             let pos = ((effective_raw % cc) + cc) % cc;
 
             let mut perm = [0u8; 8];
-            for i in 0..cc as usize { perm[i] = i as u8; }
+            for (i, p) in perm.iter_mut().enumerate().take(cc as usize) { *p = i as u8; }
 
             // Hash epoch + global seed, then Fisher-Yates
             let seed = ARP_RANDOM_SEED.load(core::sync::atomic::Ordering::Relaxed);
@@ -1288,6 +1294,7 @@ fn prune_active_notes(s: &mut EngineState, ch: u8, channel_tick: i32) {
     silence_notes(s, |n| n.channel == ch && channel_tick > n.end);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_active_note(
     s: &mut EngineState, ch: u8, event_index: u16,
     repeat_index: u8, chord_index: u8,

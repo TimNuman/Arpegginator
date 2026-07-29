@@ -323,8 +323,8 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
         let ev = &s.event_pool[h];
         let ev_idx = ev.event_index;
         ev_indexes[i] = ev_idx;
-        for sm in 0..NUM_SUB_MODES {
-            ev_sub_modes[i][sm] = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
+        for (sm, slot) in ev_sub_modes[i].iter_mut().enumerate() {
+            *slot = *get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
         }
         ev_hit_snapshots[i] = s.counter_snapshots[SubModeId::Hit as usize][ch][(ev_idx as usize) % MAX_EVENTS];
         ev_vel_snapshots[i] = s.counter_snapshots[SubModeId::Velocity as usize][ch][(ev_idx as usize) % MAX_EVENTS];
@@ -361,7 +361,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
 
                 if selected_idx >= 0 && rn.source_idx == selected_idx as u16 {
                     let rn_starts = rn.position >= actual_tick && rn.position < col_end_tick;
-                    let prev_starts = selected_here.map_or(false, |si|
+                    let prev_starts = selected_here.is_some_and(|si|
                         notes[si].position >= actual_tick && notes[si].position < col_end_tick
                     );
                     // Prefer a selected note that starts in this cell over one just continuing
@@ -419,7 +419,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
                 if !is_start { value |= FLAG_CONTINUATION; }
                 // Show playing highlight if the displayed note itself is playing,
                 // but not if a different note's hold is underneath a hit
-                let chosen_playing = playing_note.map_or(false, |pn| pn == ni);
+                let chosen_playing = playing_note == Some(ni);
                 if chosen_playing || (playing_note.is_some() && !is_start) {
                     value |= FLAG_PLAYING;
                 }
@@ -749,10 +749,11 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
             let is_playing_col = vc as i16 == playing_col;
             let is_explicit = (vc as u8) < array_length;
             let is_in_repeat = (vc as u16) < repeat_amount;
-            let is_unreachable = (is_explicit && !is_in_repeat
-                && loop_mode != LoopMode::Continue as u8)
-                || (loop_mode == LoopMode::Continue as u8
-                    && is_explicit && !cnt_active[vc]);
+            let is_unreachable = is_explicit && if loop_mode == LoopMode::Continue as u8 {
+                !cnt_active[vc]
+            } else {
+                !is_in_repeat
+            };
 
             if !is_explicit && !is_in_repeat {
                 s.button_values[vr][vc] = if is_playing_col { FLAG_PLAYHEAD } else { BTN_OFF };
@@ -814,9 +815,8 @@ fn compute_ghost_notes(s: &mut EngineState) {
         let temp_buf = TEMP_RENDERED.get_mut();
         let cnt = engine_render_events(s, ch as u8, pat, temp_buf, MAX_RENDERED_NOTES);
 
-        for i in 0..cnt as usize {
+        for rn in temp_buf[..cnt as usize].iter().copied() {
             if count >= MAX_GHOST_NOTES { break; }
-            let rn = temp_buf[i];
             let midi_idx = scale_zero as i32 + rn.row as i32;
             if midi_idx < 0 || midi_idx >= scale_cnt as i32 { continue; }
             let midi = s.scale_notes[midi_idx as usize];

@@ -61,9 +61,8 @@ pub fn clone_event_deep(s: &mut EngineState, src_handle: u16) -> Option<u16> {
     for sm in 0..NUM_SUB_MODES {
         let sm_handle = s.event_pool[new_handle].sub_mode_handles[sm];
         if sm_handle == POOL_HANDLE_NONE { continue; }
-        let dup = s.sub_mode_pool.alloc().map(|new_sm| {
+        let dup = s.sub_mode_pool.alloc().inspect(|&new_sm| {
             s.sub_mode_pool[new_sm] = s.sub_mode_pool[sm_handle];
-            new_sm
         });
         s.event_pool[new_handle].sub_mode_handles[sm] = dup.unwrap_or(POOL_HANDLE_NONE);
     }

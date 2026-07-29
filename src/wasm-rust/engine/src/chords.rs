@@ -54,7 +54,7 @@ pub fn find_scale_degree(s: &EngineState, pc: u8) -> i8 {
         .map(|d| d as i8)
         .or_else(|| {
             (0..octave_size)
-                .find(|&d| d + 1 <= zi && s.scale_notes[zi - d - 1] % 12 == pc)
+                .find(|&d| d < zi && s.scale_notes[zi - d - 1] % 12 == pc)
                 .map(|d| (octave_size - d - 1) as i8)
         })
         .unwrap_or(-1)

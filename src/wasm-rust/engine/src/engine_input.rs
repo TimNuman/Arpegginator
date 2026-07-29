@@ -367,7 +367,7 @@ fn pattern_press_random(s: &mut EngineState, row: i16, tick: i32, tpc: i32) {
     let is_drum = s.is_drum_channel(ch);
 
     if is_drum {
-        let pat = get_drum_pattern(row as i16, engine_random(s));
+        let pat = get_drum_pattern(row, engine_random(s));
         let amt = pat.amount;
         let speed_roll = engine_random(s) % 100;
         let space = if speed_roll < 15 && pat.space_mul >= 2 {
