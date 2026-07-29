@@ -16,24 +16,8 @@ const FRAME_MS: f32 = 16.0; // ~60fps reference for velocity normalization
 
 // ============ Helpers ============
 
-fn get_total_rows(s: &EngineState) -> i32 {
-    if s.channel_types[s.current_channel as usize] == ChannelType::Drum as u8 { 128 }
-    else { s.scale_count as i32 }
-}
-
-fn get_total_cols(s: &EngineState) -> i32 {
-    let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
-    let pat_len = s.patterns[ch][pat].length_ticks;
-    if pat_len > 0 && s.zoom > 0 { (pat_len + s.zoom - 1) / s.zoom } else { 0 }
-}
-
 fn get_scrollable_rows(s: &EngineState) -> i32 {
-    (get_total_rows(s) - VISIBLE_ROWS as i32).max(0)
-}
-
-fn get_scrollable_cols(s: &EngineState) -> i32 {
-    (get_total_cols(s) - VISIBLE_COLS as i32).max(0)
+    (s.total_rows() as i32 - VISIBLE_ROWS as i32).max(0)
 }
 
 // ============ Strip API ============
@@ -79,7 +63,7 @@ pub fn engine_strip_move(s: &mut EngineState, strip: u8, pos: i32, time_ms: f32)
     let scrollable = if strip == STRIP_VERTICAL {
         get_scrollable_rows(s)
     } else {
-        get_scrollable_cols(s)
+        s.max_col_offset()
     };
 
     if scrollable <= 0 { return; }
@@ -226,7 +210,7 @@ pub fn engine_playhead_follow(s: &mut EngineState) {
 
     if loop_length_cols <= VISIBLE_COLS as i32 { return; }
 
-    let total_cols = get_total_cols(s);
+    let total_cols = s.total_cols();
     let max_col_offset = (total_cols - VISIBLE_COLS as i32).max(0);
     if max_col_offset <= 0 { return; }
 

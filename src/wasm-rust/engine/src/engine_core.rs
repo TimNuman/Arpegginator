@@ -1512,7 +1512,7 @@ pub fn engine_core_init(s: &mut EngineState) {
         0.5
     };
     for ch in 0..NUM_CHANNELS {
-        let off = if s.channel_types[ch] == ChannelType::Drum as u8 { drum_offset } else { melodic_offset };
+        let off = if s.is_drum_channel(ch) { drum_offset } else { melodic_offset };
         s.row_offsets[ch] = off;
         s.target_row_offsets[ch] = off;
     }
