@@ -18,6 +18,9 @@ const TEMPO_HYSTERESIS = 2; // BPM must change by more than this to update
 // localStorage keys for persisting MIDI device selections
 const STORAGE_KEY_OUTPUT = 'arpegginator-midi-output';
 const STORAGE_KEY_INPUT = 'arpegginator-midi-input';
+// '1' when the user explicitly chose the built-in Web Audio sounds — suppresses
+// the fall-back auto-select of the first MIDI output on load
+export const STORAGE_KEY_BUILTIN_SOUND = 'arpegginator-sound-builtin';
 
 export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
   const [isEnabled, setIsEnabled] = useState(false);
@@ -50,16 +53,19 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
         // Try to restore previously selected output from localStorage
         const savedOutputName = localStorage.getItem(STORAGE_KEY_OUTPUT);
         const savedInputName = localStorage.getItem(STORAGE_KEY_INPUT);
+        const preferBuiltin =
+          localStorage.getItem(STORAGE_KEY_BUILTIN_SOUND) === '1';
 
         // Find and select the saved output, or fall back to first available
+        // (unless the user explicitly chose the built-in synth)
         if (savedOutputName) {
           const savedOutput = WebMidi.outputs.find(o => o.name === savedOutputName);
           if (savedOutput) {
             setSelectedOutput(savedOutput);
-          } else if (WebMidi.outputs.length > 0) {
+          } else if (!preferBuiltin && WebMidi.outputs.length > 0) {
             setSelectedOutput(WebMidi.outputs[0]);
           }
-        } else if (WebMidi.outputs.length > 0) {
+        } else if (!preferBuiltin && WebMidi.outputs.length > 0) {
           setSelectedOutput(WebMidi.outputs[0]);
         }
 

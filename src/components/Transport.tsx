@@ -34,7 +34,12 @@ interface TransportProps {
   onOutputChange: (output: Output | null) => void;
   onInputChange: (input: Input | null) => void;
   midiEnabled: boolean;
+  builtinSoundSelected: boolean;
+  onSelectBuiltinSound: () => void;
 }
+
+// Sentinel value for the built-in Web Audio synth in the output selector
+const BUILTIN_SOUND_ID = 'builtin';
 
 export const Transport = ({
   isPlaying,
@@ -54,6 +59,8 @@ export const Transport = ({
   onOutputChange,
   onInputChange,
   midiEnabled,
+  builtinSoundSelected,
+  onSelectBuiltinSound,
 }: TransportProps) => {
   // In slave mode (external playback from MIDI), show disabled play button
   const showDisabledPlayButton = isPlaying && isExternalPlayback;
@@ -114,19 +121,26 @@ export const Transport = ({
       </Box>
 
       <FormControl css={midiSelectStyles} size="small">
-        <InputLabel>MIDI Output</InputLabel>
+        <InputLabel>Sound Output</InputLabel>
         <Select
-          value={selectedOutput?.id || ''}
-          label="MIDI Output"
+          value={
+            selectedOutput?.id ||
+            (builtinSoundSelected ? BUILTIN_SOUND_ID : '')
+          }
+          label="Sound Output"
           onChange={(e) => {
+            if (e.target.value === BUILTIN_SOUND_ID) {
+              onSelectBuiltinSound();
+              return;
+            }
             const output = midiOutputs.find((o) => o.id === e.target.value) || null;
             onOutputChange(output);
           }}
-          disabled={!midiEnabled}
         >
           <MenuItem value="">
             <em>None</em>
           </MenuItem>
+          <MenuItem value={BUILTIN_SOUND_ID}>Built-in (808 + Piano)</MenuItem>
           {midiOutputs.map((output) => (
             <MenuItem key={output.id} value={output.id}>
               {output.name}
@@ -158,8 +172,8 @@ export const Transport = ({
       </FormControl>
 
       {!midiEnabled && (
-        <Typography sx={{ color: 'rgba(255, 100, 100, 0.8)', fontSize: '12px' }}>
-          MIDI not available
+        <Typography sx={{ color: 'rgba(255, 255, 255, 0.45)', fontSize: '12px' }}>
+          Web MIDI unavailable — built-in sounds active
         </Typography>
       )}
     </Box>

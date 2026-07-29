@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Output } from "webmidi";
 import { css, Global } from "@emotion/react";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
@@ -6,7 +7,8 @@ import { Transport } from "./components/Transport";
 import { WasmEngine } from "./engine/WasmEngine";
 import { TeensyEngine } from "./engine/TeensyEngine";
 import type { Engine } from "./engine/types";
-import { useMidi } from "./hooks/useMidi";
+import { useMidi, STORAGE_KEY_BUILTIN_SOUND } from "./hooks/useMidi";
+import { synth } from "./audio/WebAudioSynth";
 import { useRenderVersion } from "./store/renderStore";
 import * as actions from "./actions";
 import { TICKS_PER_QUARTER } from "./components/Grid/Grid.config";
@@ -155,30 +157,69 @@ function App() {
     onTempoChange: (bpm) => setBpmRef.current(bpm),
   });
 
+  // Built-in Web Audio sounds (808 drums + piano) — used when no MIDI output
+  // is selected. Default on, so devices without Web MIDI (e.g. iPad) make
+  // sound out of the box.
+  const [builtinSound, setBuiltinSound] = useState<boolean>(
+    () => localStorage.getItem(STORAGE_KEY_BUILTIN_SOUND) !== "0",
+  );
+
+  // iOS/Safari requires the AudioContext to be resumed from a user gesture.
+  useEffect(() => {
+    const unlock = () => synth.resume();
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  // Route note events: MIDI hardware when an output is selected, otherwise
+  // the built-in synth. Drum channels get the 808 kit, melodic ones piano.
+  const playSound = useCallback(
+    (midiNote: number, velocity: number, channel: number) => {
+      if (selectedOutput) {
+        playNote(midiNote, velocity, channel + 1);
+      } else if (builtinSound) {
+        const isDrum = engineRef.current?.getChannelType(channel) === 1;
+        synth.noteOn(channel, midiNote, velocity, isDrum);
+      }
+    },
+    [selectedOutput, builtinSound, playNote],
+  );
+
+  const stopSound = useCallback(
+    (midiNote: number, channel: number) => {
+      stopNote(midiNote, channel + 1);
+      synth.noteOff(channel, midiNote);
+    },
+    [stopNote],
+  );
+
   // The engine resolves all timing/flam/lookahead and emits fully-scheduled
   // note-ons, so JS just sends them. Scrub/preview notes arrive while the
   // transport is stopped and get no engine note-off, so auto-release those.
   const handleNoteOn = useCallback(
     (channel: number, midiNote: number, velocity: number) => {
-      const midiChannel = channel + 1;
-      playNote(midiNote, velocity, midiChannel);
+      playSound(midiNote, velocity, channel);
 
       if (!engineRef.current?.getIsPlaying()) {
         const id = setTimeout(() => {
           pendingTimeouts.current.delete(id);
-          stopNote(midiNote, midiChannel);
+          stopSound(midiNote, channel);
         }, 80);
         pendingTimeouts.current.add(id);
       }
     },
-    [playNote, stopNote],
+    [playSound, stopSound],
   );
 
   const handleNoteOff = useCallback(
     (channel: number, midiNote: number) => {
-      stopNote(midiNote, channel + 1);
+      stopSound(midiNote, channel);
     },
-    [stopNote],
+    [stopSound],
   );
 
   // Read transport state from WASM
@@ -192,13 +233,13 @@ function App() {
 
   const handlePlayNote = useCallback(
     (note: number, channel: number, lengthTicks?: number) => {
-      playNote(note, 100, channel + 1);
+      playSound(note, 100, channel);
       const ticks = lengthTicks ?? TICKS_PER_QUARTER / 4;
       const tickDurationMs = 60000 / (bpmRef.current * TICKS_PER_QUARTER);
       const duration = Math.max(50, ticks * tickDurationMs - 10);
-      setTimeout(() => stopNote(note, channel + 1), duration);
+      setTimeout(() => stopSound(note, channel), duration);
     },
-    [playNote, stopNote],
+    [playSound, stopSound],
   );
 
   // Wire up step trigger and note-off callbacks
@@ -246,11 +287,13 @@ function App() {
     clearPendingTimeouts();
     actions.stopExternal();
     stopAllNotes();
+    synth.allNotesOff();
   };
   externalTickRef.current = actions.externalTick;
   setBpmRef.current = actions.setBpm;
 
   const handlePlay = useCallback(() => {
+    synth.resume();
     actions.play();
   }, []);
 
@@ -258,12 +301,14 @@ function App() {
     clearPendingTimeouts();
     actions.stop();
     stopAllNotes();
+    synth.allNotesOff();
   }, [stopAllNotes]);
 
   const handleReset = useCallback(() => {
     clearPendingTimeouts();
     actions.resetPosition();
     stopAllNotes();
+    synth.allNotesOff();
   }, [stopAllNotes]);
 
   const handleClear = useCallback(() => {
@@ -278,6 +323,25 @@ function App() {
     setSwingLocal(newSwing);
     actions.setSwing(newSwing);
   }, []);
+
+  // Sound output selection: a MIDI device, the built-in synth, or none.
+  const handleOutputChange = useCallback(
+    (output: Output | null) => {
+      setSelectedOutput(output);
+      // Explicitly picking a device (or "None") opts out of built-in sounds
+      setBuiltinSound(false);
+      localStorage.setItem(STORAGE_KEY_BUILTIN_SOUND, "0");
+      synth.allNotesOff();
+    },
+    [setSelectedOutput],
+  );
+
+  const handleSelectBuiltinSound = useCallback(() => {
+    setSelectedOutput(null);
+    setBuiltinSound(true);
+    localStorage.setItem(STORAGE_KEY_BUILTIN_SOUND, "1");
+    synth.resume();
+  }, [setSelectedOutput]);
 
   const handleConnectTeensy = useCallback(async () => {
     if (teensyConnected) {
@@ -322,8 +386,9 @@ function App() {
     }
   }, [teensyConnected, bpm]);
 
-  // Don't render anything until both WASM and MIDI are ready
-  if (!wasmEngine || !isEnabled) {
+  // Don't render until the WASM engine is ready. MIDI is optional — on
+  // platforms without Web MIDI (e.g. iPad Safari) the built-in synth is used.
+  if (!wasmEngine) {
     console.log(
       "[startup] Gated: wasmEngine=" + !!wasmEngine + " isEnabled=" + isEnabled,
     );
@@ -370,9 +435,11 @@ function App() {
           midiInputs={inputs}
           selectedOutput={selectedOutput}
           selectedInput={selectedInput}
-          onOutputChange={setSelectedOutput}
+          onOutputChange={handleOutputChange}
           onInputChange={setSelectedInput}
           midiEnabled={isEnabled}
+          builtinSoundSelected={builtinSound}
+          onSelectBuiltinSound={handleSelectBuiltinSound}
         />
         <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
           <Box

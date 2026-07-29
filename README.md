@@ -39,8 +39,9 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 - Multiple scale types with root selection by circle of fifths
 - Drum channels bypass the scale and map directly to GM MIDI notes
 
-### MIDI
+### Sound
 
+- Built-in Web Audio sounds -- no MIDI hardware needed. Drum channels play a synthesized 808-style kit (kick, snare, clap, hats, toms, cymbals, cowbell, and more, mapped by GM drum note), melodic channels play a synthesized piano. Works on browsers without Web MIDI support (e.g. iPad Safari).
 - Sends note-on/off to any connected MIDI device via Web MIDI API
 - Receives MIDI clock for external sync (start, stop, continue, tempo detection)
 - Device selections persist across sessions
@@ -116,7 +117,7 @@ The grid also responds to mouse clicks and touch input with drag support.
 
 - [Node.js](https://nodejs.org/) (v18+)
 - [Rust](https://www.rust-lang.org/tools/install) with the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`)
-- A browser with [Web MIDI API](https://developer.mozilla.org/en-US/docs/Web/API/Web_MIDI_API) support (Chrome, Edge, Opera)
+- Any modern browser. Built-in sounds work everywhere; MIDI output/sync additionally requires [Web MIDI API](https://developer.mozilla.org/en-US/docs/Web/API/Web_MIDI_API) support (Chrome, Edge, Opera)
 
 ## Getting Started
 
@@ -131,7 +132,7 @@ npm run build:wasm
 npm run dev
 ```
 
-Open the app in Chrome and grant MIDI access when prompted. Select a MIDI output device in the transport bar to start sending notes.
+Open the app and press play -- built-in 808 + piano sounds work out of the box. To drive external gear instead, pick a MIDI output device in the Sound Output selector in the transport bar (Chrome will prompt for MIDI access).
 
 ## Build
 
