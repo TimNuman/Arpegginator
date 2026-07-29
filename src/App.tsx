@@ -8,6 +8,7 @@ import { WasmEngine } from "./engine/WasmEngine";
 import { TeensyEngine } from "./engine/TeensyEngine";
 import type { Engine } from "./engine/types";
 import { useMidi, STORAGE_KEY_BUILTIN_SOUND } from "./hooks/useMidi";
+import { useFitScale } from "./hooks/useFitScale";
 import { synth } from "./audio/WebAudioSynth";
 import { useRenderVersion } from "./store/renderStore";
 import * as actions from "./actions";
@@ -24,16 +25,34 @@ const globalStyles = css`
     box-sizing: border-box;
   }
 
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
   body {
     margin: 0;
     padding: 0;
     background: linear-gradient(180deg, #0a0a0a 0%, #1a0a1a 100%);
     min-height: 100vh;
+    min-height: 100dvh;
     font-family:
       "Inter",
       -apple-system,
       BlinkMacSystemFont,
       sans-serif;
+    /* Mobile Safari: no double-tap zoom, tap flashes, or long-press callouts */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
   }
 `;
 
@@ -43,7 +62,27 @@ const appContainerStyles = css`
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 40px 20px;
+  /* Keep clear of the Dynamic Island / home indicator in landscape */
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  padding-bottom: max(40px, env(safe-area-inset-bottom));
+
+  @media (max-height: 520px) {
+    padding: 8px;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+`;
+
+/** Fixed-size content that gets uniformly scaled down on small screens */
+const stageStyles = css`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: fit-content;
 `;
 
 const titleStyles = css`
@@ -51,12 +90,38 @@ const titleStyles = css`
   font-size: 32px;
   font-weight: 300;
   letter-spacing: 8px;
+  margin-top: 0;
   margin-bottom: 30px;
   text-transform: uppercase;
   background: linear-gradient(90deg, #ff3366, #66ffcc, #3366ff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+
+  /* Short screens (landscape phone): drop the title to give the grid room */
+  @media (max-height: 520px) {
+    display: none;
+  }
+`;
+
+const rotateHintStyles = css`
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(10, 10, 10, 0.96);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 18px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+
+  @media (orientation: portrait) and (max-width: 520px) {
+    display: flex;
+  }
 `;
 
 function App() {
@@ -65,6 +130,11 @@ function App() {
   const engineRef = useRef<Engine | null>(null);
   const [wasmEngine, setWasmEngine] = useState<Engine | null>(null);
   const [teensyConnected, setTeensyConnected] = useState(false);
+
+  // Scale the fixed-size UI down to fit small viewports (landscape phones)
+  const fitContainerRef = useRef<HTMLDivElement>(null);
+  const fitStageRef = useRef<HTMLDivElement>(null);
+  const fit = useFitScale(fitContainerRef, fitStageRef, wasmEngine !== null);
 
   const tryAutoConnectTeensy = useCallback(async (wasmEng: WasmEngine) => {
     try {
@@ -412,69 +482,98 @@ function App() {
   //     isEnabled,
   // );
 
+  const scaled = fit.scale < 1 && fit.width > 0;
+
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
       <Global styles={globalStyles} />
-      <Box css={appContainerStyles}>
-        <Box component="h1" css={titleStyles}>
-          ARPEGGINATOR
-        </Box>
-        <Transport
-          isPlaying={isPlaying}
-          isExternalPlayback={isExternalPlayback}
-          bpm={bpm}
-          swing={swing}
-          onPlay={handlePlay}
-          onStop={handleStop}
-          onReset={handleReset}
-          onClear={handleClear}
-          onBpmChange={handleSetBpm}
-          onSwingChange={handleSetSwing}
-          midiOutputs={outputs}
-          midiInputs={inputs}
-          selectedOutput={selectedOutput}
-          selectedInput={selectedInput}
-          onOutputChange={handleOutputChange}
-          onInputChange={setSelectedInput}
-          midiEnabled={isEnabled}
-          builtinSoundSelected={builtinSound}
-          onSelectBuiltinSound={handleSelectBuiltinSound}
-        />
-        <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
-          <Box
-            component="button"
-            onClick={handleConnectTeensy}
-            sx={{
-              background: "transparent",
-              border: "none",
-              color: teensyConnected ? "#6c6" : "#555",
-              cursor: "pointer",
-              fontSize: "10px",
-              letterSpacing: "1px",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "2px 8px",
-              "&:hover": {
-                color: teensyConnected ? "#8e8" : "#888",
-              },
-            }}
+      <Box css={rotateHintStyles}>Rotate to landscape</Box>
+      <Box ref={fitContainerRef} css={appContainerStyles}>
+        {/* Outer div reserves the scaled footprint so flex centering works;
+            inner stage keeps its natural layout size and is scaled visually */}
+        <div
+          style={
+            scaled
+              ? {
+                  width: fit.width * fit.scale,
+                  height: fit.height * fit.scale,
+                }
+              : undefined
+          }
+        >
+          <div
+            ref={fitStageRef}
+            css={stageStyles}
+            style={
+              scaled
+                ? {
+                    transform: `scale(${fit.scale})`,
+                    transformOrigin: "top left",
+                  }
+                : undefined
+            }
           >
-            <Box
-              component="span"
-              sx={{
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                background: teensyConnected ? "#6c6" : "#444",
-                boxShadow: teensyConnected ? "0 0 4px #6c6" : "none",
-              }}
+            <Box component="h1" css={titleStyles}>
+              ARPEGGINATOR
+            </Box>
+            <Transport
+              isPlaying={isPlaying}
+              isExternalPlayback={isExternalPlayback}
+              bpm={bpm}
+              swing={swing}
+              onPlay={handlePlay}
+              onStop={handleStop}
+              onReset={handleReset}
+              onClear={handleClear}
+              onBpmChange={handleSetBpm}
+              onSwingChange={handleSetSwing}
+              midiOutputs={outputs}
+              midiInputs={inputs}
+              selectedOutput={selectedOutput}
+              selectedInput={selectedInput}
+              onOutputChange={handleOutputChange}
+              onInputChange={setSelectedInput}
+              midiEnabled={isEnabled}
+              builtinSoundSelected={builtinSound}
+              onSelectBuiltinSound={handleSelectBuiltinSound}
             />
-            {teensyConnected ? "TEENSY" : "WASM"}
-          </Box>
-        </Box>
-        <Grid wasmEngine={wasmEngine} />
+            <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
+              <Box
+                component="button"
+                onClick={handleConnectTeensy}
+                sx={{
+                  background: "transparent",
+                  border: "none",
+                  color: teensyConnected ? "#6c6" : "#555",
+                  cursor: "pointer",
+                  fontSize: "10px",
+                  letterSpacing: "1px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "2px 8px",
+                  "&:hover": {
+                    color: teensyConnected ? "#8e8" : "#888",
+                  },
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: teensyConnected ? "#6c6" : "#444",
+                    boxShadow: teensyConnected ? "0 0 4px #6c6" : "none",
+                  }}
+                />
+                {teensyConnected ? "TEENSY" : "WASM"}
+              </Box>
+            </Box>
+            <Grid wasmEngine={wasmEngine} />
+          </div>
+        </div>
       </Box>
     </ThemeProvider>
   );

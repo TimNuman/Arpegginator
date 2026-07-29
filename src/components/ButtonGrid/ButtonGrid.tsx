@@ -32,7 +32,12 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
     <div
       data-grid-row={row}
       data-grid-col={col}
-      onMouseDown={(e) => {
+      // Pointer events fire exactly once per press for mouse AND touch.
+      // (Separate mousedown+touchstart handlers double-fire on touch devices:
+      // React's root touchstart listener is passive, so preventDefault can't
+      // suppress the browser's synthesized mousedown after a tap.)
+      onPointerDown={(e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
         e.preventDefault();
         onPress();
       }}
@@ -40,10 +45,6 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
         if (e.buttons === 1) {
           onDragEnter();
         }
-      }}
-      onTouchStart={(e) => {
-        e.preventDefault();
-        onPress();
       }}
       onContextMenu={(e) => e.preventDefault()}
       style={{
@@ -78,17 +79,20 @@ interface ButtonGridProps {
 
 export const ButtonGrid = memo(({ gridColors, cols, onPress, onDragEnter, onRelease }: ButtonGridProps) => {
 
+  // Track which cell the touch is currently over to avoid re-firing
+  const lastTouchCell = useRef<string | null>(null);
+
   // Create stable callbacks for each cell
   const handlePress = useCallback((row: number, col: number) => {
+    // Seed the touch-drag dedupe so a finger wobbling within the pressed cell
+    // doesn't immediately re-fire it via touchmove
+    lastTouchCell.current = `${row},${col}`;
     onPress(row, col);
   }, [onPress]);
 
   const handleDragEnter = useCallback((row: number, col: number) => {
     onDragEnter(row, col);
   }, [onDragEnter]);
-
-  // Track which cell the touch is currently over to avoid re-firing
-  const lastTouchCell = useRef<string | null>(null);
 
   // Touch drag: touchmove always fires on the *original* element, so we use
   // document.elementFromPoint to find which grid cell the finger is over.
