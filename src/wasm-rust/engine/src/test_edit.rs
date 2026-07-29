@@ -17,12 +17,12 @@ fn pat(s: &EngineState) -> usize { s.current_patterns[ch(s)] as usize }
 fn ev<'a>(s: &'a EngineState, idx: usize) -> &'a NoteEvent {
     let (c, p) = (ch(s), pat(s));
     let h = s.patterns[c][p].event_handles[idx];
-    &s.event_pool.slots[h as usize]
+    &s.event_pool[h]
 }
 
 fn ev_ch_pat<'a>(s: &'a EngineState, c: usize, p: usize, idx: usize) -> &'a NoteEvent {
     let h = s.patterns[c][p].event_handles[idx];
-    &s.event_pool.slots[h as usize]
+    &s.event_pool[h]
 }
 
 // ============ engine_toggle_event ============
@@ -72,7 +72,7 @@ fn toggle_fill_128_events() {
     }
     let (c, p) = (ch(&s), pat(&s));
     assert_eq!(s.patterns[c][p].event_count, 128);
-    assert!(s.event_pool.free_count > 0, "pool should have free slots remaining");
+    assert!(s.event_pool.free_count() > 0, "pool should have free slots remaining");
 }
 
 #[test]

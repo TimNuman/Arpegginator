@@ -746,7 +746,7 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     let pat = s.current_patterns[ch] as usize;
     if s.selected_event_idx as usize >= s.patterns[ch][pat].event_count as usize { return; }
     let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
-    let ev = &s.event_pool.slots[h as usize];
+    let ev = &s.event_pool[h];
     let is_drum = s.channel_types[ch] == CH_DRUM;
 
     let shift = (mods & MOD_SHIFT) != 0;
@@ -935,7 +935,7 @@ fn render_modify(s: &EngineState, mods: u8) {
             return;
         }
         let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         let is_drum = s.channel_types[ch] == CH_DRUM;
 
         let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sub_mode);

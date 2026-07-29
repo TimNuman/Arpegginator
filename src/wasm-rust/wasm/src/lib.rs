@@ -499,7 +499,7 @@ fn get_selected_event() -> Option<&'static NoteEvent> {
     if s.selected_event_idx as u16 >= s.patterns[ch][pat].event_count { return None; }
     let h = s.patterns[ch][pat].event_handles[s.selected_event_idx as usize];
     if h == POOL_HANDLE_NONE { return None; }
-    Some(&s.event_pool.slots[h as usize])
+    Some(&s.event_pool[h])
 }
 
 #[no_mangle]

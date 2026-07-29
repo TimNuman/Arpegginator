@@ -163,11 +163,13 @@ pub enum LoopMode {
 }
 
 impl LoopMode {
-    pub fn cycle(self) -> Self {
-        match self {
-            Self::Continue => Self::Reset,
-            Self::Reset => Self::Fill,
-            Self::Fill => Self::Continue,
+    /// Total conversion from the raw `u8` stored in host-writable buffers;
+    /// unknown values fall back to `Continue`.
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::Reset,
+            2 => Self::Fill,
+            _ => Self::Continue,
         }
     }
 }
@@ -190,20 +192,6 @@ pub enum SubModeId {
     Flam = 3,
     Modulate = 4,
     Inversion = 5,
-}
-
-impl SubModeId {
-    pub fn from_u8(v: u8) -> Self {
-        match v {
-            0 => Self::Velocity,
-            1 => Self::Hit,
-            2 => Self::Timing,
-            3 => Self::Flam,
-            4 => Self::Modulate,
-            5 => Self::Inversion,
-            _ => Self::Velocity,
-        }
-    }
 }
 
 pub const ARP_CHORD: u8 = 0;
@@ -262,18 +250,6 @@ pub enum EditGroup {
 }
 
 impl EditGroup {
-    pub fn from_u8(v: u8) -> Self {
-        match v {
-            0 => Self::Move,
-            1 => Self::Inversion,
-            2 => Self::Stack,
-            3 => Self::Spacing,
-            4 => Self::Arp,
-            5 => Self::Voicing,
-            _ => Self::None,
-        }
-    }
-
     /// Derive edit group from modifier flags. Pass booleans, not raw bitmask,
     /// since OLED and input use different encodings.
     pub fn from_mods(meta: bool, alt: bool, shift: bool) -> Self {
@@ -342,56 +318,79 @@ impl Default for SubModeArray {
 
 impl SubModeArray {
     pub fn mode(&self) -> LoopMode {
-        match self.loop_mode {
-            0 => LoopMode::Continue,
-            1 => LoopMode::Reset,
-            2 => LoopMode::Fill,
-            _ => LoopMode::Continue,
-        }
+        LoopMode::from_u8(self.loop_mode)
     }
 }
 
-// ============ Sub-Mode Pool ============
+// ============ Handle Pools ============
 
-pub struct SubModePool {
-    pub slots: [SubModeArray; POOL_CAPACITY],
-    pub free_list: [u16; POOL_CAPACITY],
-    pub free_count: u16,
+/// Fixed-capacity slot pool addressed by `u16` handles, with a free-list
+/// allocator. `POOL_HANDLE_NONE` is the null handle. `slots` stays public so
+/// hosts can map it directly as a flat FFI buffer.
+pub struct Pool<T, const N: usize> {
+    pub slots: [T; N],
+    free_list: [u16; N],
+    free_count: u16,
 }
 
-impl Default for SubModePool {
-    fn default() -> Self {
-        let mut free_list = [0u16; POOL_CAPACITY];
-        (0..POOL_CAPACITY).for_each(|i| { free_list[i] = i as u16; });
-        Self {
-            slots: [SubModeArray::default(); POOL_CAPACITY],
-            free_list,
-            free_count: POOL_CAPACITY as u16,
-        }
+pub type SubModePool = Pool<SubModeArray, POOL_CAPACITY>;
+pub type NoteEventPool = Pool<NoteEvent, EVENT_POOL_CAPACITY>;
+
+impl<T, const N: usize> Pool<T, N> {
+    pub fn alloc(&mut self) -> Option<u16> {
+        if self.free_count == 0 { return None; }
+        self.free_count -= 1;
+        Some(self.free_list[self.free_count as usize])
+    }
+
+    pub fn free(&mut self, handle: u16) {
+        if handle == POOL_HANDLE_NONE { return; }
+        debug_assert!((handle as usize) < N, "Pool::free: handle out of range");
+        debug_assert!((self.free_count as usize) < N, "Pool::free: free-list overflow (double free?)");
+        // Reject bad handles / over-full free list rather than write out of bounds.
+        if handle as usize >= N || self.free_count as usize >= N { return; }
+        self.free_list[self.free_count as usize] = handle;
+        self.free_count += 1;
+    }
+
+    /// Return every slot to the free list. Valid on zeroed memory, so
+    /// `init_in_place` can use it directly.
+    pub fn reset_free_list(&mut self) {
+        (0..N).for_each(|i| { self.free_list[i] = i as u16; });
+        self.free_count = N as u16;
+    }
+
+    pub fn free_count(&self) -> u16 {
+        self.free_count
     }
 }
 
-pub fn pool_alloc(pool: &mut SubModePool) -> Option<u16> {
-    if pool.free_count == 0 { return None; }
-    pool.free_count -= 1;
-    Some(pool.free_list[pool.free_count as usize])
+impl<T, const N: usize> core::ops::Index<u16> for Pool<T, N> {
+    type Output = T;
+    fn index(&self, handle: u16) -> &T {
+        &self.slots[handle as usize]
+    }
 }
 
-pub fn pool_free(pool: &mut SubModePool, handle: u16) {
-    if handle == POOL_HANDLE_NONE { return; }
-    debug_assert!((handle as usize) < POOL_CAPACITY, "pool_free: handle out of range");
-    debug_assert!((pool.free_count as usize) < POOL_CAPACITY, "pool_free: free-list overflow (double free?)");
-    // Reject bad handles / over-full free list rather than write out of bounds.
-    if handle as usize >= POOL_CAPACITY || pool.free_count as usize >= POOL_CAPACITY { return; }
-    pool.free_list[pool.free_count as usize] = handle;
-    pool.free_count += 1;
+impl<T, const N: usize> core::ops::IndexMut<u16> for Pool<T, N> {
+    fn index_mut(&mut self, handle: u16) -> &mut T {
+        &mut self.slots[handle as usize]
+    }
 }
 
+/// Free an event's sub-mode arrays, resetting the handles to `POOL_HANDLE_NONE`.
 pub fn pool_free_event_handles(pool: &mut SubModePool, handles: &mut [u16; NUM_SUB_MODES]) {
     handles.iter_mut().for_each(|h| {
-        pool_free(pool, *h);
+        pool.free(*h);
         *h = POOL_HANDLE_NONE;
     });
+}
+
+/// Free an event slot together with the sub-mode arrays it owns.
+pub fn event_free_with_sub_modes(event_pool: &mut NoteEventPool, sm_pool: &mut SubModePool, handle: u16) {
+    if handle == POOL_HANDLE_NONE { return; }
+    pool_free_event_handles(sm_pool, &mut event_pool[handle].sub_mode_handles);
+    event_pool.free(handle);
 }
 
 const fn make_sm_default(val: i16) -> SubModeArray {
@@ -411,58 +410,16 @@ pub static SM_DEFAULTS: [SubModeArray; NUM_SUB_MODES] = [
 
 pub fn get_sub_mode<'a>(pool: &'a SubModePool, handles: &[u16; NUM_SUB_MODES], sm: usize) -> &'a SubModeArray {
     let h = handles[sm];
-    if h == POOL_HANDLE_NONE { &SM_DEFAULTS[sm] } else { &pool.slots[h as usize] }
+    if h == POOL_HANDLE_NONE { &SM_DEFAULTS[sm] } else { &pool[h] }
 }
 
 pub fn get_sub_mode_mut<'a>(pool: &'a mut SubModePool, handles: &mut [u16; NUM_SUB_MODES], sm: usize) -> Option<&'a mut SubModeArray> {
     if handles[sm] == POOL_HANDLE_NONE {
-        let h = pool_alloc(pool)?;
-        pool.slots[h as usize] = SM_DEFAULTS[sm];
+        let h = pool.alloc()?;
+        pool[h] = SM_DEFAULTS[sm];
         handles[sm] = h;
     }
-    Some(&mut pool.slots[handles[sm] as usize])
-}
-
-// ============ Event Pool ============
-
-pub struct NoteEventPool {
-    pub slots: [NoteEvent; EVENT_POOL_CAPACITY],
-    pub free_list: [u16; EVENT_POOL_CAPACITY],
-    pub free_count: u16,
-}
-
-pub fn event_alloc(pool: &mut NoteEventPool) -> Option<u16> {
-    if pool.free_count == 0 { return None; }
-    pool.free_count -= 1;
-    Some(pool.free_list[pool.free_count as usize])
-}
-
-pub fn event_free(pool: &mut NoteEventPool, handle: u16) {
-    if handle == POOL_HANDLE_NONE { return; }
-    debug_assert!((handle as usize) < EVENT_POOL_CAPACITY, "event_free: handle out of range");
-    debug_assert!((pool.free_count as usize) < EVENT_POOL_CAPACITY, "event_free: free-list overflow (double free?)");
-    // Reject bad handles / over-full free list rather than write out of bounds.
-    if handle as usize >= EVENT_POOL_CAPACITY || pool.free_count as usize >= EVENT_POOL_CAPACITY { return; }
-    pool.free_list[pool.free_count as usize] = handle;
-    pool.free_count += 1;
-}
-
-pub fn event_free_with_sub_modes(event_pool: &mut NoteEventPool, sm_pool: &mut SubModePool, handle: u16) {
-    if handle == POOL_HANDLE_NONE { return; }
-    pool_free_event_handles(sm_pool, &mut event_pool.slots[handle as usize].sub_mode_handles);
-    event_free(event_pool, handle);
-}
-
-#[inline]
-pub fn get_event(pool: &NoteEventPool, handle: u16) -> &NoteEvent {
-    debug_assert!(handle != POOL_HANDLE_NONE && (handle as usize) < EVENT_POOL_CAPACITY);
-    &pool.slots[handle as usize]
-}
-
-#[inline]
-pub fn get_event_mut(pool: &mut NoteEventPool, handle: u16) -> &mut NoteEvent {
-    debug_assert!(handle != POOL_HANDLE_NONE && (handle as usize) < EVENT_POOL_CAPACITY);
-    &mut pool.slots[handle as usize]
+    Some(&mut pool[handles[sm]])
 }
 
 #[derive(Clone)]
@@ -660,10 +617,8 @@ impl EngineState {
         }
 
         // Pool free lists
-        (0..POOL_CAPACITY).for_each(|i| { self.sub_mode_pool.free_list[i] = i as u16; });
-        self.sub_mode_pool.free_count = POOL_CAPACITY as u16;
-        (0..EVENT_POOL_CAPACITY).for_each(|i| { self.event_pool.free_list[i] = i as u16; });
-        self.event_pool.free_count = EVENT_POOL_CAPACITY as u16;
+        self.sub_mode_pool.reset_free_list();
+        self.event_pool.reset_free_list();
 
         // Event pool defaults (sub_mode_handles must be POOL_HANDLE_NONE)
         for slot in self.event_pool.slots.iter_mut() {
@@ -727,13 +682,64 @@ impl EngineState {
         s.init_in_place();
         s
     }
+
+    // ---- Shared accessors (used by core, edit, input, ui, strip) ----
+
+    /// Whether `ch` is a drum channel (rows are raw MIDI notes, no scale).
+    pub fn is_drum_channel(&self, ch: usize) -> bool {
+        self.channel_types[ch] == ChannelType::Drum as u8
+    }
+
+    /// `(channel, pattern)` indices of the pattern currently being viewed/edited.
+    pub fn current_indices(&self) -> (usize, usize) {
+        let ch = self.current_channel as usize;
+        (ch, self.current_patterns[ch] as usize)
+    }
+
+    pub fn any_soloed(&self) -> bool {
+        self.soloed.iter().any(|&v| v != 0)
+    }
+
+    /// Whether a channel should produce sound given the global mute/solo state.
+    pub fn channel_audible(&self, ch: usize, any_soloed: bool) -> bool {
+        self.muted[ch] == 0 && (!any_soloed || self.soloed[ch] != 0)
+    }
+
+    /// Total scrollable rows for the current channel: full MIDI range for
+    /// drums, scale length for melodic channels.
+    pub fn total_rows(&self) -> i16 {
+        if self.is_drum_channel(self.current_channel as usize) { 128 } else { self.scale_count as i16 }
+    }
+
+    /// Lowest addressable row for the current channel.
+    pub fn min_row(&self) -> i16 {
+        if self.is_drum_channel(self.current_channel as usize) { 0 } else { -(self.scale_zero_index as i16) }
+    }
+
+    /// Total grid columns for the current pattern at the current zoom.
+    pub fn total_cols(&self) -> i32 {
+        let (ch, pat) = self.current_indices();
+        let pat_len = self.patterns[ch][pat].length_ticks;
+        if pat_len > 0 && self.zoom > 0 { (pat_len + self.zoom - 1) / self.zoom } else { 0 }
+    }
+
+    /// How far the view can scroll horizontally, in columns.
+    pub fn max_col_offset(&self) -> i32 {
+        (self.total_cols() - VISIBLE_COLS as i32).max(0)
+    }
+}
+
+impl NoteEvent {
+    /// Whether this event has an explicit (pool-backed) array for `sm`.
+    pub fn has_sub_mode(&self, sm: SubModeId) -> bool {
+        self.sub_mode_handles[sm as usize] != POOL_HANDLE_NONE
+    }
 }
 
 // ============ Helpers ============
 
 pub fn mod_positive(a: i32, b: i32) -> i32 {
-    let r = a % b;
-    if r < 0 { r + b } else { r }
+    a.rem_euclid(b)
 }
 
 pub fn engine_random(s: &mut EngineState) -> u32 {
@@ -811,7 +817,7 @@ pub fn engine_rebuild_scale(s: &mut EngineState) {
     let mut zero_index: u16 = 0;
 
     (0..=127u8).for_each(|midi| {
-        let pc = ((midi as i32 - root as i32) % 12 + 12) % 12;
+        let pc = (midi as i32 - root as i32).rem_euclid(12);
         if pattern[pc as usize] != 0 {
             if midi == zero_midi {
                 zero_index = count;
@@ -830,11 +836,11 @@ pub fn engine_cycle_scale(s: &mut EngineState, direction: i8) {
     let idx = (s.scale_id_idx as i32 + direction as i32).rem_euclid(NUM_SCALES as i32);
     s.scale_id_idx = idx as u8;
     engine_rebuild_scale(s);
-    s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    mark_all_dirty(s);
 }
 
 pub fn engine_cycle_scale_root(s: &mut EngineState, direction: i8) {
-    let new_root_midi = ((s.scale_root as i32 + direction as i32 * 7) % 12 + 12) % 12;
+    let new_root_midi = (s.scale_root as i32 + direction as i32 * 7).rem_euclid(12);
     let target_midi = (60 + new_root_midi) as u8;
 
     let offset = (0..s.scale_count as usize)
@@ -862,21 +868,19 @@ pub fn engine_cycle_scale_root(s: &mut EngineState, direction: i8) {
     // Shift all melodic notes by -offset to keep original pitches
     let total_shift = offset - cof_correction;
     (0..NUM_CHANNELS).for_each(|ch| {
-        if s.channel_types[ch] == ChannelType::Drum as u8 {
-            return;
-        }
+        if s.is_drum_channel(ch) { return; }
         (0..NUM_PATTERNS).for_each(|pat| {
             let ec = s.patterns[ch][pat].event_count as usize;
             (0..ec).for_each(|e| {
                 let h = s.patterns[ch][pat].event_handles[e];
-                s.event_pool.slots[h as usize].row -= total_shift;
+                s.event_pool[h].row -= total_shift;
             });
         });
     });
 
     s.scale_root = new_root_midi as u8;
     engine_rebuild_scale(s);
-    s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    mark_all_dirty(s);
 }
 
 pub fn engine_get_scale_name_str(s: &EngineState) -> &'static str {
@@ -1260,23 +1264,24 @@ pub fn is_arp_chord_active(
 
 // ============ Active Notes ============
 
-fn kill_active_notes_for_channel(s: &mut EngineState, ch: u8) {
+/// Send note-off for (and deactivate) every active note matching `pred`.
+/// The single primitive behind channel kills, pruning, stop, and scrub.
+fn silence_notes(s: &mut EngineState, mut pred: impl FnMut(&ActiveNote) -> bool) {
     s.active_notes.iter_mut()
-        .filter(|n| n.active && n.channel == ch)
+        .filter(|n| n.active && pred(n))
         .for_each(|n| {
-            crate::platform::platform_note_off(ch, n.midi_note as u8);
+            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
             n.active = false;
         });
+}
+
+fn kill_active_notes_for_channel(s: &mut EngineState, ch: u8) {
+    silence_notes(s, |n| n.channel == ch);
     cancel_scheduled_channel(s, ch);
 }
 
 fn prune_active_notes(s: &mut EngineState, ch: u8, channel_tick: i32) {
-    s.active_notes.iter_mut()
-        .filter(|n| n.active && n.channel == ch && channel_tick > n.end)
-        .for_each(|n| {
-            crate::platform::platform_note_off(ch, n.midi_note as u8);
-            n.active = false;
-        });
+    silence_notes(s, |n| n.channel == ch && channel_tick > n.end);
 }
 
 fn handle_active_note(
@@ -1386,7 +1391,7 @@ fn snapshot_counters_for_channel(s: &mut EngineState, ch: u8) {
 
     (0..ec as usize).for_each(|ei| {
         let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         if ev.enabled == 0 { return; }
         let eidx = (ev.event_index as usize) % MAX_EVENTS;
         (0..NUM_SUB_MODES).for_each(|sm| {
@@ -1404,7 +1409,7 @@ fn compute_preview_for_channel(s: &mut EngineState, ch: u8) {
 
     (0..ec as usize).for_each(|ei| {
         let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         if ev.enabled == 0 { return; }
 
         (0..NUM_SUB_MODES).for_each(|sm| {
@@ -1423,6 +1428,28 @@ fn snapshot_and_preview_channel(s: &mut EngineState, ch: u8) {
     compute_preview_for_channel(s, ch);
 }
 
+// ============ Shared Playback Helpers ============
+
+fn reset_continue_counters(s: &mut EngineState) {
+    s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
+    s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
+}
+
+fn mark_all_dirty(s: &mut EngineState) {
+    s.rendered_dirty = [1; NUM_CHANNELS];
+}
+
+/// Resolve a chord row to a MIDI note: drum channels use the row directly,
+/// melodic channels map through the scale (None = outside the scale range).
+fn chord_midi_note(s: &EngineState, ch: u8, chord_row: i16) -> Option<i8> {
+    if s.is_drum_channel(ch as usize) {
+        Some(chord_row.clamp(0, 127) as i8)
+    } else {
+        let m = note_to_midi(chord_row, s);
+        (m >= 0).then_some(m)
+    }
+}
+
 // ============ Core Functions ============
 
 pub fn engine_core_init(s: &mut EngineState) {
@@ -1431,9 +1458,7 @@ pub fn engine_core_init(s: &mut EngineState) {
     s.is_playing = 0;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
     clear_scheduled_notes(s);
-
-    s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
+    reset_continue_counters(s);
 
     s.ui_mode = UiMode::Pattern as u8;
     s.modify_sub_mode = SubModeId::Velocity as u8;
@@ -1463,7 +1488,7 @@ pub fn engine_core_init(s: &mut EngineState) {
     });
 
     if s.rng_state == 0 { s.rng_state = 12345; }
-    s.rendered_dirty = [1; NUM_CHANNELS];
+    mark_all_dirty(s);
 
     // Default channel types: 4 melodic + 2 drum
     s.channel_types = [0, 0, 0, 0, ChannelType::Drum as u8, ChannelType::Drum as u8];
@@ -1494,13 +1519,7 @@ pub fn engine_core_init(s: &mut EngineState) {
 }
 
 pub fn engine_core_play_init(s: &mut EngineState) {
-    s.current_tick = -1;
-    s.last_scrub_tick = -1;
-    s.active_notes.iter_mut().for_each(|n| n.active = false);
-    clear_scheduled_notes(s);
-    s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    engine_core_play_init_from_tick(s, 0);
 }
 
 pub fn engine_core_play_init_from_tick(s: &mut EngineState, tick: i32) {
@@ -1508,25 +1527,18 @@ pub fn engine_core_play_init_from_tick(s: &mut EngineState, tick: i32) {
     s.last_scrub_tick = -1;
     s.active_notes.iter_mut().for_each(|n| n.active = false);
     clear_scheduled_notes(s);
-    s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
+    reset_continue_counters(s);
+    mark_all_dirty(s);
 }
 
 pub fn engine_core_stop(s: &mut EngineState) {
-    s.active_notes.iter_mut()
-        .filter(|n| n.active)
-        .for_each(|n| {
-            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
-            n.active = false;
-        });
+    silence_notes(s, |_| true);
     // Drop pending note-ons so a stopped transport doesn't fire stragglers.
     clear_scheduled_notes(s);
 
-    s.continue_counters = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.counter_snapshots = [[[0; MAX_EVENTS]; NUM_CHANNELS]; NUM_SUB_MODES];
-    s.rendered_dirty.iter_mut().for_each(|d| *d = 1);
-    s.queued_patterns.iter_mut().for_each(|q| *q = -1);
+    reset_continue_counters(s);
+    mark_all_dirty(s);
+    s.queued_patterns = [-1; NUM_CHANNELS];
 }
 
 pub fn engine_core_tick(s: &mut EngineState) {
@@ -1536,7 +1548,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
     // channel) to keep the real-time tick path allocation-free.
     let mut switch_channels: [(u8, u8); NUM_CHANNELS] = [(0, 0); NUM_CHANNELS];
     let mut switch_count = 0usize;
-    let any_soloed = s.soloed.iter().any(|&v| v != 0);
+    let any_soloed = s.any_soloed();
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
         let pat_idx = s.current_patterns[ch as usize];
@@ -1562,11 +1574,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
         prune_active_notes(s, ch, channel_tick);
 
-        let should_play = if any_soloed {
-            s.soloed[ch as usize] != 0 && s.muted[ch as usize] == 0
-        } else {
-            s.muted[ch as usize] == 0
-        };
+        let should_play = s.channel_audible(ch as usize, any_soloed);
 
         if should_play && channel_tick >= loop_data.start && channel_tick < loop_end {
             let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
@@ -1574,7 +1582,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
             (0..ec as usize).for_each(|ei| {
                 // Must clone because resolve_sub_mode borrows s mutably
                 let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
-                let ev = s.event_pool.slots[h as usize].clone();
+                let ev = s.event_pool[h].clone();
                 if ev.enabled == 0 { return; }
 
                 (0..ev.repeat_amount).for_each(|r| {
@@ -1602,7 +1610,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
                     let effective_row = ev.row + mod_val;
 
-                    let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
+                    let inv_extra = if ev.has_sub_mode(SubModeId::Inversion) {
                         resolve_sub_mode(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
                     } else {
                         0
@@ -1614,13 +1622,7 @@ pub fn engine_core_tick(s: &mut EngineState) {
                         if !is_arp_chord_active(ev.arp_style, offset_count as u8, r, ev.arp_offset, ev.arp_voices, ci as u8) { return; }
 
                         let chord_row = effective_row + offsets[ci] as i16;
-                        let midi_note = if s.channel_types[ch as usize] == ChannelType::Drum as u8 {
-                            chord_row.clamp(0, 127) as i8
-                        } else {
-                            let m = note_to_midi(chord_row, s);
-                            if m < 0 { return; }
-                            m
-                        };
+                        let Some(midi_note) = chord_midi_note(s, ch, chord_row) else { return; };
 
                         // Schedule the note-on at its micro-timed tick; extend the
                         // active-note duration by the same delay so note-off (driven
@@ -1672,15 +1674,9 @@ pub fn engine_core_tick(s: &mut EngineState) {
 const SCRUB_NOTE_LENGTH: i32 = 1;
 
 pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
-    // Kill all active notes
-    s.active_notes.iter_mut()
-        .filter(|n| n.active)
-        .for_each(|n| {
-            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
-            n.active = false;
-        });
+    silence_notes(s, |_| true);
 
-    let any_soloed = s.soloed.iter().any(|&v| v != 0);
+    let any_soloed = s.any_soloed();
 
     (0..NUM_CHANNELS as u8).for_each(|ch| {
         let pat_idx = s.current_patterns[ch as usize];
@@ -1690,12 +1686,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
         if loop_len <= 0 { return; }
         let loop_end = loop_data.start + loop_len;
 
-        let should_play = if any_soloed {
-            s.soloed[ch as usize] != 0 && s.muted[ch as usize] == 0
-        } else {
-            s.muted[ch as usize] == 0
-        };
-        if !should_play { return; }
+        if !s.channel_audible(ch as usize, any_soloed) { return; }
 
         let curr_looped = loop_data.start + mod_positive(target_tick - loop_data.start, loop_len);
 
@@ -1718,7 +1709,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
         (0..ec as usize).for_each(|ei| {
             let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
-            let ev = s.event_pool.slots[h as usize].clone();
+            let ev = s.event_pool[h].clone();
             if ev.enabled == 0 { return; }
 
             (0..ev.repeat_amount).for_each(|r| {
@@ -1730,7 +1721,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                 let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, ch);
                 let effective_row = ev.row + mod_val;
 
-                let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
+                let inv_extra = if ev.has_sub_mode(SubModeId::Inversion) {
                     resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, ch) as i8
                 } else {
                     0
@@ -1740,13 +1731,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
                 (0..offset_count).for_each(|ci| {
                     let chord_row = effective_row + offsets[ci] as i16;
-                    let midi_note = if s.channel_types[ch as usize] == ChannelType::Drum as u8 {
-                        chord_row.clamp(0, 127) as i8
-                    } else {
-                        let m = note_to_midi(chord_row, s);
-                        if m < 0 { return; }
-                        m
-                    };
+                    let Some(midi_note) = chord_midi_note(s, ch, chord_row) else { return; };
 
                     // Scrub preview: fire immediately, no micro-timing or flam.
                     handle_active_note(s, ch, ev.event_index, r as u8, ci as u8, curr_looped, SCRUB_NOTE_LENGTH, midi_note);
@@ -1767,7 +1752,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
             (0..vec as usize).for_each(|ei| {
                 let h = s.patterns[view_ch][view_pat].event_handles[ei];
-                let ev = s.event_pool.slots[h as usize].clone();
+                let ev = s.event_pool[h].clone();
                 if ev.enabled == 0 { return; }
 
                 (0..ev.repeat_amount).for_each(|r| {
@@ -1779,7 +1764,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
                     let mod_val = resolve_sub_mode_preview(s, &ev, 4, r, view_ch as u8);
                     let effective_row = ev.row + mod_val;
 
-                    let inv_extra = if ev.sub_mode_handles[SubModeId::Inversion as usize] != POOL_HANDLE_NONE {
+                    let inv_extra = if ev.has_sub_mode(SubModeId::Inversion) {
                         resolve_sub_mode_preview(s, &ev, SubModeId::Inversion as usize, r, view_ch as u8) as i8
                     } else {
                         0
@@ -1789,13 +1774,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
                     (0..offset_count).for_each(|ci| {
                         let chord_row = effective_row + offsets[ci] as i16;
-                        let midi_note = if s.channel_types[view_ch] == ChannelType::Drum as u8 {
-                            chord_row.clamp(0, 127) as i8
-                        } else {
-                            let m = note_to_midi(chord_row, s);
-                            if m < 0 { return; }
-                            m
-                        };
+                        let Some(midi_note) = chord_midi_note(s, view_ch as u8, chord_row) else { return; };
                         handle_active_note(s, view_ch as u8, ev.event_index, r as u8, ci as u8, view_looped, 1, midi_note);
                     });
                 });
@@ -1810,12 +1789,7 @@ pub fn engine_core_scrub_to_tick(s: &mut EngineState, target_tick: i32) {
 
 pub fn engine_core_scrub_end(s: &mut EngineState) {
     s.last_scrub_tick = -1;
-    s.active_notes.iter_mut()
-        .filter(|n| n.active)
-        .for_each(|n| {
-            crate::platform::platform_note_off(n.channel, n.midi_note as u8);
-            n.active = false;
-        });
+    silence_notes(s, |_| true);
 }
 
 pub fn engine_core_get_version() -> i32 {

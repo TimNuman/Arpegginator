@@ -165,7 +165,7 @@ pub fn engine_render_events(
 
     (0..pat.event_count as usize).for_each(|e| {
         let h = pat.event_handles[e];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         if ev.enabled == 0 || count >= max_out { return; }
 
         (0..ev.repeat_amount).for_each(|r| {
@@ -336,7 +336,7 @@ fn render_pattern_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: 
     let mut ev_vel_snapshots = [0u16; MAX_EVENTS];
     (0..event_count).for_each(|i| {
         let h = s.patterns[ch][pat].event_handles[i];
-        let ev = &s.event_pool.slots[h as usize];
+        let ev = &s.event_pool[h];
         let ev_idx = ev.event_index;
         ev_indexes[i] = ev_idx;
         for sm in 0..NUM_SUB_MODES {
@@ -666,7 +666,7 @@ fn render_modify_mode(s: &mut EngineState, notes: &[RenderedNote], note_count: u
 
     // Read event data via pool to avoid borrow issues
     let h = s.patterns[ch][pat].event_handles[ev_idx];
-    let ev = &s.event_pool.slots[h as usize];
+    let ev = &s.event_pool[h];
     let repeat_amount = ev.repeat_amount;
     let sm_arr = get_sub_mode(&s.sub_mode_pool, &ev.sub_mode_handles, sm);
     let array_length = sm_arr.length;
