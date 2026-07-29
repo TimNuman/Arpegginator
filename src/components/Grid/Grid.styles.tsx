@@ -53,11 +53,20 @@ export const modifierKeyStyles = css`
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
-  cursor: default;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.1s ease;
+  touch-action: manipulation;
+
+  /* Short screens (landscape phone): the whole UI is scaled down, so give
+     these tap-toggles a larger natural size to stay finger-friendly */
+  @media (max-height: 520px) {
+    width: 64px;
+    height: 40px;
+    font-size: 13px;
+  }
 `;
 
 export const modifierKeyActiveStyles = css`

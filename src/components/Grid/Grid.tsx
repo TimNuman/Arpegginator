@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box } from "@mui/material";
 import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
@@ -186,18 +186,43 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     onKeyDown: handleKeyDown,
   });
 
-  // Keep keyboard ref in sync for mouse/touch handlers
+  // Sticky (latched) modifiers for touch devices with no keyboard: tapping a
+  // modifier key on screen toggles it caps-lock style until tapped again.
+  const [latchedMods, setLatchedMods] = useState({
+    shift: false,
+    ctrl: false,
+    alt: false,
+    meta: false,
+  });
+  const toggleLatchedMod = useCallback(
+    (key: "shift" | "ctrl" | "alt" | "meta") => {
+      setLatchedMods((m) => ({ ...m, [key]: !m[key] }));
+    },
+    [],
+  );
+
+  // Effective modifiers: physical keyboard OR on-screen latch
+  const mods = {
+    shift: keyboard.shift || latchedMods.shift,
+    ctrl: keyboard.ctrl || latchedMods.ctrl,
+    alt: keyboard.alt || latchedMods.alt,
+    meta: keyboard.meta || latchedMods.meta,
+  };
+
+  // Keep refs in sync for mouse/touch handlers
   keyboardRef.current = keyboard;
+  const modsRef = useRef(mods);
+  modsRef.current = mods;
 
   // ============ Compute Grid via WASM ============
   const gridColors = useMemo(() => {
     // Set modifier state before computing grid (for Ctrl overlay + loop pulsing)
-    const mods =
-      (keyboard.ctrl ? 1 : 0) |
-      (keyboard.shift ? 2 : 0) |
-      (keyboard.meta ? 4 : 0) |
-      (keyboard.alt ? 8 : 0);
-    wasmEngine.setModifiersHeld(mods);
+    const modBits =
+      (mods.ctrl ? 1 : 0) |
+      (mods.shift ? 2 : 0) |
+      (mods.meta ? 4 : 0) |
+      (mods.alt ? 8 : 0);
+    wasmEngine.setModifiersHeld(modBits);
 
     // Tell WASM to compute the grid
     wasmEngine.computeGrid();
@@ -207,7 +232,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     // hold it across renders without risk of the heap detaching underneath.)
     return Uint32Array.from(wasmEngine.getGridColors());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasmEngine, renderVersion, keyboard.ctrl, keyboard.meta, keyboard.shift]);
+  }, [wasmEngine, renderVersion, mods.ctrl, mods.meta, mods.shift, mods.alt]);
 
   // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(
@@ -220,8 +245,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           " wasmReady=" +
           wasmEngine.isReady(),
       );
-      const mods = encodeModifiers(keyboardRef.current);
-      wasmEngine.buttonPress(visibleRow, visibleCol, mods);
+      const modBits = encodeModifiers(modsRef.current);
+      wasmEngine.buttonPress(visibleRow, visibleCol, modBits);
       markDirty();
     },
     [wasmEngine],
@@ -229,8 +254,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
 
   const handleButtonDragEnter = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      const mods = encodeModifiers(keyboardRef.current);
-      wasmEngine.buttonPress(visibleRow, visibleCol, mods);
+      const modBits = encodeModifiers(modsRef.current);
+      wasmEngine.buttonPress(visibleRow, visibleCol, modBits);
       markDirty();
     },
     [wasmEngine],
@@ -239,8 +264,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   // ============ Arrow button handlers (on-screen UI) ============
   const handleArrow = useCallback(
     (dir: number) => {
-      const mods = encodeModifiers(keyboardRef.current);
-      wasmEngine.arrowPress(dir, mods);
+      const modBits = encodeModifiers(modsRef.current);
+      wasmEngine.arrowPress(dir, modBits);
       markDirty();
     },
     [wasmEngine],
@@ -250,12 +275,12 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   useEffect(() => {
     const oled = oledRendererRef.current;
     if (!oled) return;
-    const mods =
-      (keyboard.shift ? 1 : 0) |
-      (keyboard.meta ? 2 : 0) |
-      (keyboard.alt ? 4 : 0) |
-      (keyboard.ctrl ? 8 : 0);
-    oled.render(mods);
+    const modBits =
+      (mods.shift ? 1 : 0) |
+      (mods.meta ? 2 : 0) |
+      (mods.alt ? 4 : 0) |
+      (mods.ctrl ? 8 : 0);
+    oled.render(modBits);
     oled.blit();
   });
 
@@ -282,32 +307,29 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
+            {/* Tappable sticky modifiers: latch on/off caps-lock style, so
+                touch devices without a keyboard can use modified presses */}
             <Box
-              css={[
-                modifierKeyStyles,
-                keyboard.shift && modifierKeyActiveStyles,
-              ]}
+              css={[modifierKeyStyles, mods.shift && modifierKeyActiveStyles]}
+              onClick={() => toggleLatchedMod("shift")}
             >
               shift
             </Box>
             <Box
-              css={[
-                modifierKeyStyles,
-                keyboard.ctrl && modifierKeyActiveStyles,
-              ]}
+              css={[modifierKeyStyles, mods.ctrl && modifierKeyActiveStyles]}
+              onClick={() => toggleLatchedMod("ctrl")}
             >
               ctrl
             </Box>
             <Box
-              css={[modifierKeyStyles, keyboard.alt && modifierKeyActiveStyles]}
+              css={[modifierKeyStyles, mods.alt && modifierKeyActiveStyles]}
+              onClick={() => toggleLatchedMod("alt")}
             >
               opt
             </Box>
             <Box
-              css={[
-                modifierKeyStyles,
-                keyboard.meta && modifierKeyActiveStyles,
-              ]}
+              css={[modifierKeyStyles, mods.meta && modifierKeyActiveStyles]}
+              onClick={() => toggleLatchedMod("meta")}
             >
               cmd
             </Box>
