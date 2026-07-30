@@ -14,6 +14,9 @@ import {
   gridContainerStyles,
   verticalStripContainerStyles,
   horizontalStripContainerStyles,
+  modifierKeysContainerStyles,
+  modifierKeyStyles,
+  modifierKeyActiveStyles,
   oledContainerStyles,
   oledColumnStyles,
   oledScreenStyles,
@@ -281,6 +284,13 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           />
         </Box>
         <Box css={horizontalStripContainerStyles}>
+          <Box css={modifierKeysContainerStyles}>
+            {/* Modifier key indicators: light up while the physical key is held */}
+            <Box css={[modifierKeyStyles, keyboard.shift && modifierKeyActiveStyles]}>shift</Box>
+            <Box css={[modifierKeyStyles, keyboard.ctrl && modifierKeyActiveStyles]}>ctrl</Box>
+            <Box css={[modifierKeyStyles, keyboard.alt && modifierKeyActiveStyles]}>opt</Box>
+            <Box css={[modifierKeyStyles, keyboard.meta && modifierKeyActiveStyles]}>cmd</Box>
+          </Box>
           <TouchStrip
             orientation="horizontal"
             strip={1}

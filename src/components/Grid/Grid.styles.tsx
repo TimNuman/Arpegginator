@@ -33,9 +33,37 @@ export const verticalStripContainerStyles = css`
 
 export const horizontalStripContainerStyles = css`
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
   padding: 0 20px;
+`;
+
+export const modifierKeysContainerStyles = css`
+  display: flex;
+  gap: 4px;
+`;
+
+export const modifierKeyStyles = css`
+  width: 40px;
+  height: 24px;
+  border-radius: 4px;
+  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s ease;
+`;
+
+export const modifierKeyActiveStyles = css`
+  background: linear-gradient(145deg, #4a4a4a, #3a3a3a);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 `;
 
 export const oledContainerStyles = css`
