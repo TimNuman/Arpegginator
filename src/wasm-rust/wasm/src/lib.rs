@@ -718,3 +718,19 @@ pub extern "C" fn oled_get_framebuffer() -> *mut u16 {
 pub extern "C" fn oled_render(modifiers: u8) {
     oled_screen::oled_render(state_ref(), modifiers);
 }
+
+/// Scratch buffer for engine_modifier_hint's null-terminated return string.
+static G_HINT_BUF: Global<[u8; 24]> = Global::new([0; 24]);
+
+/// Function hint for an on-screen modifier key (OLED legend wording).
+/// `key`/`held` use the OLED modifier encoding. Returns a pointer to a
+/// null-terminated UTF-8 string, valid until the next call.
+#[no_mangle]
+pub extern "C" fn engine_modifier_hint(key: u8, held: u8) -> *const u8 {
+    let hint = oled_screen::modifier_hint(state_ref(), held, key);
+    let buf = G_HINT_BUF.get_mut();
+    let n = hint.len().min(buf.len() - 1);
+    buf[..n].copy_from_slice(&hint.as_bytes()[..n]);
+    buf[n] = 0;
+    buf.as_ptr()
+}

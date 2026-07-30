@@ -271,6 +271,19 @@ export class WasmEngine implements Engine {
     return this.cols;
   }
 
+  /**
+   * Function hint for an on-screen modifier key, mirroring the OLED legend.
+   * `key`/`held` use the OLED modifier encoding (shift=1, meta=2, alt=4,
+   * ctrl=8). The export returns a null-terminated string in WASM memory.
+   */
+  getModifierHint(key: number, held: number): string {
+    const ptr = this.ex.engine_modifier_hint(key, held);
+    const heap = new Uint8Array(this.module!.buffer);
+    let end = ptr;
+    while (heap[end] !== 0) end++;
+    return new TextDecoder().decode(heap.subarray(ptr, end));
+  }
+
   /** Write channel types to WASM memory. 0 = melodic, 1 = drum. */
   writeChannelTypes(types: number[]): void {
     const ptr = this.ex.engine_get_channel_types_buffer();

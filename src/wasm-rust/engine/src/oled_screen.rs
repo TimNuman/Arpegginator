@@ -1009,6 +1009,78 @@ fn render_loop(s: &EngineState, mods: u8) {
     }
 }
 
+// ============ Modifier key hints ============
+
+/// Short function hint for an on-screen modifier key, using the same words as
+/// the OLED legend above. `held` is the full OLED-encoded modifier set
+/// currently held; the hint describes what `key` does combined with the
+/// *other* held modifiers, so hints update live as combos build up.
+/// Returns "" when the combo has no function in the current mode.
+pub fn modifier_hint(s: &EngineState, held: u8, key: u8) -> &'static str {
+    // Ctrl always summons the channel/pattern overlay on the grid
+    if key == MOD_CTRL {
+        return "ch/pat";
+    }
+    let mods = held | key;
+    let meta = (mods & MOD_META) != 0;
+    let alt = (mods & MOD_ALT) != 0;
+    let shift = (mods & MOD_SHIFT) != 0;
+
+    match UiMode::from_u8(s.ui_mode) {
+        UiMode::Pattern if s.selected_event_idx >= 0 => {
+            match EditGroup::from_mods(meta, alt, shift) {
+                EditGroup::Move => "move",
+                EditGroup::Inversion => {
+                    // Same override as the legend: single notes move by octave
+                    let ch = s.current_channel as usize;
+                    let pat = s.current_patterns[ch] as usize;
+                    let idx = s.selected_event_idx as usize;
+                    if idx < s.patterns[ch][pat].event_count as usize
+                        && s.event_pool[s.patterns[ch][pat].event_handles[idx]].chord_amount <= 1
+                    {
+                        "octave/length"
+                    } else {
+                        "invert/length"
+                    }
+                }
+                EditGroup::Stack => "stack/repeat",
+                EditGroup::Spacing => "spacing",
+                EditGroup::Arp => "arp/offset",
+                EditGroup::Voicing => "voicing/voices",
+                EditGroup::None => "random",
+            }
+        }
+        UiMode::Pattern => {
+            if meta && alt {
+                if shift { "loop fine" } else { "loop st/end" }
+            } else if meta {
+                "scale/key"
+            } else if alt && shift {
+                ""
+            } else if alt {
+                "chan/pattern"
+            } else if shift {
+                "octave/beat"
+            } else {
+                ""
+            }
+        }
+        UiMode::Channel => "",
+        UiMode::Loop => {
+            if key == MOD_META {
+                "start/end"
+            } else if key == MOD_SHIFT {
+                "fine"
+            } else {
+                ""
+            }
+        }
+        UiMode::Modify => {
+            if key == MOD_META { "loop/stay" } else { "" }
+        }
+    }
+}
+
 // ============ Public entry point ============
 
 pub fn oled_render(s: &EngineState, modifiers: u8) {
