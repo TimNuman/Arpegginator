@@ -4,11 +4,15 @@
 //   - 808-style drum kit: synthesized from oscillators/noise, mapped by
 //     General MIDI drum note numbers (36 kick, 38 snare, 42 hat, ...) to match
 //     the note numbers the Rust engine uses for drum channels.
-//   - Piano: additive partials + velocity-scaled lowpass with pitch-dependent
-//     decay, for melodic channels.
+//   - Melodic: the Rust WASM synth (arp3-synth via AudioWorklet — the same
+//     DSP that will run on the Teensy). While the worklet is still loading,
+//     or on browsers without AudioWorklet support, melodic notes fall back to
+//     the JS piano (additive partials + velocity-scaled lowpass).
 //
 // The AudioContext is created lazily and must be resume()d from a user
 // gesture on iOS — App wires that to pointerdown/keydown.
+
+import { RustSynth } from "./RustSynth";
 
 const midiToFreq = (note: number): number => 440 * Math.pow(2, (note - 69) / 12);
 
@@ -33,6 +37,8 @@ export class WebAudioSynth {
   private pianoVoices = new Map<number, PianoVoice>();
   private unlocked = false;
   private silentLoop: HTMLAudioElement | null = null;
+  /** Rust WASM synth (AudioWorklet) for melodic channels */
+  private rustSynth = new RustSynth();
 
   /** Create (or return) the AudioContext. Safe to call any time. */
   private ensure(): AudioContext {
@@ -64,6 +70,11 @@ export class WebAudioSynth {
     this.ctx = ctx;
     this.master = master;
     this.noiseBuffer = buf;
+
+    // Load the Rust synth worklet in the background; melodic notes use the
+    // JS piano until it's ready (or forever, if the browser can't run it)
+    void this.rustSynth.load(ctx, master);
+
     return ctx;
   }
 
@@ -139,13 +150,18 @@ export class WebAudioSynth {
     const vel = Math.max(0, Math.min(1, velocity / 127));
     if (isDrum) {
       this.playDrum(note, vel);
+    } else if (this.rustSynth.isReady()) {
+      this.rustSynth.noteOn(channel, note, velocity);
     } else {
       this.pianoOn(channel, note, vel);
     }
   }
 
   noteOff(channel: number, note: number): void {
-    // Drums are one-shots; this only affects piano voices.
+    // Drums are one-shots; this only affects melodic voices. Send to both
+    // melodic instruments — a note may have started on the piano right
+    // before the Rust synth finished loading (each ignores unknown notes).
+    this.rustSynth.noteOff(channel, note);
     const key = channel * 128 + note;
     const voice = this.pianoVoices.get(key);
     if (voice && this.ctx) {
@@ -156,6 +172,7 @@ export class WebAudioSynth {
 
   allNotesOff(): void {
     if (!this.ctx) return;
+    this.rustSynth.allNotesOff();
     const now = this.ctx.currentTime;
     for (const voice of this.pianoVoices.values()) {
       voice.kill(now);
