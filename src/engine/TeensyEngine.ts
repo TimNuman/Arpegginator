@@ -340,6 +340,9 @@ export class TeensyEngine implements Engine {
   getVisibleCols() {
     return this.wasm.getVisibleCols();
   }
+  getModifierHint(key: number, held: number) {
+    return this.wasm.getModifierHint(key, held);
+  }
 
   // ============ Grid Rendering (local) ============
 

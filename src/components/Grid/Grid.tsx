@@ -68,7 +68,7 @@ const ModifierKey = memo(({ name, fn, active, onHold }: ModifierKeyProps) => (
     onContextMenu={(e) => e.preventDefault()}
   >
     <span>{name}</span>
-    <span css={modifierKeyFnStyles}>{fn}</span>
+    {fn && <span css={modifierKeyFnStyles}>{fn}</span>}
   </Box>
 ));
 
@@ -237,6 +237,23 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const modsRef = useRef(mods);
   modsRef.current = mods;
 
+  // OLED-encoded modifier bits (shift=1, meta=2, alt=4, ctrl=8)
+  const oledMods =
+    (mods.shift ? 1 : 0) | (mods.meta ? 2 : 0) | (mods.alt ? 4 : 0) | (mods.ctrl ? 8 : 0);
+
+  // Live function hints for the on-screen modifier keys, mirroring the OLED
+  // legend for the current mode/selection and the held combo
+  const modHints = useMemo(
+    () => ({
+      shift: wasmEngine.getModifierHint(1, oledMods),
+      meta: wasmEngine.getModifierHint(2, oledMods),
+      alt: wasmEngine.getModifierHint(4, oledMods),
+      ctrl: wasmEngine.getModifierHint(8, oledMods),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wasmEngine, renderVersion, oledMods],
+  );
+
   // ============ Compute Grid via WASM ============
   const gridColors = useMemo(() => {
     // Set modifier state before computing grid (for Ctrl overlay + loop pulsing)
@@ -307,9 +324,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   useEffect(() => {
     const oled = oledRendererRef.current;
     if (!oled) return;
-    const modBits =
-      (mods.shift ? 1 : 0) | (mods.meta ? 2 : 0) | (mods.alt ? 4 : 0) | (mods.ctrl ? 8 : 0);
-    oled.render(modBits);
+    oled.render(oledMods);
     oled.blit();
   });
 
@@ -336,28 +351,28 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
-            {/* Hold-to-apply modifiers; function hints match the OLED legend */}
+            {/* Hold-to-apply modifiers; live function hints from the OLED legend */}
             <ModifierKey
               name="shift"
-              fn="octave/beat"
+              fn={modHints.shift}
               active={mods.shift}
               onHold={(held) => holdTouchMod("shift", held)}
             />
             <ModifierKey
               name="ctrl"
-              fn="ch/pat"
+              fn={modHints.ctrl}
               active={mods.ctrl}
               onHold={(held) => holdTouchMod("ctrl", held)}
             />
             <ModifierKey
               name="opt"
-              fn="pattern"
+              fn={modHints.alt}
               active={mods.alt}
               onHold={(held) => holdTouchMod("alt", held)}
             />
             <ModifierKey
               name="cmd"
-              fn="scale/key"
+              fn={modHints.meta}
               active={mods.meta}
               onHold={(held) => holdTouchMod("meta", held)}
             />

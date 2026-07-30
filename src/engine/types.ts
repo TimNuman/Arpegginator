@@ -44,6 +44,8 @@ export interface Engine {
   getScaleZeroIndex(): number;
   getVisibleRows(): number;
   getVisibleCols(): number;
+  /** Function hint for an on-screen modifier key (OLED legend wording, OLED mod encoding). */
+  getModifierHint(key: number, held: number): string;
 
   // Grid rendering
   computeGrid(): void;
