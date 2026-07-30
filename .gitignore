@@ -15,6 +15,7 @@ __pycache__
 public/wasm/engine.js
 public/wasm/engine.wasm
 public/wasm-rust/engine.wasm
+public/wasm-rust/synth.wasm
 
 # Rust build artifacts
 src/wasm-rust/target/

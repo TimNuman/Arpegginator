@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine", "wasm", "teensy"]
+members = ["engine", "wasm", "synth", "synth-wasm", "teensy"]
 resolver = "2"
 
 [workspace.package]
