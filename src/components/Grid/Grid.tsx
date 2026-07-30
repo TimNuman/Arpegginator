@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box } from "@mui/material";
 import { ButtonGrid } from "../ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
@@ -17,6 +17,7 @@ import {
   modifierKeysContainerStyles,
   modifierKeyStyles,
   modifierKeyActiveStyles,
+  modifierKeyFnStyles,
   oledContainerStyles,
   oledColumnStyles,
   oledScreenStyles,
@@ -38,6 +39,40 @@ import {
   ACTION_DISABLE_NOTE,
 } from "./Grid.config";
 import { noop, encodeModifiers } from "./Grid.helpers";
+
+// ============ Modifier Key ============
+
+interface ModifierKeyProps {
+  name: string;
+  /** Function hint under the name, same wording as the OLED legend */
+  fn: string;
+  active: boolean;
+  onHold: (held: boolean) => void;
+}
+
+/**
+ * Momentary on-screen modifier: held while pressed, released on lift.
+ * Each key tracks its own pointer, so several can be held at once on
+ * multi-touch screens.
+ */
+const ModifierKey = memo(({ name, fn, active, onHold }: ModifierKeyProps) => (
+  <Box
+    css={[modifierKeyStyles, active && modifierKeyActiveStyles]}
+    onPointerDown={(e) => {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      onHold(true);
+    }}
+    onPointerUp={() => onHold(false)}
+    onPointerCancel={() => onHold(false)}
+    onContextMenu={(e) => e.preventDefault()}
+  >
+    <span>{name}</span>
+    <span css={modifierKeyFnStyles}>{fn}</span>
+  </Box>
+));
+
+ModifierKey.displayName = "ModifierKey";
 
 // ============ Grid Component ============
 
@@ -177,17 +212,36 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     onKeyDown: handleKeyDown,
   });
 
-  // Keep keyboard ref in sync for mouse/touch handlers
+  // Momentary on-screen modifiers: held while the key is pressed, so touch
+  // devices without a keyboard can use modified presses (multi-touch friendly)
+  const [touchMods, setTouchMods] = useState({
+    shift: false,
+    ctrl: false,
+    alt: false,
+    meta: false,
+  });
+  const holdTouchMod = useCallback((key: "shift" | "ctrl" | "alt" | "meta", held: boolean) => {
+    setTouchMods((m) => (m[key] === held ? m : { ...m, [key]: held }));
+  }, []);
+
+  // Effective modifiers: physical keyboard OR on-screen hold
+  const mods = {
+    shift: keyboard.shift || touchMods.shift,
+    ctrl: keyboard.ctrl || touchMods.ctrl,
+    alt: keyboard.alt || touchMods.alt,
+    meta: keyboard.meta || touchMods.meta,
+  };
+
+  // Keep refs in sync for mouse/touch handlers
   keyboardRef.current = keyboard;
+  const modsRef = useRef(mods);
+  modsRef.current = mods;
 
   // ============ Compute Grid via WASM ============
   const gridColors = useMemo(() => {
     // Set modifier state before computing grid (for Ctrl overlay + loop pulsing)
     const modBits =
-      (keyboard.ctrl ? 1 : 0) |
-      (keyboard.shift ? 2 : 0) |
-      (keyboard.meta ? 4 : 0) |
-      (keyboard.alt ? 8 : 0);
+      (mods.ctrl ? 1 : 0) | (mods.shift ? 2 : 0) | (mods.meta ? 4 : 0) | (mods.alt ? 8 : 0);
     wasmEngine.setModifiersHeld(modBits);
 
     // Tell WASM to compute the grid
@@ -198,7 +252,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     // hold it across renders without risk of the heap detaching underneath.)
     return Uint32Array.from(wasmEngine.getGridColors());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasmEngine, renderVersion, keyboard.ctrl, keyboard.meta, keyboard.shift, keyboard.alt]);
+  }, [wasmEngine, renderVersion, mods.ctrl, mods.meta, mods.shift, mods.alt]);
 
   // ============ Button Press -> WASM ============
   const handleButtonPressFromInput = useCallback(
@@ -211,7 +265,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           " wasmReady=" +
           wasmEngine.isReady(),
       );
-      const modBits = encodeModifiers(keyboardRef.current);
+      const modBits = encodeModifiers(modsRef.current);
       wasmEngine.buttonPress(visibleRow, visibleCol, modBits);
       markDirty();
     },
@@ -220,7 +274,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
 
   const handleButtonDragEnter = useCallback(
     (visibleRow: number, visibleCol: number) => {
-      const modBits = encodeModifiers(keyboardRef.current);
+      const modBits = encodeModifiers(modsRef.current);
       wasmEngine.buttonPress(visibleRow, visibleCol, modBits);
       markDirty();
     },
@@ -231,7 +285,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   const handleArrow = useCallback(
     (dir: number) => {
       console.log("[grid] arrowPress dir=" + dir);
-      const modBits = encodeModifiers(keyboardRef.current);
+      const modBits = encodeModifiers(modsRef.current);
       wasmEngine.arrowPress(dir, modBits);
       markDirty();
     },
@@ -254,10 +308,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     const oled = oledRendererRef.current;
     if (!oled) return;
     const modBits =
-      (keyboard.shift ? 1 : 0) |
-      (keyboard.meta ? 2 : 0) |
-      (keyboard.alt ? 4 : 0) |
-      (keyboard.ctrl ? 8 : 0);
+      (mods.shift ? 1 : 0) | (mods.meta ? 2 : 0) | (mods.alt ? 4 : 0) | (mods.ctrl ? 8 : 0);
     oled.render(modBits);
     oled.blit();
   });
@@ -285,11 +336,31 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
-            {/* Modifier key indicators: light up while the physical key is held */}
-            <Box css={[modifierKeyStyles, keyboard.shift && modifierKeyActiveStyles]}>shift</Box>
-            <Box css={[modifierKeyStyles, keyboard.ctrl && modifierKeyActiveStyles]}>ctrl</Box>
-            <Box css={[modifierKeyStyles, keyboard.alt && modifierKeyActiveStyles]}>opt</Box>
-            <Box css={[modifierKeyStyles, keyboard.meta && modifierKeyActiveStyles]}>cmd</Box>
+            {/* Hold-to-apply modifiers; function hints match the OLED legend */}
+            <ModifierKey
+              name="shift"
+              fn="octave/beat"
+              active={mods.shift}
+              onHold={(held) => holdTouchMod("shift", held)}
+            />
+            <ModifierKey
+              name="ctrl"
+              fn="ch/pat"
+              active={mods.ctrl}
+              onHold={(held) => holdTouchMod("ctrl", held)}
+            />
+            <ModifierKey
+              name="opt"
+              fn="pattern"
+              active={mods.alt}
+              onHold={(held) => holdTouchMod("alt", held)}
+            />
+            <ModifierKey
+              name="cmd"
+              fn="scale/key"
+              active={mods.meta}
+              onHold={(held) => holdTouchMod("meta", held)}
+            />
           </Box>
           <TouchStrip
             orientation="horizontal"

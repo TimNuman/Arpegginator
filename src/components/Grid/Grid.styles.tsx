@@ -44,8 +44,8 @@ export const modifierKeysContainerStyles = css`
 `;
 
 export const modifierKeyStyles = css`
-  width: 40px;
-  height: 24px;
+  width: 56px;
+  height: 32px;
   border-radius: 4px;
   background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
   border: none;
@@ -53,11 +53,35 @@ export const modifierKeyStyles = css`
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
-  cursor: default;
+  cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   transition: all 0.1s ease;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* Short screens (landscape phone): the whole UI is scaled down, so give
+     these hold-keys a larger natural size to stay finger-friendly */
+  @media (max-height: 520px) {
+    width: 78px;
+    height: 44px;
+    font-size: 12px;
+  }
+`;
+
+export const modifierKeyFnStyles = css`
+  font-size: 7px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.3);
+
+  @media (max-height: 520px) {
+    font-size: 9px;
+  }
 `;
 
 export const modifierKeyActiveStyles = css`
