@@ -17,6 +17,7 @@ import {
   modifierKeysContainerStyles,
   modifierKeyStyles,
   modifierKeyActiveStyles,
+  modifierKeyLatchedStyles,
   modifierKeyFnStyles,
   oledContainerStyles,
   oledColumnStyles,
@@ -42,35 +43,56 @@ import { noop, encodeModifiers } from "./Grid.helpers";
 
 // ============ Modifier Key ============
 
+/** Max gap between two taps to count as a double tap (latch), in ms */
+const DOUBLE_TAP_MS = 300;
+
 interface ModifierKeyProps {
   name: string;
   /** Function hint under the name, same wording as the OLED legend */
   fn: string;
   active: boolean;
+  latched: boolean;
   onHold: (held: boolean) => void;
+  onLatch: (latched: boolean) => void;
 }
 
 /**
- * Momentary on-screen modifier: held while pressed, released on lift.
- * Each key tracks its own pointer, so several can be held at once on
- * multi-touch screens.
+ * On-screen modifier key:
+ * - press and hold: momentary, released on lift (multi-touch friendly —
+ *   each key tracks its own pointer, so several can be held at once)
+ * - double tap: latch sticky until tapped again
  */
-const ModifierKey = memo(({ name, fn, active, onHold }: ModifierKeyProps) => (
-  <Box
-    css={[modifierKeyStyles, active && modifierKeyActiveStyles]}
-    onPointerDown={(e) => {
-      e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      onHold(true);
-    }}
-    onPointerUp={() => onHold(false)}
-    onPointerCancel={() => onHold(false)}
-    onContextMenu={(e) => e.preventDefault()}
-  >
-    <span>{name}</span>
-    {fn && <span css={modifierKeyFnStyles}>{fn}</span>}
-  </Box>
-));
+const ModifierKey = memo(({ name, fn, active, latched, onHold, onLatch }: ModifierKeyProps) => {
+  const lastDownAt = useRef(-Infinity);
+
+  return (
+    <Box
+      css={[
+        modifierKeyStyles,
+        active && modifierKeyActiveStyles,
+        latched && modifierKeyLatchedStyles,
+      ]}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        const now = performance.now();
+        if (latched) {
+          onLatch(false);
+        } else if (now - lastDownAt.current < DOUBLE_TAP_MS) {
+          onLatch(true);
+        }
+        lastDownAt.current = now;
+        onHold(true);
+      }}
+      onPointerUp={() => onHold(false)}
+      onPointerCancel={() => onHold(false)}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <span>{name}</span>
+      {fn && <span css={modifierKeyFnStyles}>{fn}</span>}
+    </Box>
+  );
+});
 
 ModifierKey.displayName = "ModifierKey";
 
@@ -224,12 +246,23 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
     setTouchMods((m) => (m[key] === held ? m : { ...m, [key]: held }));
   }, []);
 
-  // Effective modifiers: physical keyboard OR on-screen hold
+  // Double-tapped (sticky) modifiers: stay on until the key is tapped again
+  const [latchedMods, setLatchedMods] = useState({
+    shift: false,
+    ctrl: false,
+    alt: false,
+    meta: false,
+  });
+  const latchMod = useCallback((key: "shift" | "ctrl" | "alt" | "meta", latched: boolean) => {
+    setLatchedMods((m) => (m[key] === latched ? m : { ...m, [key]: latched }));
+  }, []);
+
+  // Effective modifiers: physical keyboard OR on-screen hold OR latch
   const mods = {
-    shift: keyboard.shift || touchMods.shift,
-    ctrl: keyboard.ctrl || touchMods.ctrl,
-    alt: keyboard.alt || touchMods.alt,
-    meta: keyboard.meta || touchMods.meta,
+    shift: keyboard.shift || touchMods.shift || latchedMods.shift,
+    ctrl: keyboard.ctrl || touchMods.ctrl || latchedMods.ctrl,
+    alt: keyboard.alt || touchMods.alt || latchedMods.alt,
+    meta: keyboard.meta || touchMods.meta || latchedMods.meta,
   };
 
   // Keep refs in sync for mouse/touch handlers
@@ -351,30 +384,38 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
         </Box>
         <Box css={horizontalStripContainerStyles}>
           <Box css={modifierKeysContainerStyles}>
-            {/* Hold-to-apply modifiers; live function hints from the OLED legend */}
+            {/* Hold-to-apply (double-tap to latch); live hints from the OLED legend */}
             <ModifierKey
               name="shift"
               fn={modHints.shift}
               active={mods.shift}
+              latched={latchedMods.shift}
               onHold={(held) => holdTouchMod("shift", held)}
+              onLatch={(latched) => latchMod("shift", latched)}
             />
             <ModifierKey
               name="ctrl"
               fn={modHints.ctrl}
               active={mods.ctrl}
+              latched={latchedMods.ctrl}
               onHold={(held) => holdTouchMod("ctrl", held)}
+              onLatch={(latched) => latchMod("ctrl", latched)}
             />
             <ModifierKey
               name="opt"
               fn={modHints.alt}
               active={mods.alt}
+              latched={latchedMods.alt}
               onHold={(held) => holdTouchMod("alt", held)}
+              onLatch={(latched) => latchMod("alt", latched)}
             />
             <ModifierKey
               name="cmd"
               fn={modHints.meta}
               active={mods.meta}
+              latched={latchedMods.meta}
               onHold={(held) => holdTouchMod("meta", held)}
+              onLatch={(latched) => latchMod("meta", latched)}
             />
           </Box>
           <TouchStrip
