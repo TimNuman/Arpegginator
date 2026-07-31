@@ -14,15 +14,21 @@ jobs:
       (github.event_name == 'delete' && github.event.ref_type == 'branch') ||
       (github.event_name == 'pull_request' && github.event.pull_request.merged)
     runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
 
     steps:
       - name: Determine branch name
         id: branch
+        env:
+          DELETED_REF: ${{ github.event.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           if [ "${{ github.event_name }}" = "delete" ]; then
-            BRANCH="${{ github.event.ref }}"
+            BRANCH="$DELETED_REF"
           else
-            BRANCH="${{ github.event.pull_request.head.ref }}"
+            BRANCH="$PR_HEAD_REF"
           fi
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g')
           echo "name=$SAFE_BRANCH" >> "$GITHUB_OUTPUT"
