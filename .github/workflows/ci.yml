@@ -56,6 +56,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -89,19 +92,27 @@ jobs:
         env:
           VITE_BASE_PATH: /Arpegginator/
 
+      - name: Add SPA fallback
+        run: cp dist/index.html dist/404.html
+
+      # keep_files preserves branch/ previews deployed by PR builds.
       - name: Deploy to GitHub Pages (root)
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
-          keep_files: false
+          keep_files: true
 
   deploy-branch:
-    if: github.ref != 'refs/heads/main' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
     needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -130,10 +141,19 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # On pull_request GITHUB_REF is refs/pull/N/merge, so the real branch
+      # name has to come from head_ref. The sanitized name must match what
+      # cleanup-preview.yml computes from the same branch.
       - name: Determine branch name
         id: branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [ -n "$HEAD_REF" ]; then
+            BRANCH="$HEAD_REF"
+          else
+            BRANCH="${GITHUB_REF#refs/heads/}"
+          fi
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g')
           echo "name=$SAFE_BRANCH" >> "$GITHUB_OUTPUT"
 
@@ -142,6 +162,9 @@ jobs:
         env:
           VITE_BASE_PATH: /Arpegginator/branch/${{ steps.branch.outputs.name }}/
 
+      - name: Add SPA fallback
+        run: cp dist/index.html dist/404.html
+
       - name: Deploy to GitHub Pages (branch preview)
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -149,3 +172,25 @@ jobs:
           publish_dir: ./dist
           destination_dir: branch/${{ steps.branch.outputs.name }}
           keep_files: true
+
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          BRANCH_NAME: ${{ steps.branch.outputs.name }}
+        with:
+          script: |
+            const marker = '<!-- pages-preview -->';
+            const url = `https://${context.repo.owner.toLowerCase()}.github.io/${context.repo.repo}/branch/${process.env.BRANCH_NAME}/`;
+            const body = `${marker}\n🚀 Preview deployed: ${url}\n\n_Updated for ${context.payload.pull_request.head.sha.slice(0, 7)}. GitHub Pages can take a minute to refresh._`;
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
