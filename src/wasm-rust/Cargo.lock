@@ -29,6 +29,7 @@ name = "arp3-teensy"
 version = "0.1.0"
 dependencies = [
  "arp3-engine",
+ "arp3-synth",
  "cortex-m",
  "embedded-alloc",
  "embedded-io",
