@@ -520,10 +520,12 @@ impl Voice {
                     }
                     // Op 4 carries the detune for chorus on parallel algos
                     let ratio = if i == 3 { ratios[i] * detune } else { ratios[i] };
+                    // High ratios at high notes can step phase by more than a
+                    // whole cycle per sample, so wrap with a true modulo —
+                    // a single subtraction would let the phase grow without
+                    // bound and rot away f32 precision
                     self.op_phase[i] += dt1 * ratio;
-                    if self.op_phase[i] >= 1.0 {
-                        self.op_phase[i] -= 1.0;
-                    }
+                    self.op_phase[i] -= libm::floorf(self.op_phase[i]);
                 }
                 self.fb_last = outs[0];
                 carrier_sum * carrier_norm
