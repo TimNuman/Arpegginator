@@ -469,16 +469,21 @@ mod sampler {
     }
 
     #[test]
-    fn slot_strip_selects_and_arrows_step_with_wrap() {
+    fn slot_rows_select_and_arrows_step_with_wrap() {
         let mut s = drum_state();
         let ch = s.current_channel as usize;
-        engine_button_press(&mut s, 7, 5, 0);
+        // Rows are slots: bottom row = slot 0, so row 2 = slot 5
+        engine_button_press(&mut s, 2, 4, 0);
         assert_eq!(s.sampler_slot[ch], 5);
         engine_arrow_press(&mut s, DIR_RIGHT, 0);
         assert_eq!(s.sampler_slot[ch], 6);
         s.sampler_slot[ch] = 0;
         engine_arrow_press(&mut s, DIR_LEFT, 0);
         assert_eq!(s.sampler_slot[ch], (NUM_SLOTS - 1) as u8, "slot wraps");
+        // Slot 15 sits in the upper window: its row is 7 - (15 - 8) = 0,
+        // and a bottom-row press now selects the window's first slot (8)
+        engine_button_press(&mut s, 7, 0, 0);
+        assert_eq!(s.sampler_slot[ch], 8);
     }
 
     #[test]
@@ -561,33 +566,34 @@ mod sampler {
     }
 
     #[test]
-    fn tune_snaps_pitch_to_scale_root() {
+    fn shift_press_tunes_pitch_to_scale_root() {
         let mut s = drum_state();
         let ch = s.current_channel as usize;
-        // Detected key A (9), scale root C (0): nearest path is +3 semitones
+        // Detected key A (9), scale root C (0): nearest path is +3 semitones.
+        // Shift+press on slot 0's row (the bottom row) tunes it.
         s.sampler_keys[ch][0] = 9;
         s.sampler_loaded[ch][0] = 1;
-        engine_button_press(&mut s, 0, 15, 0);
+        engine_button_press(&mut s, 7, 3, MOD_SHIFT);
         assert_eq!(s.sampler_params[ch][0][SP_PITCH], 24 + 3);
-        // No detected key → TUNE is inert
-        s.sampler_slot[ch] = 1;
-        engine_button_press(&mut s, 0, 15, 0);
+        assert_eq!(s.sampler_slot[ch], 0, "shift-press doesn't change selection");
+        // No detected key → TUNE is inert (slot 1 = row 6)
+        engine_button_press(&mut s, 6, 3, MOD_SHIFT);
         assert_eq!(s.sampler_params[ch][1][SP_PITCH], 24);
     }
 
     #[test]
-    fn slot_page_grid_shows_selection_and_waveform() {
+    fn slot_page_rows_show_waveforms_and_selection() {
         let mut s = drum_state();
         let ch = s.current_channel as usize;
         s.sampler_loaded[ch][2] = 1;
         s.sampler_previews[ch][2] = [255; 16];
         s.sampler_slot[ch] = 2;
         engine_compute_grid(&mut s, 0.0);
-        // Selected slot cell is bright on the strip row
-        assert_ne!(s.button_values[7][2] & 0xF, BTN_OFF);
-        // Full-scale preview lights the waveform rows across the center
-        assert_ne!(s.button_values[3][8] & 0xF, BTN_OFF, "waveform center row lit");
-        assert_ne!(s.button_values[0][8] & 0xF, BTN_OFF, "full-height bucket reaches top");
+        // Slot 2's row (7 - 2 = 5) is fully lit and carries the accent
+        assert_ne!(s.button_values[5][8] & 0xF, BTN_OFF, "loaded slot row lit");
+        assert_eq!(s.color_overrides[5][0], crate::engine_sound::SOUND_ACCENT);
+        // An empty, unselected slot's row stays dimmed (slot 6 = row 1)
+        assert_eq!(s.button_values[1][8] & 0xF, BTN_OFF, "empty slot row dark");
     }
 
     #[test]

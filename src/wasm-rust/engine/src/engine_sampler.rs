@@ -100,7 +100,7 @@ fn tune_slot_to_root(s: &mut EngineState, ch: usize, slot: usize) {
 
 // ============ Input ============
 
-pub fn handle_sampler_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
+pub fn handle_sampler_press(s: &mut EngineState, row: u8, col: u8, mods: u8) {
     let ch = s.current_channel as usize;
     let row = row as usize;
     let col = col as usize;
@@ -108,17 +108,19 @@ pub fn handle_sampler_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
 
     match s.sound_page {
         PAGE_SSLOT => {
-            if row == VISIBLE_ROWS - 1 {
-                // Slot strip: select + audition
-                if col < NUM_SLOTS {
-                    s.sampler_slot[ch] = col as u8;
-                    if s.sampler_loaded[ch][col] != 0 {
-                        preview_slot(s, ch, col);
-                    }
+            // Rows are slots (bottom row = first slot of the window, like the
+            // drum lanes in pattern mode): press selects + auditions the
+            // row's slot; Shift+press TUNEs a pitched slot to the scale root.
+            let base = (slot / VISIBLE_ROWS) * VISIBLE_ROWS;
+            let sl = base + (VISIBLE_ROWS - 1 - row);
+            let _ = col;
+            if mods & MOD_SHIFT != 0 {
+                tune_slot_to_root(s, ch, sl);
+            } else {
+                s.sampler_slot[ch] = sl as u8;
+                if s.sampler_loaded[ch][sl] != 0 {
+                    preview_slot(s, ch, sl);
                 }
-            } else if row == 0 && col == VISIBLE_COLS - 1 {
-                // TUNE cell (only present when a key was detected)
-                tune_slot_to_root(s, ch, slot);
             }
         }
         PAGE_SREC => {
@@ -247,30 +249,43 @@ fn draw_mirrored_waveform(s: &mut EngineState, buckets: [u8; PREVIEW_BUCKETS], b
     }
 }
 
+/// Bucket amplitude → LED brightness for a loaded slot row. Quiet buckets
+/// stay faintly lit so the row still reads as a lane.
+fn bucket_brightness(v: u8) -> u16 {
+    match v {
+        0..=31 => BTN_COLOR_25,
+        32..=95 => BTN_COLOR_50,
+        96..=175 => BTN_COLOR_75,
+        _ => BTN_COLOR_100,
+    }
+}
+
+/// Rows are slots, mirroring the drum lanes in pattern mode: the bottom row
+/// is the window's first slot and each loaded row draws its slot's 16-bucket
+/// waveform across the columns. With 16 slots and 8 rows the page shows the
+/// window of 8 the selected slot sits in; stepping the encoder past the edge
+/// flips the window. The selected slot's row carries the amber accent.
 fn render_slot_page(s: &mut EngineState) {
     let ch = s.current_channel as usize;
     let slot = selected_slot(s, ch);
-    let loaded = s.sampler_loaded[ch][slot] != 0;
+    let base = (slot / VISIBLE_ROWS) * VISIBLE_ROWS;
 
-    if loaded {
-        draw_mirrored_waveform(s, s.sampler_previews[ch][slot], BTN_COLOR_100);
-    }
-
-    // TUNE cell when the take is pitched
-    if loaded && s.sampler_keys[ch][slot] >= 0 {
-        s.button_values[0][VISIBLE_COLS - 1] = BTN_COLOR_100;
-        s.color_overrides[0][VISIBLE_COLS - 1] = SOUND_ACCENT;
-    }
-
-    // Slot strip
-    for c in 0..NUM_SLOTS {
-        s.button_values[VISIBLE_ROWS - 1][c] = if c == slot {
-            BTN_COLOR_100
-        } else if s.sampler_loaded[ch][c] != 0 {
-            BTN_COLOR_50
-        } else {
-            FLAG_DIMMED
-        };
+    for r in 0..VISIBLE_ROWS {
+        let sl = base + (VISIBLE_ROWS - 1 - r);
+        let selected = sl == slot;
+        let loaded = s.sampler_loaded[ch][sl] != 0;
+        for c in 0..VISIBLE_COLS {
+            s.button_values[r][c] = if loaded {
+                bucket_brightness(s.sampler_previews[ch][sl][c])
+            } else if selected {
+                BTN_COLOR_25
+            } else {
+                FLAG_DIMMED
+            };
+            if selected {
+                s.color_overrides[r][c] = SOUND_ACCENT;
+            }
+        }
     }
 }
 
