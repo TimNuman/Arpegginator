@@ -356,6 +356,16 @@ static WAVE_ROWS: [[u8; 8]; NUM_WAVES] = [
     [3, 0, 5, 2, 6, 1, 4, 3], // noise: jitter
 ];
 
+/// Preset cell colors by engine, so the bank reads as a color-coded map:
+/// subtractive blue, FM violet, wavetable green (additive rose, reserved).
+pub const ENGINE_COLORS: [u32; NUM_ENGINE_TYPES] = [0x44AAFF, 0xAA66FF, 0x33CC88, 0xFF6688];
+
+/// The engine color a preset cell shows.
+pub fn preset_color(preset: usize) -> u32 {
+    let engine = PRESETS[preset].values[patch::P_ENGINE] as usize;
+    ENGINE_COLORS[engine.min(NUM_ENGINE_TYPES - 1)]
+}
+
 fn render_preset_page(s: &mut EngineState) {
     let ch = s.current_channel as usize;
     let selected = s.sound_presets[ch] as usize;
@@ -366,14 +376,14 @@ fn render_preset_page(s: &mut EngineState) {
         if r >= VISIBLE_ROWS - 1 {
             break; // last row is reserved for the reset cell
         }
+        // Every cell carries its engine's color; the selected one is bright.
+        // Amber still overrides the selection when the patch has local edits.
         if idx == selected {
             s.button_values[r][c] = BTN_COLOR_100;
-            if edited {
-                // Amber selected cell: this preset has local edits
-                s.color_overrides[r][c] = SOUND_ACCENT;
-            }
+            s.color_overrides[r][c] = if edited { SOUND_ACCENT } else { preset_color(idx) };
         } else {
-            s.button_values[r][c] = BTN_WHITE_25;
+            s.button_values[r][c] = BTN_COLOR_25;
+            s.color_overrides[r][c] = preset_color(idx);
         }
     }
 
