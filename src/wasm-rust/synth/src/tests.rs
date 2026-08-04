@@ -232,6 +232,24 @@ fn fm_engine_all_algorithms_bounded_and_audible() {
 }
 
 #[test]
+fn fm_high_note_high_ratio_stays_stable() {
+    // Top of the MIDI range with a x15 ratio steps operator phase by more
+    // than a full cycle per sample — the phase must wrap with a true modulo
+    // (regression: single-subtraction wrapping let phases grow unboundedly)
+    let mut synth = Synth::new();
+    synth.set_sample_rate(SR);
+    synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_FM);
+    synth.set_param(0, patch::P_RATIO1 as u8, 15);
+    synth.set_param(0, patch::P_RATIO4 as u8, 15);
+    synth.set_param(0, patch::P_SUSTAIN as u8, 100);
+    synth.note_on(0, 127, 110);
+    // ~3 seconds — long enough that unbounded phases would visibly rot
+    let stats = render_blocks(&mut synth, 1000);
+    assert!(stats.peak <= 1.0, "peak {}", stats.peak);
+    assert_eq!(stats.non_finite, 0);
+}
+
+#[test]
 fn fm_engine_switch_mid_note_is_safe() {
     let mut synth = Synth::new();
     synth.set_sample_rate(SR);
