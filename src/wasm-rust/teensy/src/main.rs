@@ -8,6 +8,7 @@
 #![no_std]
 #![no_main]
 
+mod audio;
 mod usb_midi;
 
 use teensy4_bsp as bsp;
@@ -134,6 +135,8 @@ fn main() -> ! {
         mut pit,
         lpuart4,
         usb,
+        mut ccm,
+        ccm_analog,
         ..
     } = board::t41(board::instances());
 
@@ -177,6 +180,11 @@ fn main() -> ! {
     let mut state = EngineState::new_boxed();
     engine_core::engine_core_init(&mut state);
     state.bpm = DEFAULT_BPM;
+
+    // ---- Internal synth on MQS (pins 10/12) ----
+    let iomuxc_gpr = unsafe { bsp::ral::iomuxc_gpr::IOMUXC_GPR::instance() };
+    audio::init(&mut ccm, &ccm_analog, &iomuxc_gpr, pins.p10, pins.p12);
+    audio::sync_patches(&state);
 
     // ---- Configure PIT0 ----
     let mut pit_reload = bpm_to_pit_reload(DEFAULT_BPM);
@@ -249,15 +257,31 @@ fn main() -> ! {
             let mut new_preview_started = false;
 
             use platform::arm_platform::MidiEvent;
+            // Melodic channels also play the internal MQS synth
+            let is_melodic = |ch: u8| !state.is_drum_channel(ch as usize);
             while let Some(ev) = platform::arm_platform::dequeue_midi() {
                 match ev.kind {
-                    MidiEvent::KIND_NOTE_ON => midi.note_on(ev.channel, ev.note as u8, ev.velocity),
-                    MidiEvent::KIND_NOTE_OFF => midi.note_off(ev.channel, ev.note as u8),
+                    MidiEvent::KIND_NOTE_ON => {
+                        midi.note_on(ev.channel, ev.note as u8, ev.velocity);
+                        if is_melodic(ev.channel) {
+                            audio::note_on(ev.channel, ev.note as u8, ev.velocity);
+                        }
+                    }
+                    MidiEvent::KIND_NOTE_OFF => {
+                        midi.note_off(ev.channel, ev.note as u8);
+                        if is_melodic(ev.channel) {
+                            audio::note_off(ev.channel, ev.note as u8);
+                        }
+                    }
+                    MidiEvent::KIND_SOUND_PARAM => {
+                        audio::sound_param(ev.channel, ev.note as u8, ev.length_ticks as i16);
+                    }
                     MidiEvent::KIND_PREVIEW => {
                         // Kill old preview notes on first note of a new batch
                         if !new_preview_started && preview_count > 0 {
                             for &(ch, n) in &preview_notes[..preview_count] {
                                 midi.note_off(ch, n);
+                                audio::note_off(ch, n);
                             }
                             preview_count = 0;
                         }
@@ -267,6 +291,9 @@ fn main() -> ! {
                         if midi_note >= 0 {
                             let note = midi_note as u8;
                             midi.note_on(ev.channel, note, ev.velocity);
+                            if is_melodic(ev.channel) {
+                                audio::note_on(ev.channel, note, ev.velocity);
+                            }
                             if preview_count < MAX_PREVIEW {
                                 preview_notes[preview_count] = (ev.channel, note);
                                 preview_count += 1;
@@ -289,6 +316,7 @@ fn main() -> ! {
                 if now.wrapping_sub(preview_off_at) < 0x8000_0000 {
                     for &(ch, note) in &preview_notes[..preview_count] {
                         midi.note_off(ch, note);
+                        audio::note_off(ch, note);
                     }
                     preview_count = 0;
                 }
@@ -373,6 +401,7 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 engine_core::engine_core_stop(state);
                 state.is_playing = 0;
                 pit.disable(PitChannel::Chan0);
+                audio::all_notes_off();
             }
             protocol::CMD_RESET => {
                 engine_core::engine_core_stop(state);
@@ -380,6 +409,7 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 state.current_tick = -1;
                 state.resume_tick = -1;
                 pit.disable(PitChannel::Chan0);
+                audio::all_notes_off();
             }
             protocol::CMD_SET_BPM => {
                 if payload.len() >= 3 {
