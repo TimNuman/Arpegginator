@@ -185,6 +185,74 @@ fn fader_grid_renders_expected_columns() {
     assert_eq!(s.button_values[4][3] & 0xF, BTN_OFF, "gap column stays dark");
 }
 
+/// First FM preset slot (TINE MACHINE).
+fn first_fm_preset() -> usize {
+    (0..patch::NUM_PRESETS)
+        .find(|&i| patch::PRESETS[i].values[patch::P_ENGINE] == patch::ENGINE_FM)
+        .expect("no FM preset")
+}
+
+#[test]
+fn fm_preset_switches_page_list() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    let fm = first_fm_preset();
+    engine_load_sound_preset(&mut s, ch, fm);
+    assert_eq!(s.sound_patches[ch][patch::P_ENGINE], patch::ENGINE_FM);
+
+    // Left encoder walks the FM page list: PRESET → ALGO → OP → FM → AMP...
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_ALGO);
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_OP);
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_FM);
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_AMP);
+
+    // Loading a subtractive preset from an FM-only page snaps back to PRESET
+    s.sound_page = PAGE_ALGO;
+    engine_load_sound_preset(&mut s, ch, 0);
+    assert_eq!(s.sound_page, PAGE_PRESET);
+}
+
+#[test]
+fn algo_page_selector_and_encoder() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    engine_load_sound_preset(&mut s, ch, first_fm_preset());
+    s.sound_page = PAGE_ALGO;
+
+    engine_button_press(&mut s, 7, 5, 0); // select algorithm 6
+    assert_eq!(s.sound_patches[ch][patch::P_ALGO], 5);
+    // Selector strip has exactly 8 cells — col 8 is dead
+    engine_button_press(&mut s, 7, 8, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_ALGO], 5);
+    // Right encoder steps the algorithm
+    engine_arrow_press(&mut s, DIR_RIGHT, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_ALGO], 6);
+
+    // Grid renders the selector with the current algo lit
+    engine_compute_grid(&mut s, 0.0);
+    assert_eq!(s.button_values[7][6], BTN_COLOR_100);
+    assert_eq!(s.button_values[7][0], BTN_WHITE_25);
+}
+
+#[test]
+fn fm_op_page_faders_edit_ratios() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    engine_load_sound_preset(&mut s, ch, first_fm_preset());
+    s.sound_page = PAGE_OP;
+
+    engine_button_press(&mut s, 0, 5, 0); // second fader top = R2 max
+    assert_eq!(s.sound_patches[ch][patch::P_RATIO2], 15);
+    assert_eq!(s.sound_edited[ch], 1, "ratio edit flags the patch");
+}
+
 #[test]
 fn preset_page_selects_and_loads() {
     let mut s = init_state();

@@ -8,9 +8,12 @@
 // how arp3-engine shares sequencer logic.
 //
 // Sound is controlled by per-channel patches (see `patch`), edited live from
-// the sequencer's Sound mode. Signal path per voice: two band-limited oscs
-// (selectable waveform) + optional sub sine -> state-variable lowpass (cutoff
-// from patch, key tracking and the amp envelope) -> drive -> ADSR gain.
+// the sequencer's Sound mode. Two engines share a common back end (sub osc,
+// state-variable lowpass with key tracking + envelope, drive, ADSR gain):
+//   - Subtractive: two band-limited oscillators with selectable waveforms
+//   - FM: four sine operators in the 8 classic YM2612 algorithms with
+//     quantized harmonic ratios and op-1 feedback (Akemie's-Castle flavor),
+//     using a fast parabolic sine for chip-appropriate cost and character
 // Envelope times are read at note-on; everything else is read per block, so
 // tweaks are audible on already-sounding notes.
 
@@ -237,6 +240,18 @@ fn soft_sat(x: f32) -> f32 {
     x * (27.0 + x2) / (27.0 + 9.0 * x2)
 }
 
+/// sin(2π·t) for normalized phase, via the parabola + correction trick
+/// (~0.1% error). Roughly 4× cheaper than libm::sinf — with four operators
+/// per voice per sample, the FM engine leans on this. The slight impurity is
+/// in character for chip-style FM.
+#[inline]
+fn fast_sin(t: f32) -> f32 {
+    let t = t - libm::floorf(t); // wrap to [0,1)
+    let x = if t < 0.5 { t } else { t - 1.0 }; // [-0.5,0.5)
+    let y = 16.0 * x * (0.5 - libm::fabsf(x));
+    0.225 * (y * libm::fabsf(y) - y) + y
+}
+
 // ============ Voice ============
 
 #[derive(Clone, Copy)]
@@ -255,6 +270,10 @@ struct Voice {
     glide_coef: f32,
     vel: f32,
     noise_state: u32,
+    /// FM operator phases (normalized 0..1)
+    op_phase: [f32; 4],
+    /// Op-1 output of the previous sample, for the feedback path
+    fb_last: f32,
     env: Adsr,
     svf: Svf,
 }
@@ -273,6 +292,8 @@ impl Voice {
             glide_coef: 0.0,
             vel: 0.0,
             noise_state: 0,
+            op_phase: [0.0; 4],
+            fb_last: 0.0,
             env: Adsr::new(),
             svf: Svf::new(),
         }
@@ -305,6 +326,8 @@ impl Voice {
         }
         self.vel = vel;
         self.noise_state = 0x9e3779b9 ^ (key as u32).wrapping_mul(2654435761);
+        self.op_phase = [0.0; 4]; // key-on phase reset, like the YM chips
+        self.fb_last = 0.0;
         self.svf.reset();
         self.env.trigger(p, sample_rate);
     }
@@ -314,6 +337,7 @@ impl Voice {
     /// from the patch so Sound-mode edits are audible immediately.
     fn render(&mut self, out: &mut [f32], p: &Patch, sample_rate: f32) {
         let inv_sr = 1.0 / sample_rate;
+        let is_fm = p[P_ENGINE] == ENGINE_FM;
         let wave1 = p[P_WAVE1];
         let wave2 = p[P_WAVE2];
         let mix2 = p[P_OSC_MIX] as f32 / 100.0;
@@ -323,6 +347,22 @@ impl Voice {
         let drive = p[P_DRIVE] as f32 / 100.0;
         let volume = p[P_VOLUME] as f32 / 100.0;
         let gain = (0.20 + 0.55 * self.vel * self.vel) * volume;
+
+        // FM engine settings (cheap to derive even when unused)
+        let algo = (p[P_ALGO] as usize).min(7);
+        let routes = &ALGO_ROUTES[algo];
+        let carriers = ALGO_CARRIERS[algo];
+        let carrier_norm = 1.0 / carriers.count_ones().max(1) as f32;
+        let ratios = [
+            op_ratio(p[P_RATIO1]),
+            op_ratio(p[P_RATIO2]),
+            op_ratio(p[P_RATIO3]),
+            op_ratio(p[P_RATIO4]),
+        ];
+        // Modulation index in normalized-phase units (~0.8 max ≈ deep FM)
+        let fm_index = p[P_FM_AMT] as f32 / 100.0 * 0.8;
+        let fb_gain = p[P_FB] as f32 / 100.0 * 0.7;
+        let menv = p[P_MENV] as f32 / 100.0;
 
         // Cutoff: base from patch, scaled by key tracking (relative to middle
         // C) and opened by the amp envelope per the env-amount setting.
@@ -338,22 +378,57 @@ impl Voice {
                 self.freq += self.glide_coef * (self.freq_target - self.freq);
             }
             let dt1 = self.freq * inv_sr;
-            let dt2 = dt1 * detune;
             let dt_sub = dt1 * 0.5;
 
-            let mut osc = mix1 * osc_sample(wave1, self.phase1, dt1, &mut self.noise_state)
-                + mix2 * osc_sample(wave2, self.phase2, dt2, &mut self.noise_state);
+            let mut osc = if is_fm {
+                // Modulator depth follows the envelope (squared for a faster
+                // decay than the carrier — the classic FM pluck)
+                let e = self.env.level;
+                let index = fm_index * ((1.0 - menv) + menv * e * e);
+                let mut outs = [0.0f32; 4];
+                let mut carrier_sum = 0.0;
+                for i in 0..4 {
+                    let mut m = 0.0;
+                    let route = routes[i];
+                    for (j, &o) in outs.iter().enumerate().take(i) {
+                        if route & (1 << j) != 0 {
+                            m += o;
+                        }
+                    }
+                    if i == 0 {
+                        m += self.fb_last * fb_gain;
+                    }
+                    let s = fast_sin(self.op_phase[i] + index * m);
+                    outs[i] = s;
+                    if carriers & (1 << i) != 0 {
+                        carrier_sum += s;
+                    }
+                    // Op 4 carries the detune for chorus on parallel algos
+                    let ratio = if i == 3 { ratios[i] * detune } else { ratios[i] };
+                    self.op_phase[i] += dt1 * ratio;
+                    if self.op_phase[i] >= 1.0 {
+                        self.op_phase[i] -= 1.0;
+                    }
+                }
+                self.fb_last = outs[0];
+                carrier_sum * carrier_norm
+            } else {
+                let dt2 = dt1 * detune;
+                let o = mix1 * osc_sample(wave1, self.phase1, dt1, &mut self.noise_state)
+                    + mix2 * osc_sample(wave2, self.phase2, dt2, &mut self.noise_state);
+                self.phase1 += dt1;
+                if self.phase1 >= 1.0 {
+                    self.phase1 -= 1.0;
+                }
+                self.phase2 += dt2;
+                if self.phase2 >= 1.0 {
+                    self.phase2 -= 1.0;
+                }
+                o
+            };
+
             if sub_level > 0.0 {
                 osc += sub_level * libm::sinf(core::f32::consts::TAU * self.phase_sub);
-            }
-
-            self.phase1 += dt1;
-            if self.phase1 >= 1.0 {
-                self.phase1 -= 1.0;
-            }
-            self.phase2 += dt2;
-            if self.phase2 >= 1.0 {
-                self.phase2 -= 1.0;
             }
             self.phase_sub += dt_sub;
             if self.phase_sub >= 1.0 {
