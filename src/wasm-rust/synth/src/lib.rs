@@ -319,7 +319,7 @@ impl Voice {
         let mix2 = p[P_OSC_MIX] as f32 / 100.0;
         let mix1 = 1.0 - mix2;
         let detune = detune_ratio(p[P_DETUNE]);
-        let sub_level = if p[P_SUB_ON] != 0 { p[P_SUB_LEVEL] as f32 / 100.0 } else { 0.0 };
+        let sub_level = p[P_SUB_LEVEL] as f32 / 100.0; // 0 = sub off
         let drive = p[P_DRIVE] as f32 / 100.0;
         let volume = p[P_VOLUME] as f32 / 100.0;
         let gain = (0.20 + 0.55 * self.vel * self.vel) * volume;

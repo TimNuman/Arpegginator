@@ -159,7 +159,7 @@ fn param_edits_change_sound_live() {
     for (param, value) in [
         (patch::P_CUTOFF, 5),
         (patch::P_OSC_MIX, 100),
-        (patch::P_SUB_ON, 1),
+        (patch::P_SUB_LEVEL, 100),
         (patch::P_DRIVE, 100),
         (patch::P_VOLUME, 10),
     ] {

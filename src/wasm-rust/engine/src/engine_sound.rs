@@ -21,15 +21,14 @@ use arp3_synth::patch::{self, clamp_param, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_WAV
 pub const PAGE_TYPE: u8 = 0;
 pub const PAGE_OSC1: u8 = 1;
 pub const PAGE_OSC2: u8 = 2;
-pub const PAGE_SUB: u8 = 3;
-pub const PAGE_AMP: u8 = 4;
-pub const PAGE_ENV: u8 = 5;
-pub const PAGE_FILT: u8 = 6;
-pub const PAGE_FX: u8 = 7;
-pub const NUM_SOUND_PAGES: usize = 8;
+pub const PAGE_AMP: u8 = 3;
+pub const PAGE_ENV: u8 = 4;
+pub const PAGE_FILT: u8 = 5;
+pub const PAGE_FX: u8 = 6;
+pub const NUM_SOUND_PAGES: usize = 7;
 
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] =
-    ["TYPE", "OSC 1", "OSC 2", "SUB", "AMP", "ENV", "FILT", "FX"];
+    ["TYPE", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX"];
 
 pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "ADD", "FM", "WAVE"];
 pub static WAVE_LABELS: [&str; NUM_WAVES] = ["SAW", "SQR", "TRI", "SIN", "PLS", "NSE"];
@@ -37,8 +36,7 @@ pub static WAVE_LABELS: [&str; NUM_WAVES] = ["SAW", "SQR", "TRI", "SIN", "PLS", 
 /// Fader-bank pages: the params behind each fader, left to right.
 pub fn page_faders(page: u8) -> &'static [usize] {
     match page {
-        PAGE_SUB => &[patch::P_SUB_LEVEL],
-        PAGE_AMP => &[patch::P_VOLUME, patch::P_OSC_MIX, patch::P_DETUNE, patch::P_GLIDE],
+        PAGE_AMP => &[patch::P_VOLUME, patch::P_OSC_MIX, patch::P_SUB_LEVEL, patch::P_GLIDE],
         PAGE_ENV => &[patch::P_ATTACK, patch::P_DECAY, patch::P_SUSTAIN, patch::P_RELEASE],
         PAGE_FILT => &[patch::P_CUTOFF, patch::P_RESO, patch::P_FENV, patch::P_KEYTRACK],
         PAGE_FX => &[patch::P_DRIVE],
@@ -51,8 +49,7 @@ pub fn param_label(param: usize) -> &'static str {
     match param {
         patch::P_ENGINE => "TYPE",
         patch::P_WAVE1 | patch::P_WAVE2 => "WAVE",
-        patch::P_SUB_LEVEL => "LEVEL",
-        patch::P_SUB_ON => "ON",
+        patch::P_SUB_LEVEL => "SUB",
         patch::P_VOLUME => "VOL",
         patch::P_OSC_MIX => "MIX",
         patch::P_DETUNE => "DET",
@@ -84,7 +81,6 @@ pub fn format_param_value(param: usize, value: i16) -> FmtBuf<12> {
     match param {
         patch::P_ENGINE => buf.push_str(ENGINE_TYPE_LABELS[(value as usize).min(NUM_ENGINE_TYPES - 1)]),
         patch::P_WAVE1 | patch::P_WAVE2 => buf.push_str(WAVE_LABELS[(value as usize).min(NUM_WAVES - 1)]),
-        patch::P_SUB_ON => buf.push_str(if value != 0 { "ON" } else { "OFF" }),
         patch::P_DETUNE => { let _ = write!(buf, "{}CT", value); }
         patch::P_CUTOFF => {
             let hz = patch::cutoff_hz(value);
@@ -221,13 +217,6 @@ pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
         return;
     }
 
-    // Sub on/off cell: top-right of the SUB page
-    if page == PAGE_SUB && row == 0 && col == VISIBLE_COLS - 1 {
-        let on = s.sound_patches[ch][patch::P_SUB_ON] != 0;
-        engine_set_sound_param(s, ch, patch::P_SUB_ON, if on { 0 } else { 1 });
-        return;
-    }
-
     // Fader banks: 3 columns per fader + 1 gap column
     let faders = page_faders(page);
     let fader_idx = col / 4;
@@ -305,7 +294,6 @@ fn render_fader_page(s: &mut EngineState) {
     let page = s.sound_page;
     let faders = page_faders(page);
     let focus = (s.sound_focus[page as usize] as usize).min(faders.len().saturating_sub(1));
-    let sub_off = page == PAGE_SUB && s.sound_patches[ch][patch::P_SUB_ON] == 0;
 
     for (i, &param) in faders.iter().enumerate() {
         let value = s.sound_patches[ch][param] as i32;
@@ -327,20 +315,11 @@ fn render_fader_page(s: &mut EngineState) {
                 BTN_COLOR_50
             };
             for c in col0..(col0 + 3).min(VISIBLE_COLS) {
-                s.button_values[vr][c] = if sub_off { BTN_COLOR_25 } else { val };
-                if focused && is_cap && lit > 0 && !sub_off {
+                s.button_values[vr][c] = val;
+                if focused && is_cap && lit > 0 {
                     s.color_overrides[vr][c] = SOUND_ACCENT;
                 }
             }
-        }
-    }
-
-    // SUB page extra: on/off cell top-right
-    if page == PAGE_SUB {
-        let on = !sub_off;
-        s.button_values[0][VISIBLE_COLS - 1] = if on { BTN_COLOR_100 } else { BTN_WHITE_25 };
-        if on {
-            s.color_overrides[0][VISIBLE_COLS - 1] = SOUND_ACCENT;
         }
     }
 }

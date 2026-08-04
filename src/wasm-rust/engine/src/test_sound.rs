@@ -144,16 +144,18 @@ fn osc2_shift_encoder_nudges_detune() {
 }
 
 #[test]
-fn sub_page_toggle_cell() {
+fn amp_page_sub_fader() {
     let mut s = init_state();
     s.ui_mode = UiMode::Sound as u8;
-    s.sound_page = PAGE_SUB;
+    s.sound_page = PAGE_AMP;
     let ch = s.current_channel as usize;
-    assert_eq!(s.sound_patches[ch][patch::P_SUB_ON], 0);
-    engine_button_press(&mut s, 0, 15, 0);
-    assert_eq!(s.sound_patches[ch][patch::P_SUB_ON], 1);
-    engine_button_press(&mut s, 0, 15, 0);
-    assert_eq!(s.sound_patches[ch][patch::P_SUB_ON], 0);
+    assert_eq!(s.sound_patches[ch][patch::P_SUB_LEVEL], 0, "sub defaults to off");
+    // Third fader (cols 8-10) is the sub level
+    engine_button_press(&mut s, 0, 9, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_SUB_LEVEL], 100);
+    assert_eq!(s.sound_focus[PAGE_AMP as usize], 2);
+    engine_button_press(&mut s, 7, 9, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_SUB_LEVEL], 0);
 }
 
 #[test]
@@ -202,7 +204,7 @@ fn type_page_renders_and_selects() {
 fn param_value_formatting() {
     assert_eq!(format_param_value(patch::P_SUSTAIN, 55).as_str(), "55%");
     assert_eq!(format_param_value(patch::P_WAVE1, patch::WAVE_SAW).as_str(), "SAW");
-    assert_eq!(format_param_value(patch::P_SUB_ON, 1).as_str(), "ON");
+    assert_eq!(format_param_value(patch::P_SUB_LEVEL, 30).as_str(), "30%");
     assert_eq!(format_param_value(patch::P_DETUNE, 7).as_str(), "7CT");
     // Times come from the shared synth mappings
     let atk = format_param_value(patch::P_ATTACK, patch::DEFAULTS[patch::P_ATTACK]);

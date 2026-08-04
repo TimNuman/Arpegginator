@@ -7,27 +7,26 @@
 // engine only for OLED display, so screen and sound can never disagree.
 //
 // Values are 0..PARAM_MAX[param]. Continuous params use 0..100; enumerated
-// params (engine type, waveforms) use small ranges; toggles are 0/1.
+// params (engine type, waveforms) use small ranges.
 
 pub const P_ENGINE: usize = 0;
 pub const P_WAVE1: usize = 1;
 pub const P_WAVE2: usize = 2;
-pub const P_SUB_LEVEL: usize = 3;
-pub const P_SUB_ON: usize = 4;
-pub const P_VOLUME: usize = 5;
-pub const P_OSC_MIX: usize = 6; // 0 = osc1 only, 100 = osc2 only
-pub const P_DETUNE: usize = 7; // osc2 detune in cents
-pub const P_GLIDE: usize = 8;
-pub const P_ATTACK: usize = 9;
-pub const P_DECAY: usize = 10;
-pub const P_SUSTAIN: usize = 11;
-pub const P_RELEASE: usize = 12;
-pub const P_CUTOFF: usize = 13;
-pub const P_RESO: usize = 14;
-pub const P_FENV: usize = 15; // how much the amp envelope opens the filter
-pub const P_KEYTRACK: usize = 16;
-pub const P_DRIVE: usize = 17;
-pub const NUM_PARAMS: usize = 18;
+pub const P_SUB_LEVEL: usize = 3; // 0 = sub osc off
+pub const P_VOLUME: usize = 4;
+pub const P_OSC_MIX: usize = 5; // 0 = osc1 only, 100 = osc2 only
+pub const P_DETUNE: usize = 6; // osc2 detune in cents
+pub const P_GLIDE: usize = 7;
+pub const P_ATTACK: usize = 8;
+pub const P_DECAY: usize = 9;
+pub const P_SUSTAIN: usize = 10;
+pub const P_RELEASE: usize = 11;
+pub const P_CUTOFF: usize = 12;
+pub const P_RESO: usize = 13;
+pub const P_FENV: usize = 14; // how much the amp envelope opens the filter
+pub const P_KEYTRACK: usize = 15;
+pub const P_DRIVE: usize = 16;
+pub const NUM_PARAMS: usize = 17;
 
 // Engine types. Only subtractive exists today; the UI shows the others as
 // coming-later placeholders and PARAM_MAX blocks selecting them.
@@ -48,7 +47,6 @@ pub const PARAM_MAX: [i16; NUM_PARAMS] = [
     5,   // WAVE1
     5,   // WAVE2
     100, // SUB_LEVEL
-    1,   // SUB_ON
     100, // VOLUME
     100, // OSC_MIX
     100, // DETUNE
@@ -70,8 +68,7 @@ pub const DEFAULTS: [i16; NUM_PARAMS] = [
     ENGINE_SUBTRACTIVE,
     WAVE_SAW, // wave 1
     WAVE_SAW, // wave 2
-    30,       // sub level (audible the moment it's switched on)
-    0,        // sub off
+    0,        // sub level (0 = off)
     85,       // volume
     40,       // osc mix ~ the old 1.0 : 0.7 blend
     7,        // detune cents
