@@ -14,6 +14,8 @@
 //   - FM: four sine operators in the 8 classic YM2612 algorithms with
 //     quantized harmonic ratios and op-1 feedback (Akemie's-Castle flavor),
 //     using a fast parabolic sine for chip-appropriate cost and character
+//   - Wavetable: OP-1-style lo-fi digital — a morphing 8-table bank with
+//     CZ-style phase distortion and bit-crush/decimation
 // Envelope times are read at note-on; everything else is read per block, so
 // tweaks are audible on already-sounding notes.
 
@@ -274,6 +276,9 @@ struct Voice {
     op_phase: [f32; 4],
     /// Op-1 output of the previous sample, for the feedback path
     fb_last: f32,
+    /// Bit-crush decimation: held sample + countdown
+    held: f32,
+    hold_count: u8,
     env: Adsr,
     svf: Svf,
 }
@@ -294,6 +299,8 @@ impl Voice {
             noise_state: 0,
             op_phase: [0.0; 4],
             fb_last: 0.0,
+            held: 0.0,
+            hold_count: 0,
             env: Adsr::new(),
             svf: Svf::new(),
         }
@@ -328,6 +335,8 @@ impl Voice {
         self.noise_state = 0x9e3779b9 ^ (key as u32).wrapping_mul(2654435761);
         self.op_phase = [0.0; 4]; // key-on phase reset, like the YM chips
         self.fb_last = 0.0;
+        self.held = 0.0;
+        self.hold_count = 0;
         self.svf.reset();
         self.env.trigger(p, sample_rate);
     }
@@ -335,9 +344,26 @@ impl Voice {
     /// Render this voice additively into `out`, freeing the slot once the
     /// envelope has fully decayed. Reads everything but envelope times live
     /// from the patch so Sound-mode edits are audible immediately.
-    fn render(&mut self, out: &mut [f32], p: &Patch, sample_rate: f32) {
+    fn render(
+        &mut self,
+        out: &mut [f32],
+        p: &Patch,
+        wt: &[[f32; WT_LEN + 1]; NUM_WT_TABLES],
+        sample_rate: f32,
+    ) {
         let inv_sr = 1.0 / sample_rate;
         let is_fm = p[P_ENGINE] == ENGINE_FM;
+        let is_wt = p[P_ENGINE] == ENGINE_WAVETABLE;
+
+        // Wavetable engine settings
+        let wt_scan = p[P_WT_POS] as f32 / 100.0 * (NUM_WT_TABLES - 1) as f32;
+        let wt_i = (wt_scan as usize).min(NUM_WT_TABLES - 2);
+        let wt_frac = wt_scan - wt_i as f32;
+        let warp = p[P_WT_WARP] as f32 / 100.0;
+        let crush = p[P_CRUSH] as f32 / 100.0;
+        // Amplitude steps from 4096 down to ~8, decimation hold 1..12 samples
+        let crush_levels = libm::powf(2.0, 12.0 - 9.0 * crush);
+        let crush_hold = (1.0 + crush * 11.0) as u8;
         let wave1 = p[P_WAVE1];
         let wave2 = p[P_WAVE2];
         let mix2 = p[P_OSC_MIX] as f32 / 100.0;
@@ -380,7 +406,48 @@ impl Voice {
             let dt1 = self.freq * inv_sr;
             let dt_sub = dt1 * 0.5;
 
-            let mut osc = if is_fm {
+            let mut osc = if is_wt {
+                if self.hold_count > 0 {
+                    // Decimation: hold the previous output
+                    self.hold_count -= 1;
+                    self.phase1 += dt1;
+                    if self.phase1 >= 1.0 {
+                        self.phase1 -= 1.0;
+                    }
+                    self.phase2 += dt1 * detune;
+                    if self.phase2 >= 1.0 {
+                        self.phase2 -= 1.0;
+                    }
+                    self.held
+                } else {
+                    // Two detuned reads of the morphed, phase-warped table
+                    let mut read = |phase: f32| {
+                        let tw = wt_warp(phase, warp);
+                        let x = tw * WT_LEN as f32;
+                        let xi = (x as usize).min(WT_LEN - 1);
+                        let xf = x - xi as f32;
+                        let a = wt[wt_i][xi] + (wt[wt_i][xi + 1] - wt[wt_i][xi]) * xf;
+                        let b = wt[wt_i + 1][xi] + (wt[wt_i + 1][xi + 1] - wt[wt_i + 1][xi]) * xf;
+                        a + (b - a) * wt_frac
+                    };
+                    let mut o = 0.5 * (read(self.phase1) + read(self.phase2));
+                    self.phase1 += dt1;
+                    if self.phase1 >= 1.0 {
+                        self.phase1 -= 1.0;
+                    }
+                    self.phase2 += dt1 * detune;
+                    if self.phase2 >= 1.0 {
+                        self.phase2 -= 1.0;
+                    }
+                    // Bit crush: quantize amplitude, then hold via decimation
+                    if crush > 0.0 {
+                        o = libm::floorf(o * crush_levels) / crush_levels;
+                        self.hold_count = crush_hold - 1;
+                    }
+                    self.held = o;
+                    o
+                }
+            } else if is_fm {
                 // Modulator depth follows the envelope (squared for a faster
                 // decay than the carrier — the classic FM pluck)
                 let e = self.env.level;
@@ -458,11 +525,17 @@ fn midi_to_freq(note: u8) -> f32 {
 
 // ============ Synth ============
 
+/// Wavetable resolution: 256 samples + 1 guard sample for interpolation.
+const WT_LEN: usize = 256;
+
 pub struct Synth {
     voices: [Voice; MAX_VOICES],
     patches: [Patch; NUM_SYNTH_CHANNELS],
     /// Last note-on frequency per channel — glide starting point.
     last_freq: [f32; NUM_SYNTH_CHANNELS],
+    /// Cached wavetable bank, generated from patch::wt_base on first render.
+    wt_tables: [[f32; WT_LEN + 1]; NUM_WT_TABLES],
+    wt_ready: bool,
     sample_rate: f32,
     age_counter: u32,
 }
@@ -473,9 +546,23 @@ impl Synth {
             voices: [Voice::new(); MAX_VOICES],
             patches: [DEFAULTS; NUM_SYNTH_CHANNELS],
             last_freq: [0.0; NUM_SYNTH_CHANNELS],
+            wt_tables: [[0.0; WT_LEN + 1]; NUM_WT_TABLES],
+            wt_ready: false,
             sample_rate: 44_100.0,
             age_counter: 0,
         }
+    }
+
+    fn ensure_wavetables(&mut self) {
+        if self.wt_ready {
+            return;
+        }
+        for (table, buf) in self.wt_tables.iter_mut().enumerate() {
+            for (i, slot) in buf.iter_mut().enumerate() {
+                *slot = wt_base(table, (i % WT_LEN) as f32 / WT_LEN as f32);
+            }
+        }
+        self.wt_ready = true;
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
@@ -553,13 +640,16 @@ impl Synth {
 
     /// Render one mono block, overwriting `out` (at most MAX_BLOCK frames).
     pub fn render(&mut self, out: &mut [f32]) {
+        self.ensure_wavetables();
         let n = out.len().min(MAX_BLOCK);
         let out = &mut out[..n];
         out.fill(0.0);
-        for i in 0..MAX_VOICES {
-            if self.voices[i].key != -1 {
-                let patch = self.patches[self.voices[i].channel as usize % NUM_SYNTH_CHANNELS];
-                self.voices[i].render(out, &patch, self.sample_rate);
+        // Split borrows so voices render against the shared table bank
+        let Synth { voices, patches, wt_tables, sample_rate, .. } = self;
+        for v in voices.iter_mut() {
+            if v.key != -1 {
+                let patch = patches[v.channel as usize % NUM_SYNTH_CHANNELS];
+                v.render(out, &patch, wt_tables, *sample_rate);
             }
         }
         // Headroom scale + cubic soft clip so stacked chords don't crack

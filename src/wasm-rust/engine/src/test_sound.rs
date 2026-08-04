@@ -254,6 +254,40 @@ fn fm_op_page_faders_edit_ratios() {
 }
 
 #[test]
+fn wavetable_preset_pages_and_position_track() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    let wt = (0..patch::NUM_PRESETS)
+        .find(|&i| patch::PRESETS[i].values[patch::P_ENGINE] == patch::ENGINE_WAVETABLE)
+        .expect("no wavetable preset");
+    engine_load_sound_preset(&mut s, ch, wt);
+
+    // Page list: PRESET → WAVE → DIGI → AMP
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_WT);
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_DIGI);
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_AMP);
+
+    // WAVE page bottom row jumps the morph position
+    s.sound_page = PAGE_WT;
+    engine_button_press(&mut s, 7, 15, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_WT_POS], 100);
+    engine_button_press(&mut s, 7, 0, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_WT_POS], 0);
+
+    // Grid draws a waveform trace and the position track
+    engine_compute_grid(&mut s, 0.0);
+    let lit: usize = (0..7)
+        .map(|r| (0..16).filter(|&c| s.button_values[r][c] == BTN_COLOR_100).count())
+        .sum();
+    assert!(lit >= 16, "waveform trace should light one cell per column, got {lit}");
+    assert_eq!(s.button_values[7][0], BTN_COLOR_100, "position cell at 0");
+}
+
+#[test]
 fn preset_page_selects_and_loads() {
     let mut s = init_state();
     s.ui_mode = UiMode::Sound as u8;
