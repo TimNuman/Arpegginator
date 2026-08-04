@@ -576,6 +576,20 @@ pub struct EngineState {
     pub sound_presets: [u8; NUM_CHANNELS],
     /// Nonzero once the channel's patch deviates from its preset
     pub sound_edited: [u8; NUM_CHANNELS],
+
+    // Drum sampler UI state (see engine_sampler)
+    pub sampler_slot: [u8; NUM_CHANNELS],
+    pub sampler_params: [[[i16; arp3_synth::sampler::NUM_SLOT_PARAMS];
+        arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
+    /// Host-pushed 16-bucket waveform previews per slot (0..255 amplitude)
+    pub sampler_previews: [[[u8; 16]; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
+    pub sampler_loaded: [[u8; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
+    /// Detected key per slot (MIDI note, -1 = unpitched/unknown)
+    pub sampler_keys: [[i16; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
+    /// Recorder state pushed by the host: 0 idle, 1 armed, 2 recording
+    pub rec_state: u8,
+    pub rec_level: u8,
+    pub rec_waveform: [u8; 16],
     pub current_channel: u8,
     pub zoom: i32,
     pub selected_event_idx: i16,
@@ -680,6 +694,9 @@ impl EngineState {
         ];
 
         self.sound_patches = [arp3_synth::patch::DEFAULTS; NUM_CHANNELS];
+        self.sampler_params = [[arp3_synth::sampler::SLOT_PARAM_DEFAULTS;
+            arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS];
+        self.sampler_keys = [[-1; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS];
 
         self.rng_state = 12345;
         self.zoom = 120;

@@ -962,6 +962,10 @@ fn render_sound(s: &EngineState, mods: u8) {
     use crate::engine_sound::*;
     let ch = s.current_channel as usize;
     let page = s.sound_page;
+    if s.is_drum_channel(ch) {
+        render_sound_sampler(s, mods);
+        return;
+    }
     let patch_vals = &s.sound_patches[ch];
     let shift = (mods & MOD_SHIFT) != 0;
 
@@ -1044,6 +1048,144 @@ fn render_sound(s: &EngineState, mods: u8) {
     draw_legend_item(0, 0, "", GFX_DIM);
     draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
     draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+}
+
+/// Sound mode on a drum channel: the sampler pages.
+fn render_sound_sampler(s: &EngineState, mods: u8) {
+    use crate::engine_sound::*;
+    use arp3_synth::sampler::*;
+    let ch = s.current_channel as usize;
+    let page = s.sound_page;
+    let slot = (s.sampler_slot[ch] as usize).min(NUM_SLOTS - 1);
+    let sp = &s.sampler_params[ch][slot];
+    let shift = (mods & MOD_SHIFT) != 0;
+
+    // ---- Row 0: SOUND | CH xx SAMPLER ----
+    let mut hdr = FmtBuf::<16>::new();
+    let _ = write!(hdr, "CH {} SAMPLER", ch + 1);
+    draw_row(ROW_Y5[0], "SOUND", &hdr, GFX_VALUE);
+
+    // ---- Row 1: page name ----
+    {
+        gfx_aa_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_AA_SMALL);
+        let label = SOUND_PAGE_LABELS[(page as usize).min(SOUND_PAGE_LABELS.len() - 1)];
+        gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], label, GFX_YELLOW, &FONT_AA_SMALL_BOLD);
+    }
+
+    // Two params per row on rows 2-3: slots 0/2 left column, 1/3 right column
+    let draw_pair = |slot_idx: usize, label: &str, value: &str, hot: bool| {
+        let y = ROW_Y5[2 + slot_idx / 2];
+        let (x_label, x_right) = if slot_idx % 2 == 0 {
+            (PAD_X, PAD_X + HALF_W - 6)
+        } else {
+            (PAD_X + HALF_W + 4, CONTENT_RIGHT)
+        };
+        let color = if hot { GFX_YELLOW } else { GFX_VALUE };
+        gfx_aa_text(x_label, y, label, GFX_LABEL, &FONT_AA_SMALL);
+        gfx_aa_text_right(x_right, y, value, color, &FONT_AA_SMALL_BOLD);
+    };
+
+    // Slot param value → display text
+    let fmt_slot_param = |param: usize| -> FmtBuf<12> {
+        let mut b = FmtBuf::<12>::new();
+        let v = sp[param];
+        match param {
+            SP_SPEED => {
+                let pct = (speed_ratio(v) * 100.0 + 0.5) as i32;
+                let _ = write!(b, "{}%", pct);
+            }
+            SP_PITCH => {
+                let st = v - 24;
+                let _ = write!(b, "{:+}ST", st);
+            }
+            SP_MODE => b.push_str(match v {
+                MODE_LOOP => "LOOP",
+                MODE_GATE => "GATE",
+                _ => "ONE",
+            }),
+            SP_TRIM_START | SP_TRIM_END => {
+                let _ = write!(b, "{}.{}%", v / 10, v % 10);
+            }
+            _ => { let _ = write!(b, "{}", v); }
+        }
+        b
+    };
+
+    let focused = crate::engine_sampler::sampler_focused_param(s);
+    match page {
+        PAGE_SSLOT => {
+            let mut sbuf = FmtBuf::<12>::new();
+            let _ = write!(sbuf, "{}", slot + 1);
+            draw_pair(0, "SLOT", &sbuf, false);
+            let loaded = s.sampler_loaded[ch][slot] != 0;
+            draw_pair(1, "STATE", if loaded { "LOADED" } else { "EMPTY" }, false);
+            const KEYS: [&str; 12] =
+                ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+            let key = s.sampler_keys[ch][slot];
+            let key_txt = if (0..12).contains(&key) { KEYS[key as usize] } else { "--" };
+            draw_pair(2, "KEY", key_txt, false);
+        }
+        PAGE_SREC => {
+            use crate::engine_sampler::{REC_ARMED, REC_RECORDING};
+            let (txt, hot) = match s.rec_state {
+                REC_RECORDING => ("REC", true),
+                REC_ARMED => ("ARMED", true),
+                _ => ("IDLE", false),
+            };
+            draw_pair(0, "STATE", txt, hot);
+            let mut lbuf = FmtBuf::<12>::new();
+            let _ = write!(lbuf, "{}%", (s.rec_level as i32 * 100) / 255);
+            draw_pair(1, "LEVEL", &lbuf, false);
+            let mut tbuf = FmtBuf::<12>::new();
+            let _ = write!(tbuf, "SLOT {}", slot + 1);
+            draw_pair(2, "TO", &tbuf, false);
+        }
+        PAGE_STRIM => {
+            let start = fmt_slot_param(SP_TRIM_START);
+            let end = fmt_slot_param(SP_TRIM_END);
+            draw_pair(0, "START", &start, !shift);
+            draw_pair(1, "END", &end, shift);
+        }
+        _ => {
+            let faders = crate::engine_sampler::sampler_page_faders(page);
+            for (i, &param) in faders.iter().enumerate().take(4) {
+                let val = fmt_slot_param(param);
+                draw_pair(i, slot_param_label(param), &val, focused == Some(param));
+            }
+            if page == PAGE_SPLAY {
+                // Faders fill all four value slots; squeeze mode + time engine
+                // into the middle of the page row.
+                let mut mbuf = FmtBuf::<16>::new();
+                let mode = fmt_slot_param(SP_MODE);
+                mbuf.push_str(mode.as_str());
+                mbuf.push_str(if sp[SP_TAPE] != 0 { " TAPE" } else { " GRAIN" });
+                gfx_aa_text(PAD_X + 36, ROW_Y5[1], &mbuf, GFX_DIM, &FONT_AA_SMALL);
+            }
+        }
+    }
+
+    // ---- Legend ----
+    draw_legend_item(0, 0, "", GFX_DIM);
+    draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
+    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+}
+
+fn slot_param_label(param: usize) -> &'static str {
+    use arp3_synth::sampler::*;
+    match param {
+        SP_TRIM_START => "START",
+        SP_TRIM_END => "END",
+        SP_SPEED => "SPEED",
+        SP_PITCH => "PITCH",
+        SP_LEVEL => "LEVEL",
+        SP_DECAY => "DECAY",
+        SP_MODE => "MODE",
+        SP_CUT => "CUT",
+        SP_RES => "RES",
+        SP_DRIVE => "DRIVE",
+        SP_TAPE => "TIME",
+        _ => "?",
+    }
 }
 
 fn render_channel(s: &EngineState) {

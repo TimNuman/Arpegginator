@@ -69,3 +69,115 @@ pub extern "C" fn synth_render(frames: u32) -> *const f32 {
     G_SYNTH.get_mut().render(&mut buf[..n]);
     buf.as_ptr()
 }
+
+// ============ Drum sampler ============
+//
+// Sample memory lives inside this module so the sampler's raw SampleRef
+// pointers stay valid for as long as the slot holds the take. Buffers come
+// from a page-grained bump arena (memory.grow — still zero imports); a slot
+// re-records into its old buffer when the new take fits, otherwise it gets a
+// fresh region and the old one is wasted. Takes are host-capped to a few
+// seconds, so waste stays bounded.
+//
+// Everything below runs on the audio thread (worklet port messages are
+// delivered between render quanta), so writes never race the renderer.
+
+use arp3_synth::sampler::{NUM_SLOTS, NUM_SLOT_PARAMS};
+use arp3_synth::NUM_SYNTH_CHANNELS;
+
+const WASM_PAGE: usize = 65536;
+
+#[derive(Clone, Copy)]
+struct SlotBuf {
+    ptr: usize,
+    /// Capacity in samples (i16)
+    cap: u32,
+}
+
+static G_SLOT_BUFS: Global<[[SlotBuf; NUM_SLOTS]; NUM_SYNTH_CHANNELS]> =
+    Global::new([[SlotBuf { ptr: 0, cap: 0 }; NUM_SLOTS]; NUM_SYNTH_CHANNELS]);
+
+#[cfg(target_arch = "wasm32")]
+fn arena_alloc(bytes: usize) -> usize {
+    let pages = bytes.div_ceil(WASM_PAGE);
+    let prev = core::arch::wasm32::memory_grow(0, pages);
+    if prev == usize::MAX { 0 } else { prev * WASM_PAGE }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn arena_alloc(_bytes: usize) -> usize {
+    0
+}
+
+/// Reserve buffer space for a take of `len` samples and return the write
+/// pointer, or null if the request is invalid or memory can't grow. The host
+/// writes `len` i16 samples there and then calls `synth_sample_commit`.
+#[no_mangle]
+pub extern "C" fn synth_sample_buffer(channel: u32, slot: u32, len: u32) -> *mut i16 {
+    let ch = channel as usize;
+    let sl = slot as usize;
+    if ch >= NUM_SYNTH_CHANNELS || sl >= NUM_SLOTS || len == 0 || len > 4_000_000 {
+        return core::ptr::null_mut();
+    }
+    let buf = &mut G_SLOT_BUFS.get_mut()[ch][sl];
+    if buf.cap < len {
+        // Detach the slot from its old memory before it gets replaced
+        unsafe { G_SYNTH.get_mut().sampler.set_sample(ch as u8, sl as u8, core::ptr::null(), 0) };
+        let ptr = arena_alloc(len as usize * 2);
+        if ptr == 0 {
+            return core::ptr::null_mut();
+        }
+        *buf = SlotBuf { ptr, cap: len };
+    } else {
+        // Reusing the buffer in place: stop voices reading it first
+        unsafe { G_SYNTH.get_mut().sampler.set_sample(ch as u8, sl as u8, core::ptr::null(), 0) };
+    }
+    buf.ptr as *mut i16
+}
+
+/// Activate the take previously written via `synth_sample_buffer`.
+#[no_mangle]
+pub extern "C" fn synth_sample_commit(channel: u32, slot: u32, len: u32) {
+    let ch = channel as usize;
+    let sl = slot as usize;
+    if ch >= NUM_SYNTH_CHANNELS || sl >= NUM_SLOTS {
+        return;
+    }
+    let buf = G_SLOT_BUFS.get_mut()[ch][sl];
+    if len == 0 || len > buf.cap {
+        return;
+    }
+    unsafe {
+        G_SYNTH.get_mut().sampler.set_sample(ch as u8, sl as u8, buf.ptr as *const i16, len);
+    }
+}
+
+/// Empty a slot (its arena space is kept for the next take).
+#[no_mangle]
+pub extern "C" fn synth_sample_clear(channel: u32, slot: u32) {
+    if (channel as usize) < NUM_SYNTH_CHANNELS && (slot as usize) < NUM_SLOTS {
+        unsafe {
+            G_SYNTH.get_mut().sampler.set_sample(channel as u8, slot as u8, core::ptr::null(), 0);
+        }
+    }
+}
+
+/// Trigger a drum hit: GM `note` picks the slot ((note-35) mod 16).
+#[no_mangle]
+pub extern "C" fn synth_drum_trigger(channel: u32, note: u32, velocity: u32) {
+    G_SYNTH.get_mut().drum_trigger(channel as u8, note as u8, velocity as u8);
+}
+
+/// Release a held drum note (LOOP/GATE modes).
+#[no_mangle]
+pub extern "C" fn synth_drum_release(channel: u32, note: u32) {
+    G_SYNTH.get_mut().drum_release(channel as u8, note as u8);
+}
+
+/// Set one sampler slot param (ids from arp3_synth::sampler).
+#[no_mangle]
+pub extern "C" fn synth_set_slot_param(channel: u32, slot: u32, param: u32, value: i32) {
+    if (param as usize) < NUM_SLOT_PARAMS {
+        G_SYNTH.get_mut().set_slot_param(channel as u8, slot as u8, param as u8, value as i16);
+    }
+}

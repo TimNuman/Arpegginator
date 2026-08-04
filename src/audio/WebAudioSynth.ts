@@ -16,6 +16,9 @@ import { RustSynth } from "./RustSynth";
 
 const midiToFreq = (note: number): number => 440 * Math.pow(2, (note - 69) / 12);
 
+/** GM drum note → sampler slot, mirroring arp3_synth::sampler::note_to_slot. */
+const noteToSlot = (note: number): number => (((note - 35) % 16) + 16) % 16;
+
 // TR-808 hi-hat/cymbal oscillator bank ratios (Hz)
 const METAL_FREQS = [263, 400, 421, 474, 587, 845];
 
@@ -41,6 +44,9 @@ export class WebAudioSynth {
   private rustSynth = new RustSynth();
   /** Fires once the Rust synth is producing audio — App syncs patch params */
   onRustSynthReady: (() => void) | null = null;
+  /** Sampler slots holding a take, keyed channel*16+slot. A drum note whose
+   *  slot is loaded plays the sample instead of the 808 recipe. */
+  private sampledSlots = new Set<number>();
 
   /** Create (or return) the AudioContext. Safe to call any time. */
   private ensure(): AudioContext {
@@ -153,7 +159,11 @@ export class WebAudioSynth {
     }
     const vel = Math.max(0, Math.min(1, velocity / 127));
     if (isDrum) {
-      this.playDrum(note, vel);
+      if (this.rustSynth.isReady() && this.sampledSlots.has(channel * 16 + noteToSlot(note))) {
+        this.rustSynth.drumTrigger(channel, note, velocity);
+      } else {
+        this.playDrum(note, vel);
+      }
     } else if (this.rustSynth.isReady()) {
       this.rustSynth.noteOn(channel, note, velocity);
     } else {
@@ -162,10 +172,12 @@ export class WebAudioSynth {
   }
 
   noteOff(channel: number, note: number): void {
-    // Drums are one-shots; this only affects melodic voices. Send to both
-    // melodic instruments — a note may have started on the piano right
-    // before the Rust synth finished loading (each ignores unknown notes).
+    // Send to every instrument that might hold the note — a note may have
+    // started on the piano right before the Rust synth finished loading, and
+    // sampler slots in LOOP/GATE mode sustain until release (each target
+    // ignores notes it doesn't hold).
     this.rustSynth.noteOff(channel, note);
+    this.rustSynth.drumRelease(channel, note);
     const key = channel * 128 + note;
     const voice = this.pianoVoices.get(key);
     if (voice && this.ctx) {
@@ -182,6 +194,29 @@ export class WebAudioSynth {
   /** Forward a Sound-mode patch edit to the Rust synth. */
   setSoundParam(channel: number, param: number, value: number): void {
     this.rustSynth.setParam(channel, param, value);
+  }
+
+  /** Forward a sampler slot-param edit to the Rust synth. */
+  setSlotParam(channel: number, slot: number, param: number, value: number): void {
+    this.rustSynth.setSlotParam(channel, slot, param, value);
+  }
+
+  /** Load a recorded take into a sampler slot; its drum note now plays it. */
+  loadSample(channel: number, slot: number, samples: Int16Array): void {
+    if (!this.rustSynth.isReady()) return;
+    this.rustSynth.loadSample(channel, slot, samples);
+    this.sampledSlots.add(channel * 16 + slot);
+  }
+
+  /** Empty a sampler slot — its drum note falls back to the 808 recipe. */
+  clearSample(channel: number, slot: number): void {
+    this.rustSynth.loadSample(channel, slot, new Int16Array(0));
+    this.sampledSlots.delete(channel * 16 + slot);
+  }
+
+  /** The lazily-created AudioContext (recorder taps mic input through it). */
+  getContext(): AudioContext {
+    return this.ensure();
   }
 
   allNotesOff(): void {

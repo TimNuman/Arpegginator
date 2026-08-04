@@ -10,9 +10,13 @@ import type { Engine } from "./engine/types";
 import { useMidi, STORAGE_KEY_BUILTIN_SOUND } from "./hooks/useMidi";
 import { useFitScale } from "./hooks/useFitScale";
 import { synth } from "./audio/WebAudioSynth";
+import { SampleRecorder } from "./audio/SampleRecorder";
 import { useRenderVersion } from "./store/renderStore";
 import * as actions from "./actions";
 import { TICKS_PER_QUARTER } from "./components/Grid/Grid.config";
+
+/** Web-mic recorder for the drum sampler (engine ref wired once loaded). */
+const recorder = new SampleRecorder(synth);
 
 const darkTheme = createTheme({
   palette: {
@@ -336,6 +340,15 @@ function App() {
       engine.onSoundParam = (channel: number, param: number, value: number) => {
         synth.setSoundParam(channel, param, value);
       };
+      // Drum sampler: slot edits stream the same way; REC presses drive the
+      // web-mic recorder, which feeds level/waveform state back to the engine
+      engine.onSampleParam = (channel: number, slot: number, param: number, value: number) => {
+        synth.setSlotParam(channel, slot, param, value);
+      };
+      recorder.engine = engine;
+      engine.onRecControl = (channel: number) => {
+        void recorder.toggle(channel);
+      };
       synth.onRustSynthReady = () => engine.syncSoundParams();
       if (synth.isRustSynthReady()) {
         engine.syncSoundParams();
@@ -347,6 +360,8 @@ function App() {
         engine.onNoteOff = null;
         engine.onPlayPreviewNote = null;
         engine.onSoundParam = null;
+        engine.onSampleParam = null;
+        engine.onRecControl = null;
       }
       synth.onRustSynthReady = null;
     };

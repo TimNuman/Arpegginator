@@ -777,11 +777,10 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
                     let pat = s.current_patterns[ch] as usize;
                     if s.patterns[ch][pat].event_count == 0 { return; }
                 }
-                // Block Sound mode on drum channels (no drum synthesis yet)
-                if mode == UiMode::Sound as u8 && s.is_drum_channel(s.current_channel as usize) {
-                    return;
-                }
                 s.ui_mode = mode;
+                if mode == UiMode::Sound as u8 {
+                    crate::engine_sound::ensure_valid_sound_page(s);
+                }
             } else if col == 15 {
                 s.ghost_enabled ^= 1;
             }
@@ -790,9 +789,10 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
 
         // Rows 0..NUM_CHANNELS: channel/pattern selection (mode unchanged)
         channel_grid_press(s, row as usize, col, modifiers);
-        // Sound mode has no meaning on a drum channel — fall back to Pattern
-        if s.ui_mode == UiMode::Sound as u8 && s.is_drum_channel(s.current_channel as usize) {
-            s.ui_mode = UiMode::Pattern as u8;
+        // Channel switches can land on a channel whose page list differs
+        // (drum <-> melodic, different engine) — keep the page valid
+        if s.ui_mode == UiMode::Sound as u8 {
+            crate::engine_sound::ensure_valid_sound_page(s);
         }
         return;
     }

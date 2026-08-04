@@ -72,6 +72,71 @@ pub extern "C" fn engine_sync_sound_params() {
     engine_sound::engine_sync_sound_params(state_ref());
 }
 
+// ============ Drum Sampler ============
+
+use arp3_engine::engine_sampler;
+use arp3_engine::engine_sampler::{NUM_SLOTS, NUM_SLOT_PARAMS};
+
+/// 16-byte waveform preview buffer for one slot. Host writes bucket peaks
+/// (0..255) after recording; the grid mirrors them on the SLOT page.
+#[no_mangle]
+pub extern "C" fn engine_get_slot_preview_buffer(ch: u8, slot: u8) -> *mut u8 {
+    if ch as usize >= NUM_CHANNELS || slot as usize >= NUM_SLOTS {
+        return core::ptr::null_mut();
+    }
+    state().sampler_previews[ch as usize][slot as usize].as_mut_ptr()
+}
+
+/// Mark a slot loaded/empty and record its detected musical key
+/// (0-11 pitch class, -1 = unknown). Called by the host after a take
+/// lands in the synth or a slot is cleared.
+#[no_mangle]
+pub extern "C" fn engine_set_slot_state(ch: u8, slot: u8, loaded: u8, key: i16) {
+    if ch as usize >= NUM_CHANNELS || slot as usize >= NUM_SLOTS { return; }
+    let s = state();
+    s.sampler_loaded[ch as usize][slot as usize] = loaded;
+    s.sampler_keys[ch as usize][slot as usize] = key;
+}
+
+/// 16-byte live waveform buffer for the REC page (host streams mic peaks in).
+#[no_mangle]
+pub extern "C" fn engine_get_rec_waveform_buffer() -> *mut u8 {
+    state().rec_waveform.as_mut_ptr()
+}
+
+/// Recorder state feedback from the host: state is REC_IDLE/ARMED/RECORDING,
+/// level is the current input peak 0..255 (drives the REC page meter).
+#[no_mangle]
+pub extern "C" fn engine_set_rec_state(rec_state: u8, level: u8) {
+    let s = state();
+    s.rec_state = rec_state;
+    s.rec_level = level;
+}
+
+/// Currently selected sampler slot on a drum channel (recording target).
+#[no_mangle]
+pub extern "C" fn engine_get_sampler_slot(ch: u8) -> u8 {
+    if ch as usize >= NUM_CHANNELS { return 0; }
+    state_ref().sampler_slot[ch as usize]
+}
+
+/// Read one sampler slot param (host uses this when assembling a take).
+#[no_mangle]
+pub extern "C" fn engine_get_slot_param(ch: u8, slot: u8, param: u8) -> i16 {
+    if ch as usize >= NUM_CHANNELS || slot as usize >= NUM_SLOTS
+        || param as usize >= NUM_SLOT_PARAMS {
+        return 0;
+    }
+    state_ref().sampler_params[ch as usize][slot as usize][param as usize]
+}
+
+/// Set a sampler slot param from the host (mirrors engine state and
+/// re-emits via js_sample_param so the synth stays in sync).
+#[no_mangle]
+pub extern "C" fn engine_set_sampler_param_export(ch: u8, slot: u8, param: u8, value: i16) {
+    engine_sampler::engine_set_sampler_param(state(), ch as usize, slot as usize, param as usize, value);
+}
+
 // ============ Touchstrip ============
 
 #[no_mangle]

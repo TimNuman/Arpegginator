@@ -48,6 +48,8 @@ async function loadRustWasm(
       js_preview_value: callbacks.previewValue ?? (() => {}),
       js_play_preview_note: callbacks.playPreviewNote ?? (() => {}),
       js_sound_param: callbacks.soundParam ?? (() => {}),
+      js_sample_param: callbacks.sampleParam ?? (() => {}),
+      js_rec_control: callbacks.recControl ?? (() => {}),
     },
   };
 
@@ -76,6 +78,9 @@ export class WasmEngine implements Engine {
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
   onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
   onSoundParam: ((channel: number, param: number, value: number) => void) | null = null;
+  onSampleParam: ((channel: number, slot: number, param: number, value: number) => void) | null =
+    null;
+  onRecControl: ((channel: number, action: number) => void) | null = null;
 
   async load(): Promise<void> {
     if (this.module) return;
@@ -103,6 +108,12 @@ export class WasmEngine implements Engine {
       },
       soundParam: (ch: number, param: number, value: number) => {
         this.onSoundParam?.(ch, param, value);
+      },
+      sampleParam: (ch: number, slot: number, param: number, value: number) => {
+        this.onSampleParam?.(ch, slot, param, value);
+      },
+      recControl: (ch: number, action: number) => {
+        this.onRecControl?.(ch, action);
       },
     };
 
@@ -326,5 +337,35 @@ export class WasmEngine implements Engine {
   /** Re-emit all patch params via onSoundParam (e.g. when the synth loads). */
   syncSoundParams(): void {
     this.ex.engine_sync_sound_params();
+  }
+
+  // ============ Drum Sampler ============
+
+  /** Selected sampler slot on a drum channel (the recording target). */
+  getSamplerSlot(ch: number): number {
+    return this.ex.engine_get_sampler_slot(ch);
+  }
+
+  /** Push a take's 16-bucket waveform preview for the SLOT page grid. */
+  setSlotPreview(ch: number, slot: number, buckets: Uint8Array): void {
+    const ptr = this.ex.engine_get_slot_preview_buffer(ch, slot);
+    if (!ptr) return;
+    new Uint8Array(this.module!.buffer, ptr, 16).set(buckets.subarray(0, 16));
+  }
+
+  /** Mark a slot loaded/empty with its detected key (0-11, -1 = unknown). */
+  setSlotState(ch: number, slot: number, loaded: boolean, key: number): void {
+    this.ex.engine_set_slot_state(ch, slot, loaded ? 1 : 0, key);
+  }
+
+  /** Recorder feedback: state (0 idle / 1 armed / 2 recording) + level 0-255. */
+  setRecState(state: number, level: number): void {
+    this.ex.engine_set_rec_state(state, level);
+  }
+
+  /** Live 16-bucket waveform shown on the REC page while armed/recording. */
+  setRecWaveform(buckets: Uint8Array): void {
+    const ptr = this.ex.engine_get_rec_waveform_buffer();
+    new Uint8Array(this.module!.buffer, ptr, 16).set(buckets.subarray(0, 16));
   }
 }

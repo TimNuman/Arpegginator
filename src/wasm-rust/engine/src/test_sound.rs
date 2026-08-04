@@ -29,24 +29,32 @@ fn ctrl_bottom_row_enters_sound_mode() {
 }
 
 #[test]
-fn sound_mode_blocked_on_drum_channel() {
+fn sound_mode_on_drum_channel_opens_sampler_pages() {
     let mut s = init_state();
     s.current_channel = drum_ch(&s);
     engine_button_press(&mut s, 7, 2, MOD_CTRL);
-    assert_ne!(s.ui_mode, UiMode::Sound as u8);
+    assert_eq!(s.ui_mode, UiMode::Sound as u8);
+    assert_eq!(s.sound_page, PAGE_SSLOT, "drum channel snaps to the sampler page list");
 }
 
 #[test]
-fn switching_to_drum_channel_leaves_sound_mode() {
+fn switching_to_drum_channel_keeps_sound_mode_and_snaps_page() {
     let mut s = init_state();
     engine_button_press(&mut s, 7, 2, MOD_CTRL);
     assert_eq!(s.ui_mode, UiMode::Sound as u8);
+    s.sound_page = PAGE_ENV;
     // Ctrl overlay: select the drum channel's row (its current pattern col)
     let dch = drum_ch(&s);
     let dpat = s.current_patterns[dch as usize];
     engine_button_press(&mut s, dch, dpat + 1, MOD_CTRL);
     assert_eq!(s.current_channel, dch);
-    assert_eq!(s.ui_mode, UiMode::Pattern as u8);
+    assert_eq!(s.ui_mode, UiMode::Sound as u8);
+    assert_eq!(s.sound_page, PAGE_SSLOT, "melodic page is foreign to drums; snaps to SLOT");
+    // And back: a melodic channel snaps off the sampler pages
+    let pat0 = s.current_patterns[0];
+    engine_button_press(&mut s, 0, pat0 + 1, MOD_CTRL);
+    assert_eq!(s.ui_mode, UiMode::Sound as u8);
+    assert_eq!(s.sound_page, PAGE_PRESET);
 }
 
 #[test]
@@ -432,4 +440,167 @@ fn param_value_formatting() {
     // Times come from the shared synth mappings
     let atk = format_param_value(patch::P_ATTACK, patch::DEFAULTS[patch::P_ATTACK]);
     assert!(atk.as_str().ends_with("MS"), "attack shows ms, got {}", atk.as_str());
+}
+
+// ============ Drum sampler pages ============
+
+mod sampler {
+    use super::*;
+    use arp3_synth::sampler::*;
+
+    fn drum_state() -> Box<EngineState> {
+        let mut s = init_state();
+        s.current_channel = drum_ch(&s);
+        s.ui_mode = UiMode::Sound as u8;
+        crate::engine_sound::ensure_valid_sound_page(&mut s);
+        s
+    }
+
+    #[test]
+    fn left_encoder_cycles_sampler_pages_and_wraps() {
+        let mut s = drum_state();
+        assert_eq!(s.sound_page, PAGE_SSLOT);
+        for expect in [PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD, PAGE_SSLOT] {
+            engine_arrow_press(&mut s, DIR_UP, 0);
+            assert_eq!(s.sound_page, expect);
+        }
+        engine_arrow_press(&mut s, DIR_DOWN, 0);
+        assert_eq!(s.sound_page, PAGE_SMOD, "down from first page wraps to last");
+    }
+
+    #[test]
+    fn slot_strip_selects_and_arrows_step_with_wrap() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        engine_button_press(&mut s, 7, 5, 0);
+        assert_eq!(s.sampler_slot[ch], 5);
+        engine_arrow_press(&mut s, DIR_RIGHT, 0);
+        assert_eq!(s.sampler_slot[ch], 6);
+        s.sampler_slot[ch] = 0;
+        engine_arrow_press(&mut s, DIR_LEFT, 0);
+        assert_eq!(s.sampler_slot[ch], (NUM_SLOTS - 1) as u8, "slot wraps");
+    }
+
+    #[test]
+    fn trim_press_moves_nearest_handle() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_STRIM;
+        // Defaults: start 0, end 1000. Col 3 of 0..15 → 200‰, nearer to start.
+        engine_button_press(&mut s, 7, 3, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_START], 200);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_END], 1000);
+        // Col 14 → 933‰, nearer to end.
+        engine_button_press(&mut s, 7, 14, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_END], 933);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_START], 200);
+    }
+
+    #[test]
+    fn trim_arrows_nudge_start_bare_end_shifted() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_STRIM;
+        engine_arrow_press(&mut s, DIR_RIGHT, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_START], 5);
+        engine_arrow_press(&mut s, DIR_LEFT, MOD_SHIFT);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_END], 995);
+    }
+
+    #[test]
+    fn play_page_faders_mode_cells_and_tape_toggle() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_SPLAY;
+        // Top of fader 0 (SPEED, cols 0-2) → max
+        engine_button_press(&mut s, 0, 0, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_SPEED], SLOT_PARAM_MAX[SP_SPEED]);
+        assert_eq!(s.sound_focus[PAGE_SPLAY as usize], 0);
+        // Mode cells
+        engine_button_press(&mut s, 7, 13, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_MODE], MODE_LOOP);
+        engine_button_press(&mut s, 7, 14, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_MODE], MODE_GATE);
+        // TAPE toggle
+        engine_button_press(&mut s, 7, 15, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_TAPE], 1);
+        engine_button_press(&mut s, 7, 15, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_TAPE], 0);
+    }
+
+    #[test]
+    fn mod_page_encoder_edits_focused_fader() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_SMOD;
+        // Default focus = fader 0 (CUT, default 100 = max): left steps down
+        engine_arrow_press(&mut s, DIR_LEFT, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_CUT], 95);
+        engine_arrow_press(&mut s, DIR_RIGHT, MOD_SHIFT);
+        assert_eq!(s.sampler_params[ch][0][SP_CUT], 96, "shift = fine step");
+        // Focus follows a fader press (RES = fader 1, cols 4-6)
+        engine_button_press(&mut s, 7, 4, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_RES], 0);
+        engine_arrow_press(&mut s, DIR_RIGHT, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_RES], 5);
+    }
+
+    #[test]
+    fn params_are_per_slot_and_clamped() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_SPLAY;
+        s.sampler_slot[ch] = 3;
+        engine_arrow_press(&mut s, DIR_RIGHT, 0); // SPEED +5 on slot 3
+        assert_eq!(s.sampler_params[ch][3][SP_SPEED], 55);
+        assert_eq!(s.sampler_params[ch][0][SP_SPEED], 50, "slot 0 untouched");
+        for _ in 0..20 {
+            engine_arrow_press(&mut s, DIR_RIGHT, 0);
+        }
+        assert_eq!(s.sampler_params[ch][3][SP_SPEED], SLOT_PARAM_MAX[SP_SPEED]);
+    }
+
+    #[test]
+    fn tune_snaps_pitch_to_scale_root() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        // Detected key A (9), scale root C (0): nearest path is +3 semitones
+        s.sampler_keys[ch][0] = 9;
+        s.sampler_loaded[ch][0] = 1;
+        engine_button_press(&mut s, 0, 15, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_PITCH], 24 + 3);
+        // No detected key → TUNE is inert
+        s.sampler_slot[ch] = 1;
+        engine_button_press(&mut s, 0, 15, 0);
+        assert_eq!(s.sampler_params[ch][1][SP_PITCH], 24);
+    }
+
+    #[test]
+    fn slot_page_grid_shows_selection_and_waveform() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sampler_loaded[ch][2] = 1;
+        s.sampler_previews[ch][2] = [255; 16];
+        s.sampler_slot[ch] = 2;
+        engine_compute_grid(&mut s, 0.0);
+        // Selected slot cell is bright on the strip row
+        assert_ne!(s.button_values[7][2] & 0xF, BTN_OFF);
+        // Full-scale preview lights the waveform rows across the center
+        assert_ne!(s.button_values[3][8] & 0xF, BTN_OFF, "waveform center row lit");
+        assert_ne!(s.button_values[0][8] & 0xF, BTN_OFF, "full-height bucket reaches top");
+    }
+
+    #[test]
+    fn rec_page_grid_reflects_recording_state() {
+        let mut s = drum_state();
+        s.sound_page = PAGE_SREC;
+        s.rec_state = crate::engine_sampler::REC_RECORDING;
+        s.rec_level = 255;
+        engine_compute_grid(&mut s, 0.0);
+        assert_eq!(
+            s.color_overrides[7][0],
+            crate::engine_sampler::REC_COLOR,
+            "REC cell is red while recording"
+        );
+    }
 }
