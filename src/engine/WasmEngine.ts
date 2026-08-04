@@ -47,6 +47,7 @@ async function loadRustWasm(
       js_clear_queued_pattern: callbacks.clearQueuedPattern ?? (() => {}),
       js_preview_value: callbacks.previewValue ?? (() => {}),
       js_play_preview_note: callbacks.playPreviewNote ?? (() => {}),
+      js_sound_param: callbacks.soundParam ?? (() => {}),
     },
   };
 
@@ -74,6 +75,7 @@ export class WasmEngine implements Engine {
   onNoteOn: ((channel: number, midiNote: number, velocity: number) => void) | null = null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
   onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
+  onSoundParam: ((channel: number, param: number, value: number) => void) | null = null;
 
   async load(): Promise<void> {
     if (this.module) return;
@@ -98,6 +100,9 @@ export class WasmEngine implements Engine {
       previewValue: () => {},
       playPreviewNote: (ch: number, row: number, lengthTicks: number) => {
         this.onPlayPreviewNote?.(ch, row, lengthTicks);
+      },
+      soundParam: (ch: number, param: number, value: number) => {
+        this.onSoundParam?.(ch, param, value);
       },
     };
 
@@ -314,5 +319,12 @@ export class WasmEngine implements Engine {
 
   clearPattern(): void {
     this.ex.engine_clear_pattern_export();
+  }
+
+  // ============ Sound Mode ============
+
+  /** Re-emit all patch params via onSoundParam (e.g. when the synth loads). */
+  syncSoundParams(): void {
+    this.ex.engine_sync_sound_params();
   }
 }

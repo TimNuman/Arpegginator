@@ -48,6 +48,19 @@ export class TeensyEngine implements Engine {
     this.wasm.onNoteOff = null;
   }
 
+  // Sound params come from the mirror wasm engine — the browser synth mirrors
+  // the patch state edited on the hardware
+  get onSoundParam() {
+    return this.wasm.onSoundParam;
+  }
+  set onSoundParam(cb: ((channel: number, param: number, value: number) => void) | null) {
+    this.wasm.onSoundParam = cb;
+  }
+
+  syncSoundParams(): void {
+    this.wasm.syncSoundParams();
+  }
+
   private _onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null =
     null;
 

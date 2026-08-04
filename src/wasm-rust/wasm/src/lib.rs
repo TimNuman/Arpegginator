@@ -9,6 +9,7 @@ use arp3_engine::engine_core;
 use arp3_engine::engine_edit;
 use arp3_engine::engine_ui;
 use arp3_engine::engine_input;
+use arp3_engine::engine_sound;
 use arp3_engine::engine_strip;
 use arp3_engine::oled_screen;
 use arp3_engine::oled_gfx;
@@ -60,6 +61,15 @@ pub extern "C" fn engine_scrub_to_tick(target_tick: i32) {
 #[no_mangle]
 pub extern "C" fn engine_scrub_end() {
     engine_core::engine_core_scrub_end(state());
+}
+
+// ============ Sound Mode ============
+
+/// Re-emit every sound param via js_sound_param. Host calls this once the
+/// synth (AudioWorklet) is ready so it starts from the engine's patch state.
+#[no_mangle]
+pub extern "C" fn engine_sync_sound_params() {
+    engine_sound::engine_sync_sound_params(state_ref());
 }
 
 // ============ Touchstrip ============

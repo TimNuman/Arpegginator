@@ -8,7 +8,8 @@
 //
 // Message protocol (kept as flat arrays — cheap to clone on the audio
 // thread): [0, channel, note, velocity] noteOn, [1, channel, note] noteOff,
-// [2] allNotesOff.
+// [2] allNotesOff, [3, channel, param, value] setParam (Sound mode edits,
+// param ids from arp3_synth::patch).
 
 export class RustSynth {
   private node: AudioWorkletNode | null = null;
@@ -74,5 +75,9 @@ export class RustSynth {
 
   allNotesOff(): void {
     this.node?.port.postMessage([2]);
+  }
+
+  setParam(channel: number, param: number, value: number): void {
+    this.node?.port.postMessage([3, channel, param, value]);
   }
 }

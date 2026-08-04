@@ -30,6 +30,7 @@ class RustSynthProcessor extends AudioWorkletProcessor {
       if (type === 0) this.exports.synth_note_on(a, b, c);
       else if (type === 1) this.exports.synth_note_off(a, b);
       else if (type === 2) this.exports.synth_all_notes_off();
+      else if (type === 3) this.exports.synth_set_param(a, b, c);
     };
   }
 

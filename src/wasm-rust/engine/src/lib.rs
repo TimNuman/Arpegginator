@@ -18,6 +18,7 @@ pub mod oled_display;
 pub mod oled_screen;
 pub mod engine_strip;
 pub mod engine_drums;
+pub mod engine_sound;
 
 #[cfg(test)]
 mod test_core;
@@ -27,3 +28,5 @@ mod test_critical;
 mod test_edit;
 #[cfg(test)]
 mod test_rendered;
+#[cfg(test)]
+mod test_sound;

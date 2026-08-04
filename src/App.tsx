@@ -331,13 +331,24 @@ function App() {
           handlePlayNote(midiNote, channel, lengthTicks > 0 ? lengthTicks : undefined);
         }
       };
+      // Sound mode: patch edits stream to the Rust synth; when the synth
+      // (re)loads it pulls the engine's full patch state
+      engine.onSoundParam = (channel: number, param: number, value: number) => {
+        synth.setSoundParam(channel, param, value);
+      };
+      synth.onRustSynthReady = () => engine.syncSoundParams();
+      if (synth.isRustSynthReady()) {
+        engine.syncSoundParams();
+      }
     }
     return () => {
       if (engine) {
         engine.onNoteOn = null;
         engine.onNoteOff = null;
         engine.onPlayPreviewNote = null;
+        engine.onSoundParam = null;
       }
+      synth.onRustSynthReady = null;
     };
   }, [handleNoteOn, handleNoteOff, handlePlayNote, wasmEngine]);
 

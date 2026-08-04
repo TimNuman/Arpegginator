@@ -229,6 +229,7 @@ pub enum UiMode {
     Channel = 1,
     Loop = 2,
     Modify = 3,
+    Sound = 4,
 }
 
 impl UiMode {
@@ -238,6 +239,7 @@ impl UiMode {
             1 => Self::Channel,
             2 => Self::Loop,
             3 => Self::Modify,
+            4 => Self::Sound,
             _ => Self::Pattern,
         }
     }
@@ -566,6 +568,10 @@ pub struct EngineState {
 
     pub ui_mode: u8,
     pub modify_sub_mode: u8,
+    // Sound mode (synth patch editing)
+    pub sound_page: u8,
+    pub sound_focus: [u8; crate::engine_sound::NUM_SOUND_PAGES],
+    pub sound_patches: [arp3_synth::patch::Patch; NUM_CHANNELS],
     pub current_channel: u8,
     pub zoom: i32,
     pub selected_event_idx: i16,
@@ -668,6 +674,8 @@ impl EngineState {
             0x3399FF, // Cyan
             0x9966FF, // Purple
         ];
+
+        self.sound_patches = [arp3_synth::patch::DEFAULTS; NUM_CHANNELS];
 
         self.rng_state = 12345;
         self.zoom = 120;

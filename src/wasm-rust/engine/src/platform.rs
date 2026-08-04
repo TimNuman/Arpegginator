@@ -23,6 +23,7 @@ mod wasm {
         fn js_clear_queued_pattern(ch: i32);
         fn js_preview_value(sm: i32, ch: i32, ev_idx: i32, tick: i32, val: i32);
         fn js_play_preview_note(ch: i32, row: i32, length_ticks: i32);
+        fn js_sound_param(ch: i32, param: i32, value: i32);
     }
 
     pub fn platform_note_on(channel: u8, midi_note: u8, velocity: u8) {
@@ -60,6 +61,10 @@ mod wasm {
     pub fn platform_play_preview_note(channel: u8, row: i16, length_ticks: i32) {
         unsafe { js_play_preview_note(channel as i32, row as i32, length_ticks); }
     }
+
+    pub fn platform_sound_param(channel: u8, param: u8, value: i16) {
+        unsafe { js_sound_param(channel as i32, param as i32, value as i32); }
+    }
 }
 
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -88,6 +93,8 @@ pub mod arm_platform {
         pub const KIND_NOTE_ON: u8 = 0;
         pub const KIND_NOTE_OFF: u8 = 1;
         pub const KIND_PREVIEW: u8 = 2;
+        /// Sound param change: `note` = param id, `length_ticks` = value.
+        pub const KIND_SOUND_PARAM: u8 = 3;
 
         const fn zero() -> Self {
             MidiEvent { kind: 0, channel: 0, note: 0, velocity: 0, length_ticks: 0 }
@@ -154,6 +161,13 @@ mod arm {
             kind: MidiEvent::KIND_PREVIEW, channel, note: row, velocity: 100, length_ticks,
         });
     }
+
+    pub fn platform_sound_param(channel: u8, param: u8, value: i16) {
+        enqueue_midi(MidiEvent {
+            kind: MidiEvent::KIND_SOUND_PARAM, channel, note: param as i16, velocity: 0,
+            length_ticks: value as i32,
+        });
+    }
 }
 
 #[cfg(all(target_arch = "arm", not(test)))]
@@ -181,6 +195,8 @@ mod noop {
     ) {}
 
     pub fn platform_play_preview_note(_channel: u8, _row: i16, _length_ticks: i32) {}
+
+    pub fn platform_sound_param(_channel: u8, _param: u8, _value: i16) {}
 }
 
 #[cfg(any(test, not(any(target_arch = "wasm32", target_arch = "arm"))))]
