@@ -131,6 +131,68 @@ pub fn sync_patches(state: &arp3_engine::engine_core::EngineState) {
     }
 }
 
+// ============ USB audio tap (audio ISR → main loop → iso endpoint) ============
+
+/// Mono sample ring feeding the USB audio capture stream. The SAI ISR is the
+/// producer (same samples it sends to MQS); the main loop packetizes into the
+/// isochronous endpoint. ~23ms capacity; while the host isn't streaming the
+/// ring simply sits full and new samples are dropped.
+const USB_RING_SIZE: usize = 1024;
+
+static USB_RING: Global<[i16; USB_RING_SIZE]> = Global::new([0; USB_RING_SIZE]);
+static USB_WRITE: AtomicUsize = AtomicUsize::new(0);
+static USB_READ: AtomicUsize = AtomicUsize::new(0);
+
+/// ISR side: drop-new when full.
+fn usb_push(sample: i16) {
+    let w = USB_WRITE.load(Ordering::Relaxed);
+    let next = (w + 1) % USB_RING_SIZE;
+    if next != USB_READ.load(Ordering::Acquire) {
+        USB_RING.get_mut()[w] = sample;
+        USB_WRITE.store(next, Ordering::Release);
+    }
+}
+
+fn usb_available() -> usize {
+    (USB_WRITE.load(Ordering::Acquire) + USB_RING_SIZE - USB_READ.load(Ordering::Relaxed))
+        % USB_RING_SIZE
+}
+
+/// Fill one isochronous packet with pending samples as 16-bit stereo LE
+/// frames (mono duplicated). Returns bytes written; 0 when nothing pending.
+///
+/// The variable frame count (up to 45) is what carries our PLL4-derived
+/// 44.1kHz to the host — an asynchronous capture source in UAC1 terms. If
+/// more than ~10ms is queued (typically right after the host starts
+/// streaming into a full ring), old samples are dropped down to ~3ms so
+/// monitoring latency stays low.
+pub fn fill_usb_packet(buf: &mut [u8; crate::usb_midi::AUDIO_PACKET_BYTES]) -> usize {
+    let mut avail = usb_available();
+    if avail > 441 {
+        let drop = avail - 132;
+        USB_READ.store(
+            (USB_READ.load(Ordering::Relaxed) + drop) % USB_RING_SIZE,
+            Ordering::Release,
+        );
+        avail -= drop;
+    }
+    let frames = avail.min(crate::usb_midi::AUDIO_MAX_FRAMES);
+    let ring = USB_RING.get();
+    let mut r = USB_READ.load(Ordering::Relaxed);
+    for f in 0..frames {
+        let s = ring[r];
+        r = (r + 1) % USB_RING_SIZE;
+        let [lo, hi] = s.to_le_bytes();
+        let o = f * 4;
+        buf[o] = lo;
+        buf[o + 1] = hi;
+        buf[o + 2] = lo;
+        buf[o + 3] = hi;
+    }
+    USB_READ.store(r, Ordering::Release);
+    frames * 4
+}
+
 // ============ ISR-owned state ============
 
 // SAFETY (for all three Globals): written once in `init()` before SAI3_TX is
@@ -254,7 +316,9 @@ fn SAI3_TX() {
         }
         let s = (render.samples[render.pos] * I16_SCALE) as i32;
         render.pos += 1;
-        let s = s.clamp(i16::MIN as i32, i16::MAX as i32) as u16;
+        let s = s.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        usb_push(s); // tap the same stream for USB audio capture
+        let s = s as u16;
         tx.write_frame_u16(chan, &[s, s]);
     }
 }

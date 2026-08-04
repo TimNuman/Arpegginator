@@ -1,13 +1,34 @@
-// usb_midi.rs — USB MIDI 1.0 class for usb-device 0.2
+// usb_midi.rs — USB MIDI 1.0 + USB Audio 1.0 capture class
 //
-// Single-port USB MIDI device with:
-//   - Bulk IN endpoint (device → host): note events + SysEx responses
-//   - Bulk OUT endpoint (host → device): SysEx control commands
+// A single USB audio function containing:
+//   - MIDI streaming: bulk IN (note events + SysEx responses) and bulk OUT
+//     (SysEx control commands)
+//   - Audio streaming: isochronous IN carrying the internal synth's output
+//     as 16-bit 44.1kHz stereo, so the device shows up as a sound input on
+//     the host — no analog wiring needed to hear it
+//
+// Both streaming interfaces hang off the one AudioControl interface
+// (bInCollection = 2), which is how the spec models a sound card with MIDI.
 //
 // USB MIDI spec: https://www.usb.org/sites/default/files/midi10.pdf
+// USB Audio 1.0 spec: https://www.usb.org/sites/default/files/audio10.pdf
 
 use usb_device::class_prelude::*;
+use usb_device::endpoint::{IsochronousSynchronizationType, IsochronousUsageType};
 use usb_device::Result;
+
+use teensy4_bsp::ral;
+
+/// Max stereo frames per isochronous packet. 44.1kHz needs 44 or 45 frames
+/// per 1ms USB frame; the variable packet length is what carries our PLL4
+/// clock rate to the host (asynchronous capture source).
+pub const AUDIO_MAX_FRAMES: usize = 45;
+/// Iso packet capacity in bytes (16-bit stereo = 4 bytes per frame).
+pub const AUDIO_PACKET_BYTES: usize = AUDIO_MAX_FRAMES * 4;
+
+// UAC1 terminal IDs inside the AudioControl interface
+const TERMINAL_LINE_IN: u8 = 5; // synth output, presented as a line connector
+const TERMINAL_USB_STREAM: u8 = 6; // USB streaming output terminal
 
 // USB MIDI event packet Code Index Numbers (high nibble of byte 0)
 const CIN_NOTE_OFF: u8 = 0x08;
@@ -20,8 +41,12 @@ const CIN_SYSEX_END_3: u8 = 0x07;       // SysEx end with 3 bytes
 pub struct MidiClass<'a, B: UsbBus> {
     interface_ac: InterfaceNumber,
     interface_ms: InterfaceNumber,
+    interface_as: InterfaceNumber,
     ep_in: EndpointIn<'a, B>,
     ep_out: EndpointOut<'a, B>,
+    ep_audio_in: EndpointIn<'a, B>,
+    /// AudioStreaming alt setting: 0 = idle, 1 = host is pulling audio
+    audio_alt: u8,
 }
 
 impl<'a, B: UsbBus> MidiClass<'a, B> {
@@ -29,9 +54,32 @@ impl<'a, B: UsbBus> MidiClass<'a, B> {
         Self {
             interface_ac: alloc.interface(),
             interface_ms: alloc.interface(),
+            interface_as: alloc.interface(),
             ep_in: alloc.bulk(64),
             ep_out: alloc.bulk(64),
+            ep_audio_in: alloc.isochronous(
+                IsochronousSynchronizationType::Asynchronous,
+                IsochronousUsageType::Data,
+                AUDIO_PACKET_BYTES as u16,
+                1, // every frame
+            ),
+            audio_alt: 0,
         }
+    }
+
+    /// True while the host has selected the streaming alt setting.
+    pub fn audio_streaming(&self) -> bool {
+        self.audio_alt == 1
+    }
+
+    /// Write one isochronous audio packet (16-bit stereo LE frames).
+    pub fn write_audio(&self, data: &[u8]) -> Result<usize> {
+        self.ep_audio_in.write(data)
+    }
+
+    /// Hardware endpoint index of the audio IN endpoint (for the QH fix).
+    pub fn audio_ep_index(&self) -> usize {
+        self.ep_audio_in.address().index()
     }
 
     /// Send a Note On event to the USB host
@@ -144,14 +192,44 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
         )?;
 
         // AC Interface Header (CS_INTERFACE, HEADER)
+        // wTotalLength = header(10) + input terminal(12) + output terminal(9)
         writer.write(
             0x24, // CS_INTERFACE
             &[
                 0x01,                            // HEADER
                 0x00, 0x01,                      // bcdADC = 1.0
-                0x09, 0x00,                      // wTotalLength = 9
-                0x01,                            // bInCollection = 1
-                self.interface_ms.into(),         // baInterfaceNr
+                0x1F, 0x00,                      // wTotalLength = 31
+                0x02,                            // bInCollection = 2
+                self.interface_ms.into(),         // baInterfaceNr[0]: MIDI
+                self.interface_as.into(),         // baInterfaceNr[1]: audio
+            ],
+        )?;
+
+        // Input Terminal: the synth, presented as a stereo line connector
+        writer.write(
+            0x24,
+            &[
+                0x02,             // INPUT_TERMINAL
+                TERMINAL_LINE_IN, // bTerminalID
+                0x03, 0x06,       // wTerminalType = 0x0603 Line connector
+                0x00,             // bAssocTerminal
+                0x02,             // bNrChannels = 2
+                0x03, 0x00,       // wChannelConfig = left front | right front
+                0x00,             // iChannelNames
+                0x00,             // iTerminal
+            ],
+        )?;
+
+        // Output Terminal: USB streaming toward the host
+        writer.write(
+            0x24,
+            &[
+                0x03,                // OUTPUT_TERMINAL
+                TERMINAL_USB_STREAM, // bTerminalID
+                0x01, 0x01,          // wTerminalType = 0x0101 USB streaming
+                0x00,                // bAssocTerminal
+                TERMINAL_LINE_IN,    // bSourceID
+                0x00,                // iTerminal
             ],
         )?;
 
@@ -198,12 +276,87 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
         // CS_ENDPOINT for Bulk IN — associated with Embedded OUT Jack 3
         writer.write(0x25, &[0x01, 0x01, 0x03])?;
 
+        // ---- Audio Streaming Interface ----
+        // Alt 0: zero-bandwidth (idle); hosts select it when not recording
+        writer.interface_alt(self.interface_as, 0, 0x01, 0x02, 0x00, None)?;
+        // Alt 1: streaming
+        writer.interface_alt(self.interface_as, 1, 0x01, 0x02, 0x00, None)?;
+
+        // AS General (CS_INTERFACE): linked to the USB streaming terminal, PCM
+        writer.write(0x24, &[0x01, TERMINAL_USB_STREAM, 0x01, 0x01, 0x00])?;
+
+        // Format Type I: stereo, 2-byte subframes, 16 bits, one rate: 44100
+        writer.write(
+            0x24,
+            &[0x02, 0x01, 0x02, 0x02, 0x10, 0x01, 0x44, 0xAC, 0x00],
+        )?;
+
+        // Standard iso endpoint descriptor in its 9-byte audio-class form:
+        // endpoint_ex appends bRefresh and bSynchAddress (both 0) after the
+        // usual 7 bytes and keeps bNumEndpoints bookkeeping correct
+        writer.endpoint_ex(&self.ep_audio_in, |extra| {
+            if extra.len() < 2 {
+                return Err(UsbError::BufferOverflow);
+            }
+            extra[0] = 0x00; // bRefresh
+            extra[1] = 0x00; // bSynchAddress
+            Ok(2)
+        })?;
+
+        // CS_ENDPOINT General: no controls, no lock delay
+        writer.write(0x25, &[0x01, 0x00, 0x00, 0x00, 0x00])?;
+
         Ok(())
     }
 
-    fn reset(&mut self) {}
+    fn get_alt_setting(&mut self, interface: InterfaceNumber) -> Option<u8> {
+        if u8::from(interface) == u8::from(self.interface_as) {
+            Some(self.audio_alt)
+        } else {
+            None
+        }
+    }
+
+    fn set_alt_setting(&mut self, interface: InterfaceNumber, alternative: u8) -> bool {
+        if u8::from(interface) == u8::from(self.interface_as) && alternative <= 1 {
+            self.audio_alt = alternative;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn reset(&mut self) {
+        self.audio_alt = 0;
+    }
 
     fn poll(&mut self) {}
+}
+
+// ============ Isochronous queue head fix ============
+
+/// imxrt-usbd never programs the dQH MULT field, but this controller requires
+/// MULT >= 1 on isochronous TX endpoints — with MULT = 0 the endpoint
+/// transmits nothing (RM "Device Data Structures", dQH capabilities). Poke
+/// MULT = 1 into the audio endpoint's queue head after each configuration.
+///
+/// The QH array base is ENDPTLISTADDR (the RAL names the shared register
+/// ASYNCLISTADDR); QHs are 64 bytes each, ordered EP0 OUT, EP0 IN, EP1 OUT,
+/// EP1 IN, … The QH memory is the `EndpointState` static in DTCM (uncached),
+/// so a volatile read-modify-write is sufficient.
+pub fn fix_audio_qh_mult(ep_index: usize) {
+    const QH_SIZE: usize = 64;
+    const MULT_SHIFT: u32 = 30;
+    let usb1 = unsafe { ral::usb::USB1::instance() };
+    let base = ral::read_reg!(ral::usb, usb1, ASYNCLISTADDR) as usize;
+    if base == 0 {
+        return;
+    }
+    let qh_capabilities = (base + (2 * ep_index + 1) * QH_SIZE) as *mut u32;
+    unsafe {
+        let v = qh_capabilities.read_volatile();
+        qh_capabilities.write_volatile((v & !(0b11 << MULT_SHIFT)) | (0b01 << MULT_SHIFT));
+    }
 }
 
 // ============ SysEx Parsing Helper ============
