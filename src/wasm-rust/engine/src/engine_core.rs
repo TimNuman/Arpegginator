@@ -584,7 +584,7 @@ pub struct EngineState {
     /// Host-pushed 16-bucket waveform previews per slot (0..255 amplitude)
     pub sampler_previews: [[[u8; 16]; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
     pub sampler_loaded: [[u8; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
-    /// Detected key per slot (MIDI note, -1 = unpitched/unknown)
+    /// Detected key per slot (pitch class 0-11, C = 0; -1 = unpitched/unknown)
     pub sampler_keys: [[i16; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS],
     /// Recorder state pushed by the host: 0 idle, 1 armed, 2 recording
     pub rec_state: u8,

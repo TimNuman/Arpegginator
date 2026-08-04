@@ -44,7 +44,15 @@ pub fn engine_set_sampler_param(
     if ch >= NUM_CHANNELS || slot >= NUM_SLOTS || param >= NUM_SLOT_PARAMS {
         return;
     }
-    let clamped = clamp_slot_param(param, value);
+    let mut clamped = clamp_slot_param(param, value);
+    // Trim handles must not cross — keep at least a 1% window so the cut
+    // never inverts (render and DSP both assume start < end)
+    const TRIM_GAP: i16 = 10;
+    if param == SP_TRIM_START {
+        clamped = clamped.min(s.sampler_params[ch][slot][SP_TRIM_END] - TRIM_GAP).max(0);
+    } else if param == SP_TRIM_END {
+        clamped = clamped.max(s.sampler_params[ch][slot][SP_TRIM_START] + TRIM_GAP).min(1000);
+    }
     s.sampler_params[ch][slot][param] = clamped;
     platform_sample_param(ch as u8, slot as u8, param as u8, clamped);
 }

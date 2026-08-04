@@ -502,6 +502,28 @@ mod sampler {
     }
 
     #[test]
+    fn trim_handles_cannot_cross() {
+        let mut s = drum_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_STRIM;
+        // Walk END far left, then START far right: they pin to a 1% window
+        for _ in 0..250 {
+            engine_arrow_press(&mut s, DIR_LEFT, MOD_SHIFT); // END -5‰
+        }
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_END], 10, "END stops at START + gap");
+        for _ in 0..10 {
+            engine_arrow_press(&mut s, DIR_RIGHT, 0); // START +5‰
+        }
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_START], 0, "START can't pass END - gap");
+        assert!(
+            s.sampler_params[ch][0][SP_TRIM_START] < s.sampler_params[ch][0][SP_TRIM_END]
+        );
+        // A press-to-jump on the far right moves END, then START stays below it
+        engine_button_press(&mut s, 7, 15, 0);
+        assert_eq!(s.sampler_params[ch][0][SP_TRIM_END], 1000);
+    }
+
+    #[test]
     fn trim_arrows_nudge_start_bare_end_shifted() {
         let mut s = drum_state();
         let ch = s.current_channel as usize;
