@@ -996,7 +996,23 @@ fn render_sound(s: &EngineState, mods: u8) {
     };
 
     match page {
-        PAGE_TYPE => draw_param(0, arp3_synth::patch::P_ENGINE),
+        PAGE_PRESET => {
+            // Preset name, amber when the patch has local edits
+            let preset_idx = (s.sound_presets[ch] as usize).min(arp3_synth::patch::NUM_PRESETS - 1);
+            let edited = s.sound_edited[ch] != 0;
+            let name_color = if edited { GFX_YELLOW } else { GFX_VALUE };
+            gfx_aa_text(PAD_X, ROW_Y5[2], "PATCH", GFX_LABEL, &FONT_AA_SMALL);
+            gfx_aa_text_right(
+                CONTENT_RIGHT,
+                ROW_Y5[2],
+                arp3_synth::patch::PRESETS[preset_idx].name,
+                name_color,
+                &FONT_AA_SMALL_BOLD,
+            );
+            if edited {
+                draw_row(ROW_Y5[3], "STATE", "EDITED", GFX_RED);
+            }
+        }
         PAGE_OSC1 => draw_param(0, arp3_synth::patch::P_WAVE1),
         PAGE_OSC2 => {
             draw_param(0, arp3_synth::patch::P_WAVE2);

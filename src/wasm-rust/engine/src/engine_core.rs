@@ -572,6 +572,10 @@ pub struct EngineState {
     pub sound_page: u8,
     pub sound_focus: [u8; crate::engine_sound::NUM_SOUND_PAGES],
     pub sound_patches: [arp3_synth::patch::Patch; NUM_CHANNELS],
+    /// Selected factory preset per channel (index into patch::PRESETS)
+    pub sound_presets: [u8; NUM_CHANNELS],
+    /// Nonzero once the channel's patch deviates from its preset
+    pub sound_edited: [u8; NUM_CHANNELS],
     pub current_channel: u8,
     pub zoom: i32,
     pub selected_event_idx: i16,

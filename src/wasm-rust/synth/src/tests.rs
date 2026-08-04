@@ -212,6 +212,32 @@ fn channels_have_independent_patches() {
 }
 
 #[test]
+fn presets_are_valid_and_audible() {
+    assert_eq!(patch::PRESETS[0].values, patch::DEFAULTS, "slot 0 is the boot patch");
+    for (i, preset) in patch::PRESETS.iter().enumerate() {
+        assert!(preset.name.len() <= 13, "preset {i} name too long for OLED: {}", preset.name);
+        for (param, &value) in preset.values.iter().enumerate() {
+            assert!(
+                (0..=patch::PARAM_MAX[param]).contains(&value),
+                "preset {} param {param} value {value} out of range",
+                preset.name
+            );
+        }
+        // Every preset must actually make sound
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        for (param, &value) in preset.values.iter().enumerate() {
+            synth.set_param(0, param as u8, value);
+        }
+        synth.note_on(0, 60, 100);
+        let stats = render_blocks(&mut synth, 40);
+        assert!(stats.mean_abs() > 0.001, "preset {} is silent", preset.name);
+        assert!(stats.peak <= 1.0, "preset {} clips, peak {}", preset.name, stats.peak);
+        assert_eq!(stats.non_finite, 0, "preset {} produced NaN/inf", preset.name);
+    }
+}
+
+#[test]
 fn deterministic_output() {
     let run = || {
         let mut synth = Synth::new();
