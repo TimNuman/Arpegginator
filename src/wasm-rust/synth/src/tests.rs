@@ -247,6 +247,36 @@ fn fm_engine_switch_mid_note_is_safe() {
 }
 
 #[test]
+fn wavetable_engine_morph_warp_crush_bounded() {
+    for (pos, warp, crush) in [(0, 0, 0), (50, 50, 50), (100, 100, 100), (33, 90, 80)] {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_WAVETABLE);
+        synth.set_param(0, patch::P_WT_POS as u8, pos);
+        synth.set_param(0, patch::P_WT_WARP as u8, warp);
+        synth.set_param(0, patch::P_CRUSH as u8, crush);
+        synth.note_on(0, 60, 100);
+        let stats = render_blocks(&mut synth, 30);
+        assert!(stats.mean_abs() > 0.003, "wt {pos}/{warp}/{crush} silent");
+        assert!(stats.peak <= 1.0, "wt {pos}/{warp}/{crush} clips, peak {}", stats.peak);
+        assert_eq!(stats.non_finite, 0, "wt {pos}/{warp}/{crush} NaN/inf");
+    }
+}
+
+#[test]
+fn wavetable_preview_matches_range() {
+    // The UI preview must stay in [-1,1] across the whole morph/warp space
+    for pos in (0..=100).step_by(10) {
+        for warp in (0..=100).step_by(25) {
+            for i in 0..64 {
+                let v = patch::wt_preview(pos as i16, warp as i16, i as f32 / 64.0);
+                assert!(v.is_finite() && (-1.01..=1.01).contains(&v));
+            }
+        }
+    }
+}
+
+#[test]
 fn presets_are_valid_and_audible() {
     assert_eq!(patch::PRESETS[0].values, patch::DEFAULTS, "slot 0 is the boot patch");
     for (i, preset) in patch::PRESETS.iter().enumerate() {

@@ -15,8 +15,8 @@ use crate::engine_core::*;
 use crate::engine_input::{DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, MOD_SHIFT};
 use crate::platform::platform_sound_param;
 use arp3_synth::patch::{
-    self, clamp_param, ALGO_CARRIERS, ALGO_ROUTES, ENGINE_FM, NUM_ENGINE_TYPES, NUM_PARAMS,
-    NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
+    self, clamp_param, ALGO_CARRIERS, ALGO_ROUTES, ENGINE_FM, ENGINE_WAVETABLE, NUM_ENGINE_TYPES,
+    NUM_PARAMS, NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
 };
 
 // ============ Pages ============
@@ -32,10 +32,14 @@ pub const PAGE_FX: u8 = 6;
 pub const PAGE_ALGO: u8 = 7;
 pub const PAGE_OP: u8 = 8;
 pub const PAGE_FM: u8 = 9;
-pub const NUM_SOUND_PAGES: usize = 10;
+// Wavetable-engine pages
+pub const PAGE_WT: u8 = 10;
+pub const PAGE_DIGI: u8 = 11;
+pub const NUM_SOUND_PAGES: usize = 12;
 
-pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] =
-    ["PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM"];
+pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
+    "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
+];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
 /// pages differ; preset/amp/env/filter/fx are shared.
@@ -43,23 +47,30 @@ static SUBTR_PAGES: [u8; 7] =
     [PAGE_PRESET, PAGE_OSC1, PAGE_OSC2, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
 static FM_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_ALGO, PAGE_OP, PAGE_FM, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
+static WT_PAGES: [u8; 7] =
+    [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
 
 pub fn engine_pages(engine: i16) -> &'static [u8] {
-    if engine == ENGINE_FM { &FM_PAGES } else { &SUBTR_PAGES }
+    match engine {
+        ENGINE_FM => &FM_PAGES,
+        ENGINE_WAVETABLE => &WT_PAGES,
+        _ => &SUBTR_PAGES,
+    }
 }
 
 fn current_engine(s: &EngineState) -> i16 {
     s.sound_patches[s.current_channel as usize][patch::P_ENGINE]
 }
 
-pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "FM", "ADD", "WAVE"];
+pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "FM", "WAVE", "ADD"];
 pub static WAVE_LABELS: [&str; NUM_WAVES] = ["SAW", "SQR", "TRI", "SIN", "PLS", "NSE"];
 
 /// Fader-bank pages: the params behind each fader, left to right. AMP swaps
 /// the (subtractive-only) osc mix out when the engine is FM.
 pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
     match page {
-        PAGE_AMP if engine == ENGINE_FM => {
+        PAGE_AMP if engine != patch::ENGINE_SUBTRACTIVE => {
+            // Osc mix is subtractive-only
             &[patch::P_VOLUME, patch::P_SUB_LEVEL, patch::P_GLIDE]
         }
         PAGE_AMP => &[patch::P_VOLUME, patch::P_OSC_MIX, patch::P_SUB_LEVEL, patch::P_GLIDE],
@@ -68,6 +79,7 @@ pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
         PAGE_FX => &[patch::P_DRIVE],
         PAGE_OP => &[patch::P_RATIO1, patch::P_RATIO2, patch::P_RATIO3, patch::P_RATIO4],
         PAGE_FM => &[patch::P_FM_AMT, patch::P_FB, patch::P_MENV, patch::P_DETUNE],
+        PAGE_DIGI => &[patch::P_WT_POS, patch::P_WT_WARP, patch::P_CRUSH, patch::P_DETUNE],
         _ => &[],
     }
 }
@@ -99,6 +111,9 @@ pub fn param_label(param: usize) -> &'static str {
         patch::P_FM_AMT => "FM",
         patch::P_FB => "FB",
         patch::P_MENV => "MENV",
+        patch::P_WT_POS => "POS",
+        patch::P_WT_WARP => "WARP",
+        patch::P_CRUSH => "CRUSH",
         _ => "?",
     }
 }
@@ -199,6 +214,7 @@ fn chooser_param(page: u8) -> Option<usize> {
         PAGE_OSC1 => Some(patch::P_WAVE1),
         PAGE_OSC2 => Some(patch::P_WAVE2),
         PAGE_ALGO => Some(patch::P_ALGO),
+        PAGE_WT => Some(patch::P_WT_POS),
         _ => None,
     }
 }
@@ -292,6 +308,14 @@ pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
         let idx = row * VISIBLE_COLS + col;
         if idx < NUM_PRESETS {
             engine_load_sound_preset(s, ch, idx);
+        }
+        return;
+    }
+    // Wavetable page: the bottom row is a 16-step morph position track
+    if page == PAGE_WT {
+        if row == VISIBLE_ROWS - 1 {
+            let value = (col as i16 * 100) / (VISIBLE_COLS as i16 - 1);
+            engine_set_sound_param(s, ch, patch::P_WT_POS, value);
         }
         return;
     }
@@ -500,6 +524,41 @@ fn render_algo_page(s: &mut EngineState) {
     }
 }
 
+/// Wavetable page: draw one cycle of the current morphed + warped wave on
+/// rows 0-6 (same math the DSP runs — what you see is what you hear), with a
+/// morph position track on the bottom row.
+fn render_wt_page(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    let pos = s.sound_patches[ch][patch::P_WT_POS];
+    let warp = s.sound_patches[ch][patch::P_WT_WARP];
+
+    let mut rows = [0usize; VISIBLE_COLS];
+    for (c, r) in rows.iter_mut().enumerate() {
+        let v = patch::wt_preview(pos, warp, c as f32 / VISIBLE_COLS as f32);
+        // -1..1 → rows 6..0
+        *r = (3.0 - v.clamp(-1.0, 1.0) * 3.0 + 0.5) as usize;
+    }
+    for c in 0..VISIBLE_COLS {
+        s.button_values[rows[c].min(6)][c] = BTN_COLOR_100;
+        if c + 1 < VISIBLE_COLS {
+            let (lo, hi) = if rows[c] < rows[c + 1] { (rows[c], rows[c + 1]) } else { (rows[c + 1], rows[c]) };
+            for rr in (lo + 1)..hi {
+                if s.button_values[rr.min(6)][c + 1] == BTN_OFF {
+                    s.button_values[rr.min(6)][c + 1] = BTN_COLOR_25;
+                }
+            }
+        }
+    }
+
+    // Bottom row: morph position track (press to jump)
+    let pos_cell = (pos as usize * (VISIBLE_COLS - 1) + 50) / 100;
+    for c in 0..VISIBLE_COLS {
+        s.button_values[VISIBLE_ROWS - 1][c] =
+            if c == pos_cell { BTN_COLOR_100 } else { BTN_WHITE_25 };
+    }
+    s.color_overrides[VISIBLE_ROWS - 1][pos_cell] = SOUND_ACCENT;
+}
+
 /// Render the Sound-mode grid. Returns false when the current channel is a
 /// drum channel — the caller falls back to pattern mode (drum synthesis
 /// isn't a thing yet).
@@ -514,6 +573,7 @@ pub fn render_sound_mode(s: &mut EngineState) -> bool {
         PAGE_OSC1 => render_osc_page(s, patch::P_WAVE1),
         PAGE_OSC2 => render_osc_page(s, patch::P_WAVE2),
         PAGE_ALGO => render_algo_page(s),
+        PAGE_WT => render_wt_page(s),
         _ => render_fader_page(s),
     }
     true

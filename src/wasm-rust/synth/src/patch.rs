@@ -35,13 +35,18 @@ pub const P_RATIO4: usize = 21;
 pub const P_FM_AMT: usize = 22; // global modulation index
 pub const P_FB: usize = 23; // operator-1 self feedback
 pub const P_MENV: usize = 24; // how much the mod index follows the envelope
-pub const NUM_PARAMS: usize = 25;
+// Wavetable engine params (ignored by the other engines)
+pub const P_WT_POS: usize = 25; // morph position across the table bank
+pub const P_WT_WARP: usize = 26; // phase-distortion amount
+pub const P_CRUSH: usize = 27; // bit depth + sample-rate reduction
+pub const NUM_PARAMS: usize = 28;
 
 // Engine types. Subtractive and FM exist; the UI shows the others as
 // coming-later placeholders and PARAM_MAX blocks selecting them.
 pub const ENGINE_SUBTRACTIVE: i16 = 0;
 pub const ENGINE_FM: i16 = 1;
-pub const NUM_ENGINE_TYPES: usize = 4; // SUBTR, FM, ADD, WAVE (display)
+pub const ENGINE_WAVETABLE: i16 = 2;
+pub const NUM_ENGINE_TYPES: usize = 4; // SUBTR, FM, WAVE, ADD (display)
 
 pub const WAVE_SAW: i16 = 0;
 pub const WAVE_SQUARE: i16 = 1;
@@ -53,7 +58,7 @@ pub const NUM_WAVES: usize = 6;
 
 /// Inclusive maximum per param (minimum is always 0).
 pub const PARAM_MAX: [i16; NUM_PARAMS] = [
-    ENGINE_FM, // ENGINE — subtractive and FM selectable
+    ENGINE_WAVETABLE, // ENGINE — subtractive, FM and wavetable selectable
     5,   // WAVE1
     5,   // WAVE2
     100, // SUB_LEVEL
@@ -78,6 +83,9 @@ pub const PARAM_MAX: [i16; NUM_PARAMS] = [
     100, // FM_AMT
     100, // FB
     100, // MENV
+    100, // WT_POS
+    100, // WT_WARP
+    100, // CRUSH
 ];
 
 /// Defaults tuned to match the original hard-coded voice: detuned saws,
@@ -105,6 +113,9 @@ pub const DEFAULTS: [i16; NUM_PARAMS] = [
     50,       // fm amount
     0,        // feedback off
     50,       // mod env
+    0,        // wavetable position (sine)
+    0,        // warp off
+    0,        // crush off
 ];
 
 /// One channel's sound settings, in UI units.
@@ -130,7 +141,7 @@ const fn preset(
     Preset {
         name,
         values: [ENGINE_SUBTRACTIVE, w1, w2, sub, vol, mix, det, gld, a, d, s, r, cut, res, fenv, key, drv,
-                 0, 1, 1, 1, 1, 50, 0, 50],
+                 0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0],
     }
 }
 
@@ -147,7 +158,24 @@ const fn fm_preset(
     Preset {
         name,
         values: [ENGINE_FM, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
-                 algo, r1, r2, r3, r4, fm, fb, menv],
+                 algo, r1, r2, r3, r4, fm, fb, menv, 0, 0, 0],
+    }
+}
+
+/// Shorthand for wavetable presets (OP-1-style lo-fi digital engine).
+#[rustfmt::skip]
+#[allow(clippy::too_many_arguments)]
+const fn wt_preset(
+    name: &'static str,
+    sub: i16, vol: i16, det: i16, gld: i16,
+    a: i16, d: i16, s: i16, r: i16,
+    cut: i16, res: i16, fenv: i16, key: i16, drv: i16,
+    pos: i16, warp: i16, crush: i16,
+) -> Preset {
+    Preset {
+        name,
+        values: [ENGINE_WAVETABLE, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
+                 0, 1, 1, 1, 1, 50, 0, 50, pos, warp, crush],
     }
 }
 
@@ -156,7 +184,7 @@ const fn fm_preset(
 /// lean on the pulse/triangle/noise waves with the filter wide open, the SID
 /// ones on pulse + resonant filter + drive.
 #[rustfmt::skip]
-pub static PRESETS: [Preset; 25] = [
+pub static PRESETS: [Preset; 31] = [
     //                      w1          w2          sub  vol  mix  det gld   a   d    s   r   cut  res fenv key  drv
     preset("INIT SAW",      WAVE_SAW,   WAVE_SAW,     0,  85,  40,   7,  0, 14, 64,  55, 50,  48,  35,  75, 100,  0),
     preset("FAT STACK",     WAVE_SAW,   WAVE_SAW,    35,  80,  50,  20,  0, 10, 70,  70, 55,  62,  25,  55,  90, 15),
@@ -185,6 +213,14 @@ pub static PRESETS: [Preset; 25] = [
     fm_preset("AKEMIE HAZE",    0,  78, 10,  0, 65, 70,  90, 85,  55,  15,  15,  90,  0,  5,  1,  1,  2,  4,  25,  0, 20),
     fm_preset("RUST ORGAN",     0,  80,  5,  0,  5, 50, 100, 15,  70,   0,   0,  90, 20,  7,  1,  2,  4,  8,   0,  0,  0),
     fm_preset("CLAVINATOR",     0,  82,  0,  0,  0, 50,  20, 15,  65,  40,  60,  80, 15,  2,  3, 10,  1,  1,  50, 25, 90),
+    // ---- Wavetable (OP-1-style lo-fi digital) ----
+    //                        sub  vol det gld   a   d    s   r  cut  res fenv key drv  pos warp crush
+    wt_preset("OP WON",         0,  85,  5,  0,  5, 70,  30, 40,  70,  10,  40, 100,  0,  30,  15,  25),
+    wt_preset("GLITTERWAVE",    0,  78, 12,  0, 60, 70,  90, 80,  60,  15,  20,  90,  0,  55,  40,  10),
+    wt_preset("CRUSH VELVET",  20,  82,  4,  0, 30, 60,  80, 60,  45,  10,  15,  90,  0,  10,   0,  70),
+    wt_preset("PHASE DANCER",   0,  80,  3, 15,  0, 55,  60, 25,  75,  45,  60,  90, 15,  25,  85,   5),
+    wt_preset("TAPE GHOST",     0,  80,  8,  0, 40, 65,  70, 70,  40,   5,  10,  80,  0,   5,  10,  45),
+    wt_preset("ROBOT CHOIR",    0,  80,  6,  0, 35, 60,  95, 55,  65,  10,  15,  90,  0,  80,  20,  15),
 ];
 
 pub const NUM_PRESETS: usize = PRESETS.len();
@@ -255,3 +291,55 @@ pub static ALGO_ROUTES: [[u8; 4]; 8] = [
 /// Per-algorithm bitmask of which ops are carriers (bit i = op i+1).
 pub static ALGO_CARRIERS: [u8; 8] =
     [0b1000, 0b1000, 0b1000, 0b1000, 0b1010, 0b1110, 0b1110, 0b1111];
+
+// ============ Wavetable engine (OP-1-style lo-fi digital) ============
+
+/// Number of base tables the morph position scans across.
+pub const NUM_WT_TABLES: usize = 8;
+
+/// Base waveform `table` (0..7) evaluated analytically at phase `t` (0..1).
+/// The DSP caches these into lookup tables; the UI calls it directly to draw
+/// the wave on the grid — same math, so what you see is what you hear.
+/// Bank: sine, triangle, saw, square, 25% pulse, organ, formant, metal.
+pub fn wt_base(table: usize, t: f32) -> f32 {
+    use core::f32::consts::TAU;
+    match table {
+        0 => libm::sinf(TAU * t),
+        1 => {
+            if t < 0.5 { 4.0 * t - 1.0 } else { 3.0 - 4.0 * t }
+        }
+        2 => 2.0 * t - 1.0,
+        3 => if t < 0.5 { 1.0 } else { -1.0 },
+        4 => if t < 0.25 { 1.0 } else { -1.0 },
+        5 => {
+            // Organ: fundamental + octaves (divisor = measured peak)
+            (libm::sinf(TAU * t) + 0.5 * libm::sinf(2.0 * TAU * t) + 0.3 * libm::sinf(4.0 * TAU * t)) / 1.25
+        }
+        6 => {
+            // Formant-ish vowel cluster
+            (libm::sinf(TAU * t) + 0.6 * libm::sinf(3.0 * TAU * t) + 0.45 * libm::sinf(4.0 * TAU * t)) / 1.49
+        }
+        _ => {
+            // Metal: sparse high odd harmonics
+            (libm::sinf(TAU * t) + 0.6 * libm::sinf(7.0 * TAU * t) + 0.4 * libm::sinf(11.0 * TAU * t)) / 1.71
+        }
+    }
+}
+
+/// CZ-style phase distortion: bend the cycle's midpoint earlier as `warp`
+/// (0..1) rises, which sharpens the wave and sweeps its spectrum.
+pub fn wt_warp(t: f32, warp: f32) -> f32 {
+    let b = 0.5 - 0.45 * warp;
+    if t < b { t * (0.5 / b) } else { 0.5 + (t - b) * (0.5 / (1.0 - b)) }
+}
+
+/// Morphed + warped wave for UI preview (pos/warp in UI units).
+pub fn wt_preview(pos: i16, warp: i16, t: f32) -> f32 {
+    let tw = wt_warp(t, warp as f32 / 100.0);
+    let scan = pos as f32 / 100.0 * (NUM_WT_TABLES - 1) as f32;
+    let i = scan as usize;
+    let frac = scan - i as f32;
+    let a = wt_base(i, tw);
+    let b = wt_base((i + 1).min(NUM_WT_TABLES - 1), tw);
+    a + (b - a) * frac
+}
