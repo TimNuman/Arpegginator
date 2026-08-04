@@ -288,6 +288,32 @@ fn wavetable_preset_pages_and_position_track() {
 }
 
 #[test]
+fn preset_cells_are_colored_by_engine() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    engine_compute_grid(&mut s, 0.0);
+
+    let fm = first_fm_preset();
+    let wt = (0..patch::NUM_PRESETS)
+        .find(|&i| patch::PRESETS[i].values[patch::P_ENGINE] == patch::ENGINE_WAVETABLE)
+        .unwrap();
+    let cell = |idx: usize| (idx / VISIBLE_COLS, idx % VISIBLE_COLS);
+
+    // Unselected cells: dim, tinted by their engine
+    let (r, c) = cell(1); // FAT STACK (subtractive)
+    assert_eq!(s.button_values[r][c], BTN_COLOR_25);
+    assert_eq!(s.color_overrides[r][c], ENGINE_COLORS[0]);
+    let (r, c) = cell(fm);
+    assert_eq!(s.color_overrides[r][c], ENGINE_COLORS[1]);
+    let (r, c) = cell(wt);
+    assert_eq!(s.color_overrides[r][c], ENGINE_COLORS[2]);
+
+    // Selected clean cell: bright in its engine color (preset 0, subtractive)
+    assert_eq!(s.button_values[0][0], BTN_COLOR_100);
+    assert_eq!(s.color_overrides[0][0], ENGINE_COLORS[0]);
+}
+
+#[test]
 fn preset_page_selects_and_loads() {
     let mut s = init_state();
     s.ui_mode = UiMode::Sound as u8;
