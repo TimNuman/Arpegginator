@@ -1002,10 +1002,6 @@ fn render_sound(s: &EngineState, mods: u8) {
             draw_param(0, arp3_synth::patch::P_WAVE2);
             draw_param(1, arp3_synth::patch::P_DETUNE);
         }
-        PAGE_SUB => {
-            draw_param(0, arp3_synth::patch::P_SUB_LEVEL);
-            draw_param(1, arp3_synth::patch::P_SUB_ON);
-        }
         _ => {
             for (i, &param) in page_faders(page).iter().enumerate().take(4) {
                 draw_param(i, param);
