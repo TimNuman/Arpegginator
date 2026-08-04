@@ -9,7 +9,10 @@
 // Message protocol (kept as flat arrays — cheap to clone on the audio
 // thread): [0, channel, note, velocity] noteOn, [1, channel, note] noteOff,
 // [2] allNotesOff, [3, channel, param, value] setParam (Sound mode edits,
-// param ids from arp3_synth::patch).
+// param ids from arp3_synth::patch), [4, channel, slot, param, value]
+// setSlotParam (sampler, ids from arp3_synth::sampler), [5, channel, note,
+// velocity] drumTrigger, [6, channel, note] drumRelease, [7, channel, slot,
+// Int16Array] loadSample (buffer transferred; empty array clears the slot).
 
 export class RustSynth {
   private node: AudioWorkletNode | null = null;
@@ -79,5 +82,24 @@ export class RustSynth {
 
   setParam(channel: number, param: number, value: number): void {
     this.node?.port.postMessage([3, channel, param, value]);
+  }
+
+  // ---- Drum sampler ----
+
+  setSlotParam(channel: number, slot: number, param: number, value: number): void {
+    this.node?.port.postMessage([4, channel, slot, param, value]);
+  }
+
+  drumTrigger(channel: number, note: number, velocity: number): void {
+    this.node?.port.postMessage([5, channel, note, velocity]);
+  }
+
+  drumRelease(channel: number, note: number): void {
+    this.node?.port.postMessage([6, channel, note]);
+  }
+
+  /** Upload a recorded take into a sampler slot (empty array clears it). */
+  loadSample(channel: number, slot: number, samples: Int16Array): void {
+    this.node?.port.postMessage([7, channel, slot, samples], [samples.buffer]);
   }
 }

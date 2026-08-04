@@ -24,6 +24,7 @@
 #![no_std]
 
 pub mod patch;
+pub mod sampler;
 
 use patch::*;
 
@@ -469,7 +470,7 @@ impl Voice {
                     self.held
                 } else {
                     // Two detuned reads of the morphed, phase-warped table
-                    let mut read = |phase: f32| {
+                    let read = |phase: f32| {
                         let tw = wt_warp(phase, warp);
                         let x = tw * WT_LEN as f32;
                         let xi = (x as usize).min(WT_LEN - 1);
@@ -579,6 +580,8 @@ fn midi_to_freq(note: u8) -> f32 {
 const WT_LEN: usize = 256;
 
 pub struct Synth {
+    /// Drum sampler: slot banks + dedicated voices (drum channels)
+    pub sampler: sampler::Sampler,
     voices: [Voice; MAX_VOICES],
     patches: [Patch; NUM_SYNTH_CHANNELS],
     /// Last note-on frequency per channel — glide starting point.
@@ -593,6 +596,7 @@ pub struct Synth {
 impl Synth {
     pub const fn new() -> Self {
         Synth {
+            sampler: sampler::Sampler::new(),
             voices: [Voice::new(); MAX_VOICES],
             patches: [DEFAULTS; NUM_SYNTH_CHANNELS],
             last_freq: [0.0; NUM_SYNTH_CHANNELS],
@@ -686,6 +690,32 @@ impl Synth {
                 v.env.steal(self.sample_rate);
             }
         }
+        self.sampler.all_off();
+    }
+
+    // ============ Drum sampler API ============
+
+    /// Trigger a drum hit (GM note picks the slot). No-op on empty slots —
+    /// the host falls back to its synthesized kit for those.
+    pub fn drum_trigger(&mut self, channel: u8, note: u8, velocity: u8) {
+        self.sampler.trigger(channel, note, velocity);
+    }
+
+    pub fn drum_release(&mut self, channel: u8, note: u8) {
+        self.sampler.release(channel, note);
+    }
+
+    /// See [`sampler::Sampler::set_sample`] for the safety contract.
+    ///
+    /// # Safety
+    /// `ptr`/`len` must describe sample memory the caller keeps alive until
+    /// the next `set_sample` call for the same slot.
+    pub unsafe fn set_sample(&mut self, channel: u8, slot: u8, ptr: *const i16, len: u32) {
+        unsafe { self.sampler.set_sample(channel, slot, ptr, len) };
+    }
+
+    pub fn set_slot_param(&mut self, channel: u8, slot: u8, param: u8, value: i16) {
+        self.sampler.set_slot_param(channel, slot, param, value);
     }
 
     /// Render one mono block, overwriting `out` (at most MAX_BLOCK frames).
@@ -702,6 +732,8 @@ impl Synth {
                 v.render(out, &patch, wt_tables, *sample_rate);
             }
         }
+        self.sampler.render(out, self.sample_rate);
+
         // Headroom scale + cubic soft clip so stacked chords don't crack
         for sample in out.iter_mut() {
             let x = (*sample * 0.5).clamp(-1.5, 1.5);

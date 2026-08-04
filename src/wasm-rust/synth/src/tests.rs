@@ -320,6 +320,145 @@ fn presets_are_valid_and_audible() {
     }
 }
 
+// ============ Drum sampler ============
+
+mod sampler_tests {
+    use super::*;
+    use crate::sampler::*;
+
+    extern crate std;
+    use std::vec::Vec;
+
+    /// A 0.2s 220Hz sine take at SR, kept alive by the caller.
+    fn make_take() -> Vec<i16> {
+        let n = (SR * 0.2) as usize;
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / SR;
+                (libm::sinf(core::f32::consts::TAU * 220.0 * t) * 20000.0) as i16
+            })
+            .collect()
+    }
+
+    fn synth_with_sample(take: &[i16]) -> Synth {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        // Slot 0 = GM note 35
+        unsafe { synth.set_sample(4, 0, take.as_ptr(), take.len() as u32) };
+        synth
+    }
+
+    #[test]
+    fn trigger_plays_and_one_shot_ends() {
+        let take = make_take();
+        let mut synth = synth_with_sample(&take);
+        synth.drum_trigger(4, 35, 110);
+        let playing = render_blocks(&mut synth, 20);
+        assert!(playing.mean_abs() > 0.01, "sampled hit should be audible");
+        assert!(playing.peak <= 1.0);
+        assert_eq!(playing.non_finite, 0);
+        // One-shot: after the take's 0.2s it must be silent
+        render_blocks(&mut synth, (SR * 0.3 / MAX_BLOCK as f32) as usize);
+        let tail = render_blocks(&mut synth, 5);
+        assert_eq!(tail.peak, 0.0, "one-shot must end with the sample");
+    }
+
+    #[test]
+    fn empty_slot_is_silent() {
+        let take = make_take();
+        let mut synth = synth_with_sample(&take);
+        synth.drum_trigger(4, 36, 110); // slot 1: nothing loaded
+        let stats = render_blocks(&mut synth, 10);
+        assert_eq!(stats.peak, 0.0);
+    }
+
+    #[test]
+    fn trim_shortens_playback() {
+        let take = make_take();
+        let mut synth = synth_with_sample(&take);
+        // Cut to the first 10% -> 0.02s
+        synth.set_slot_param(4, 0, SP_TRIM_END as u8, 100);
+        synth.drum_trigger(4, 35, 110);
+        render_blocks(&mut synth, (SR * 0.05 / MAX_BLOCK as f32) as usize);
+        let tail = render_blocks(&mut synth, 5);
+        assert_eq!(tail.peak, 0.0, "trimmed hit should have ended");
+    }
+
+    #[test]
+    fn loop_mode_sustains_until_release() {
+        let take = make_take();
+        let mut synth = synth_with_sample(&take);
+        synth.set_slot_param(4, 0, SP_MODE as u8, MODE_LOOP);
+        synth.drum_trigger(4, 35, 110);
+        // Way past the take's length, still sounding
+        render_blocks(&mut synth, (SR * 0.5 / MAX_BLOCK as f32) as usize);
+        let looping = render_blocks(&mut synth, 10);
+        assert!(looping.mean_abs() > 0.01, "loop mode should sustain");
+        synth.drum_release(4, 35);
+        render_blocks(&mut synth, 20);
+        let tail = render_blocks(&mut synth, 5);
+        assert_eq!(tail.peak, 0.0, "loop should fade after release");
+    }
+
+    #[test]
+    fn gate_mode_stops_on_release() {
+        let take = make_take();
+        let mut synth = synth_with_sample(&take);
+        synth.set_slot_param(4, 0, SP_MODE as u8, MODE_GATE);
+        synth.drum_trigger(4, 35, 110);
+        render_blocks(&mut synth, 5);
+        synth.drum_release(4, 35);
+        render_blocks(&mut synth, 20);
+        let tail = render_blocks(&mut synth, 5);
+        assert_eq!(tail.peak, 0.0, "gate should fade after release");
+    }
+
+    #[test]
+    fn granular_speed_and_pitch_are_bounded() {
+        let take = make_take();
+        for (speed, pitch, tape) in [(0, 24, 0), (100, 24, 0), (50, 0, 0), (50, 48, 0), (80, 40, 1)]
+        {
+            let mut synth = synth_with_sample(&take);
+            synth.set_slot_param(4, 0, SP_MODE as u8, MODE_LOOP);
+            synth.set_slot_param(4, 0, SP_SPEED as u8, speed);
+            synth.set_slot_param(4, 0, SP_PITCH as u8, pitch);
+            synth.set_slot_param(4, 0, SP_TAPE as u8, tape);
+            synth.drum_trigger(4, 35, 110);
+            let stats = render_blocks(&mut synth, 60);
+            assert!(stats.mean_abs() > 0.005, "speed {speed} pitch {pitch} tape {tape} silent");
+            assert!(stats.peak <= 1.0, "speed {speed} pitch {pitch} peak {}", stats.peak);
+            assert_eq!(stats.non_finite, 0);
+        }
+    }
+
+    #[test]
+    fn reload_swaps_safely_while_playing() {
+        let take = make_take();
+        let mut synth = synth_with_sample(&take);
+        synth.set_slot_param(4, 0, SP_MODE as u8, MODE_LOOP);
+        synth.drum_trigger(4, 35, 110);
+        render_blocks(&mut synth, 5);
+        // Swap in a new take mid-play: the old voice must stop, not read freed memory
+        let take2 = make_take();
+        unsafe { synth.set_sample(4, 0, take2.as_ptr(), take2.len() as u32) };
+        drop(take);
+        let after = render_blocks(&mut synth, 5);
+        assert_eq!(after.non_finite, 0);
+        // New trigger plays the new take
+        synth.drum_trigger(4, 35, 110);
+        let replay = render_blocks(&mut synth, 10);
+        assert!(replay.mean_abs() > 0.01);
+    }
+
+    #[test]
+    fn slot_mapping_starts_at_gm_kick() {
+        assert_eq!(note_to_slot(35), 0);
+        assert_eq!(note_to_slot(36), 1);
+        assert_eq!(note_to_slot(50), 15);
+        assert_eq!(note_to_slot(51), 0);
+    }
+}
+
 #[test]
 fn deterministic_output() {
     let run = || {

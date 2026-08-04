@@ -61,6 +61,40 @@ export class TeensyEngine implements Engine {
     this.wasm.syncSoundParams();
   }
 
+  // Sampler edits mirror through the wasm engine the same way; the browser
+  // recording path talks to the mirror engine's UI state directly.
+  get onSampleParam() {
+    return this.wasm.onSampleParam;
+  }
+  set onSampleParam(
+    cb: ((channel: number, slot: number, param: number, value: number) => void) | null,
+  ) {
+    this.wasm.onSampleParam = cb;
+  }
+
+  get onRecControl() {
+    return this.wasm.onRecControl;
+  }
+  set onRecControl(cb: ((channel: number, action: number) => void) | null) {
+    this.wasm.onRecControl = cb;
+  }
+
+  getSamplerSlot(ch: number): number {
+    return this.wasm.getSamplerSlot(ch);
+  }
+  setSlotPreview(ch: number, slot: number, buckets: Uint8Array): void {
+    this.wasm.setSlotPreview(ch, slot, buckets);
+  }
+  setSlotState(ch: number, slot: number, loaded: boolean, key: number): void {
+    this.wasm.setSlotState(ch, slot, loaded, key);
+  }
+  setRecState(state: number, level: number): void {
+    this.wasm.setRecState(state, level);
+  }
+  setRecWaveform(buckets: Uint8Array): void {
+    this.wasm.setRecWaveform(buckets);
+  }
+
   private _onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null =
     null;
 

@@ -863,15 +863,13 @@ fn apply_ctrl_overlay(s: &mut EngineState) {
     let ch = s.current_channel as usize;
     let pat = s.current_patterns[ch] as usize;
     let has_notes = s.patterns[ch][pat].event_count > 0;
-    let is_drum = s.is_drum_channel(ch);
     const BUTTON_COLOR: u32 = 0x4488CC;
 
     (0..VISIBLE_COLS).for_each(|c| {
         if c <= 2 {
             let mode = COL_TO_MODE[c];
             let is_current = s.ui_mode == mode;
-            let disabled = (mode == UiMode::Modify as u8 && !has_notes)
-                || (mode == UiMode::Sound as u8 && is_drum);
+            let disabled = mode == UiMode::Modify as u8 && !has_notes;
             s.button_values[VISIBLE_ROWS - 1][c] = if disabled { FLAG_DIMMED }
                 else if is_current { BTN_COLOR_100 } else { BTN_COLOR_25 };
             s.color_overrides[VISIBLE_ROWS - 1][c] = if mode == UiMode::Sound as u8 {
@@ -932,11 +930,7 @@ pub fn engine_compute_grid(s: &mut EngineState, timestamp_ms: f32) {
         UiMode::Loop => render_loop_mode(s, notes, note_count),
         UiMode::Modify => render_modify_mode(s, notes, note_count),
         UiMode::Sound => {
-            if !crate::engine_sound::render_sound_mode(s) {
-                // Drum channel — Sound mode doesn't apply, fall back
-                s.ui_mode = UiMode::Pattern as u8;
-                render_pattern_mode(s, notes, note_count);
-            }
+            let _ = crate::engine_sound::render_sound_mode(s);
         }
         UiMode::Pattern => {
             render_pattern_mode(s, notes, note_count);
