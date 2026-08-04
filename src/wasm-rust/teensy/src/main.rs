@@ -243,6 +243,10 @@ fn main() -> ! {
             {
                 usb_audio_pending = 0;
             }
+        } else {
+            // Not streaming: drop any packet caught in flight so a stream
+            // restart begins from fresh ring samples, not stale audio
+            usb_audio_pending = 0;
         }
 
         // 2. Process sequencer tick
