@@ -15,8 +15,8 @@ use crate::engine_core::*;
 use crate::engine_input::{DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, MOD_SHIFT};
 use crate::platform::platform_sound_param;
 use arp3_synth::patch::{
-    self, clamp_param, ALGO_CARRIERS, ALGO_ROUTES, ENGINE_FM, ENGINE_WAVETABLE, NUM_ENGINE_TYPES,
-    NUM_PARAMS, NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
+    self, clamp_param, ALGO_CARRIERS, ALGO_ROUTES, ENGINE_ADDITIVE, ENGINE_FM, ENGINE_WAVETABLE,
+    NUM_ADD_HARMONICS, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
 };
 
 // ============ Pages ============
@@ -35,10 +35,14 @@ pub const PAGE_FM: u8 = 9;
 // Wavetable-engine pages
 pub const PAGE_WT: u8 = 10;
 pub const PAGE_DIGI: u8 = 11;
-pub const NUM_SOUND_PAGES: usize = 12;
+// Additive-engine pages
+pub const PAGE_HARM: u8 = 12;
+pub const PAGE_ADD: u8 = 13;
+pub const NUM_SOUND_PAGES: usize = 14;
 
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
     "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
+    "HARM", "ADD",
 ];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
@@ -49,11 +53,14 @@ static FM_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_ALGO, PAGE_OP, PAGE_FM, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
 static WT_PAGES: [u8; 7] =
     [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
+static ADD_PAGES: [u8; 7] =
+    [PAGE_PRESET, PAGE_HARM, PAGE_ADD, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
 
 pub fn engine_pages(engine: i16) -> &'static [u8] {
     match engine {
         ENGINE_FM => &FM_PAGES,
         ENGINE_WAVETABLE => &WT_PAGES,
+        ENGINE_ADDITIVE => &ADD_PAGES,
         _ => &SUBTR_PAGES,
     }
 }
@@ -80,6 +87,7 @@ pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
         PAGE_OP => &[patch::P_RATIO1, patch::P_RATIO2, patch::P_RATIO3, patch::P_RATIO4],
         PAGE_FM => &[patch::P_FM_AMT, patch::P_FB, patch::P_MENV, patch::P_DETUNE],
         PAGE_DIGI => &[patch::P_WT_POS, patch::P_WT_WARP, patch::P_CRUSH, patch::P_DETUNE],
+        PAGE_ADD => &[patch::P_ADD_STRETCH],
         _ => &[],
     }
 }
@@ -114,6 +122,14 @@ pub fn param_label(param: usize) -> &'static str {
         patch::P_WT_POS => "POS",
         patch::P_WT_WARP => "WARP",
         patch::P_CRUSH => "CRUSH",
+        patch::P_ADD_STRETCH => "STRCH",
+        patch::P_H1..=patch::P_H16 => {
+            static H_LABELS: [&str; NUM_ADD_HARMONICS] = [
+                "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12",
+                "H13", "H14", "H15", "H16",
+            ];
+            H_LABELS[param - patch::P_H1]
+        }
         _ => "?",
     }
 }
@@ -221,6 +237,10 @@ fn chooser_param(page: u8) -> Option<usize> {
 
 /// The param the right encoder edits on the current page.
 pub fn focused_param(s: &EngineState) -> Option<usize> {
+    if s.sound_page == PAGE_HARM {
+        let h = (s.sound_focus[PAGE_HARM as usize] as usize).min(NUM_ADD_HARMONICS - 1);
+        return Some(patch::P_H1 + h);
+    }
     if let Some(p) = chooser_param(s.sound_page) {
         return Some(p);
     }
@@ -324,6 +344,16 @@ pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
         let options = (PARAM_MAX[chooser] as usize + 1).min(VISIBLE_COLS);
         if row == VISIBLE_ROWS - 1 && col < options {
             engine_set_sound_param(s, ch, chooser, col as i16);
+        }
+        return;
+    }
+
+    // Harmonic editor: every column is a one-wide fader for one partial
+    if page == PAGE_HARM {
+        if col < NUM_ADD_HARMONICS {
+            s.sound_focus[PAGE_HARM as usize] = col as u8;
+            let value = ((VISIBLE_ROWS - 1 - row) as i16) * 100 / (VISIBLE_ROWS as i16 - 1);
+            engine_set_sound_param(s, ch, patch::P_H1 + col, value);
         }
         return;
     }
@@ -569,6 +599,36 @@ fn render_wt_page(s: &mut EngineState) {
     s.color_overrides[VISIBLE_ROWS - 1][pos_cell] = SOUND_ACCENT;
 }
 
+/// Additive harmonic editor: 16 one-column faders, one per partial — the
+/// grid literally shows the spectrum. The focused column (last touched /
+/// encoder target) renders brighter.
+fn render_harm_page(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    let focus = (s.sound_focus[PAGE_HARM as usize] as usize).min(NUM_ADD_HARMONICS - 1);
+
+    for k in 0..NUM_ADD_HARMONICS {
+        let value = s.sound_patches[ch][patch::P_H1 + k] as i32;
+        let lit = ((value * VISIBLE_ROWS as i32 + 50) / 100) as usize;
+        let focused = k == focus;
+        for step in 0..lit.max(1) {
+            let vr = VISIBLE_ROWS - 1 - step;
+            let is_cap = step + 1 == lit.max(1);
+            s.button_values[vr][k] = if lit == 0 {
+                BTN_COLOR_25 // silent partial: dim base marker
+            } else if is_cap {
+                BTN_COLOR_100
+            } else if focused {
+                BTN_COLOR_75
+            } else {
+                BTN_COLOR_50
+            };
+            if focused && is_cap && lit > 0 {
+                s.color_overrides[vr][k] = SOUND_ACCENT;
+            }
+        }
+    }
+}
+
 /// Render the Sound-mode grid. Returns false when the current channel is a
 /// drum channel — the caller falls back to pattern mode (drum synthesis
 /// isn't a thing yet).
@@ -584,6 +644,7 @@ pub fn render_sound_mode(s: &mut EngineState) -> bool {
         PAGE_OSC2 => render_osc_page(s, patch::P_WAVE2),
         PAGE_ALGO => render_algo_page(s),
         PAGE_WT => render_wt_page(s),
+        PAGE_HARM => render_harm_page(s),
         _ => render_fader_page(s),
     }
     true

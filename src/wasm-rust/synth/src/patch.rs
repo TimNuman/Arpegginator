@@ -39,14 +39,19 @@ pub const P_MENV: usize = 24; // how much the mod index follows the envelope
 pub const P_WT_POS: usize = 25; // morph position across the table bank
 pub const P_WT_WARP: usize = 26; // phase-distortion amount
 pub const P_CRUSH: usize = 27; // bit depth + sample-rate reduction
-pub const NUM_PARAMS: usize = 28;
+// Additive engine params (ignored by the other engines)
+pub const P_ADD_STRETCH: usize = 28; // inharmonicity: harmonic stretch
+pub const P_H1: usize = 29; // 16 harmonic levels, P_H1 + k for harmonic k+1
+pub const P_H16: usize = 44;
+pub const NUM_ADD_HARMONICS: usize = 16;
+pub const NUM_PARAMS: usize = 45;
 
-// Engine types. Subtractive and FM exist; the UI shows the others as
-// coming-later placeholders and PARAM_MAX blocks selecting them.
+// Engine types. All four are implemented; the engine follows the preset.
 pub const ENGINE_SUBTRACTIVE: i16 = 0;
 pub const ENGINE_FM: i16 = 1;
 pub const ENGINE_WAVETABLE: i16 = 2;
-pub const NUM_ENGINE_TYPES: usize = 4; // SUBTR, FM, WAVE, ADD (display)
+pub const ENGINE_ADDITIVE: i16 = 3;
+pub const NUM_ENGINE_TYPES: usize = 4; // SUBTR, FM, WAVE, ADD
 
 pub const WAVE_SAW: i16 = 0;
 pub const WAVE_SQUARE: i16 = 1;
@@ -58,7 +63,7 @@ pub const NUM_WAVES: usize = 6;
 
 /// Inclusive maximum per param (minimum is always 0).
 pub const PARAM_MAX: [i16; NUM_PARAMS] = [
-    ENGINE_WAVETABLE, // ENGINE — subtractive, FM and wavetable selectable
+    ENGINE_ADDITIVE, // ENGINE — all four engines selectable
     5,   // WAVE1
     5,   // WAVE2
     100, // SUB_LEVEL
@@ -86,6 +91,9 @@ pub const PARAM_MAX: [i16; NUM_PARAMS] = [
     100, // WT_POS
     100, // WT_WARP
     100, // CRUSH
+    100, // ADD_STRETCH
+    100, 100, 100, 100, 100, 100, 100, 100, // H1-H8
+    100, 100, 100, 100, 100, 100, 100, 100, // H9-H16
 ];
 
 /// Defaults tuned to match the original hard-coded voice: detuned saws,
@@ -116,6 +124,9 @@ pub const DEFAULTS: [i16; NUM_PARAMS] = [
     0,        // wavetable position (sine)
     0,        // warp off
     0,        // crush off
+    0,        // no harmonic stretch
+    100, 0, 0, 0, 0, 0, 0, 0, // fundamental only
+    0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
 /// One channel's sound settings, in UI units.
@@ -141,7 +152,8 @@ const fn preset(
     Preset {
         name,
         values: [ENGINE_SUBTRACTIVE, w1, w2, sub, vol, mix, det, gld, a, d, s, r, cut, res, fenv, key, drv,
-                 0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0],
+                 0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0,
+                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     }
 }
 
@@ -158,7 +170,8 @@ const fn fm_preset(
     Preset {
         name,
         values: [ENGINE_FM, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
-                 algo, r1, r2, r3, r4, fm, fb, menv, 0, 0, 0],
+                 algo, r1, r2, r3, r4, fm, fb, menv, 0, 0, 0,
+                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     }
 }
 
@@ -175,7 +188,27 @@ const fn wt_preset(
     Preset {
         name,
         values: [ENGINE_WAVETABLE, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
-                 0, 1, 1, 1, 1, 50, 0, 50, pos, warp, crush],
+                 0, 1, 1, 1, 1, 50, 0, 50, pos, warp, crush,
+                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    }
+}
+
+/// Shorthand for additive presets: 16 harmonic levels + stretch.
+#[rustfmt::skip]
+#[allow(clippy::too_many_arguments)]
+const fn add_preset(
+    name: &'static str,
+    sub: i16, vol: i16, gld: i16,
+    a: i16, d: i16, s: i16, r: i16,
+    cut: i16, res: i16, fenv: i16, key: i16, drv: i16,
+    stretch: i16, h: [i16; 16],
+) -> Preset {
+    Preset {
+        name,
+        values: [ENGINE_ADDITIVE, WAVE_SAW, WAVE_SAW, sub, vol, 40, 0, gld, a, d, s, r, cut, res, fenv, key, drv,
+                 0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0,
+                 stretch, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
+                 h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]],
     }
 }
 
@@ -184,7 +217,7 @@ const fn wt_preset(
 /// lean on the pulse/triangle/noise waves with the filter wide open, the SID
 /// ones on pulse + resonant filter + drive.
 #[rustfmt::skip]
-pub static PRESETS: [Preset; 31] = [
+pub static PRESETS: [Preset; 37] = [
     //                      w1          w2          sub  vol  mix  det gld   a   d    s   r   cut  res fenv key  drv
     preset("INIT SAW",      WAVE_SAW,   WAVE_SAW,     0,  85,  40,   7,  0, 14, 64,  55, 50,  48,  35,  75, 100,  0),
     preset("FAT STACK",     WAVE_SAW,   WAVE_SAW,    35,  80,  50,  20,  0, 10, 70,  70, 55,  62,  25,  55,  90, 15),
@@ -221,6 +254,14 @@ pub static PRESETS: [Preset; 31] = [
     wt_preset("PHASE DANCER",   0,  80,  3, 15,  0, 55,  60, 25,  75,  45,  60,  90, 15,  25,  85,   5),
     wt_preset("TAPE GHOST",     0,  80,  8,  0, 40, 65,  70, 70,  40,   5,  10,  80,  0,   5,  10,  45),
     wt_preset("ROBOT CHOIR",    0,  80,  6,  0, 35, 60,  95, 55,  65,  10,  15,  90,  0,  80,  20,  15),
+    // ---- Additive (16 harmonic partials + stretch) ----
+    //                        sub  vol gld   a   d    s   r  cut  res fenv key drv  str  harmonics 1-16
+    add_preset("TONEWHEEL",     0,  82,  0,  2, 40, 100, 10,  75,   5,   0,  90, 10,   0, [100, 55, 80, 40, 0, 45, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0]),
+    add_preset("GLASS HARP",    0,  80,  0, 15, 70,  60, 80,  70,  10,  15, 100,  0,  12, [100, 0, 40, 0, 25, 0, 15, 0, 8, 0, 0, 0, 0, 0, 0, 0]),
+    add_preset("BELL TOWER",    0,  80,  0,  0, 85,   0, 90,  80,   5,  25, 100,  0,  70, [85, 0, 0, 50, 0, 0, 35, 0, 0, 25, 0, 0, 20, 0, 0, 12]),
+    add_preset("PAN PIPE",     15,  85,  0, 25, 50,  85, 35,  60,   5,  10,  80,  0,   3, [100, 18, 10, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    add_preset("BUZZ MACHINE",  0,  80,  0,  5, 55,  70, 25,  55,  30,  50,  90, 15,   0, [100, 50, 33, 25, 20, 17, 14, 13, 11, 10, 9, 8, 8, 7, 7, 6]),
+    add_preset("GAMELAN",       0,  82,  0,  0, 70,   0, 70,  85,   5,  10, 100,  0, 100, [90, 0, 0, 0, 0, 45, 0, 0, 0, 0, 30, 0, 0, 0, 0, 18]),
 ];
 
 pub const NUM_PRESETS: usize = PRESETS.len();
