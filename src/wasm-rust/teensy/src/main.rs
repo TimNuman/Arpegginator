@@ -211,15 +211,37 @@ fn main() -> ! {
     let mut accum_buf = [0u8; 256];
     let mut accum_len: usize = 0;
 
+    // USB audio: one iso packet in flight (built once, retried until sent)
+    let mut usb_audio_pkt = [0u8; usb_midi::AUDIO_PACKET_BYTES];
+    let mut usb_audio_pending: usize = 0;
+
     // ---- Main Loop ----
     loop {
         // 1. Poll USB
         if usb_device.poll(&mut [&mut usb_midi]) {
             if usb_device.state() == UsbDeviceState::Configured {
-                if !usb_configured { usb_device.bus().configure(); }
+                if !usb_configured {
+                    usb_device.bus().configure();
+                    // Iso TX endpoints need dQH MULT >= 1 (see usb_midi.rs)
+                    usb_midi::fix_audio_qh_mult(usb_midi.audio_ep_index());
+                }
                 usb_configured = true;
             } else {
                 usb_configured = false;
+            }
+        }
+
+        // 1b. Stream synth audio to the host while it's recording. A packet
+        // is built once and retried until the endpoint accepts it, so no
+        // samples are lost when the endpoint is still busy.
+        if usb_configured && usb_midi.audio_streaming() {
+            if usb_audio_pending == 0 {
+                usb_audio_pending = audio::fill_usb_packet(&mut usb_audio_pkt);
+            }
+            if usb_audio_pending > 0
+                && usb_midi.write_audio(&usb_audio_pkt[..usb_audio_pending]).is_ok()
+            {
+                usb_audio_pending = 0;
             }
         }
 
