@@ -1026,6 +1026,12 @@ fn render_sound(s: &EngineState, mods: u8) {
             draw_param(0, arp3_synth::patch::P_WT_POS);
             draw_param(1, arp3_synth::patch::P_WT_WARP);
         }
+        PAGE_HARM => {
+            if let Some(param) = focused_param(s) {
+                draw_param(0, param);
+            }
+            draw_param(1, arp3_synth::patch::P_ADD_STRETCH);
+        }
         _ => {
             let engine = patch_vals[arp3_synth::patch::P_ENGINE];
             for (i, &param) in page_faders(engine, page).iter().enumerate().take(4) {

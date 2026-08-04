@@ -8,7 +8,7 @@
 // how arp3-engine shares sequencer logic.
 //
 // Sound is controlled by per-channel patches (see `patch`), edited live from
-// the sequencer's Sound mode. Two engines share a common back end (sub osc,
+// the sequencer's Sound mode. The engines share a common back end (sub osc,
 // state-variable lowpass with key tracking + envelope, drive, ADSR gain):
 //   - Subtractive: two band-limited oscillators with selectable waveforms
 //   - FM: four sine operators in the 8 classic YM2612 algorithms with
@@ -16,6 +16,8 @@
 //     using a fast parabolic sine for chip-appropriate cost and character
 //   - Wavetable: OP-1-style lo-fi digital — a morphing 8-table bank with
 //     CZ-style phase distortion and bit-crush/decimation
+//   - Additive: 16 sine partials with per-harmonic levels, harmonic stretch
+//     (inharmonicity) for bells/gamelan, and automatic nyquist muting
 // Envelope times are read at note-on; everything else is read per block, so
 // tweaks are audible on already-sounding notes.
 
@@ -279,6 +281,8 @@ struct Voice {
     /// Bit-crush decimation: held sample + countdown
     held: f32,
     hold_count: u8,
+    /// Additive partial phases (normalized 0..1)
+    add_phase: [f32; NUM_ADD_HARMONICS],
     env: Adsr,
     svf: Svf,
 }
@@ -301,6 +305,7 @@ impl Voice {
             fb_last: 0.0,
             held: 0.0,
             hold_count: 0,
+            add_phase: [0.0; NUM_ADD_HARMONICS],
             env: Adsr::new(),
             svf: Svf::new(),
         }
@@ -337,6 +342,7 @@ impl Voice {
         self.fb_last = 0.0;
         self.held = 0.0;
         self.hold_count = 0;
+        self.add_phase = [0.0; NUM_ADD_HARMONICS];
         self.svf.reset();
         self.env.trigger(p, sample_rate);
     }
@@ -354,6 +360,36 @@ impl Voice {
         let inv_sr = 1.0 / sample_rate;
         let is_fm = p[P_ENGINE] == ENGINE_FM;
         let is_wt = p[P_ENGINE] == ENGINE_WAVETABLE;
+        let is_add = p[P_ENGINE] == ENGINE_ADDITIVE;
+
+        // Additive engine settings: per-partial amplitude and (stretched)
+        // frequency ratio, computed per block. Partials above ~0.45·fs are
+        // muted so high notes don't alias.
+        let mut add_amp = [0.0f32; NUM_ADD_HARMONICS];
+        let mut add_ratio = [0.0f32; NUM_ADD_HARMONICS];
+        if is_add {
+            let stretch_b = p[P_ADD_STRETCH] as f32 / 100.0 * 0.001;
+            let nyquist_dt = 0.45;
+            let base_dt = self.freq_target * inv_sr;
+            let mut level_sum = 0.0;
+            for k in 0..NUM_ADD_HARMONICS {
+                let n = (k + 1) as f32;
+                let ratio = n * (1.0 + stretch_b * n * n);
+                let amp = p[P_H1 + k] as f32 / 100.0;
+                if amp > 0.0 && base_dt * ratio < nyquist_dt {
+                    add_amp[k] = amp;
+                    add_ratio[k] = ratio;
+                    level_sum += amp;
+                }
+            }
+            // Normalize by total level so stacked partials can't clip
+            if level_sum > 1.0 {
+                let inv = 1.0 / level_sum;
+                for a in add_amp.iter_mut() {
+                    *a *= inv;
+                }
+            }
+        }
 
         // Wavetable engine settings
         let wt_scan = p[P_WT_POS] as f32 / 100.0 * (NUM_WT_TABLES - 1) as f32;
@@ -406,7 +442,19 @@ impl Voice {
             let dt1 = self.freq * inv_sr;
             let dt_sub = dt1 * 0.5;
 
-            let mut osc = if is_wt {
+            let mut osc = if is_add {
+                let mut sum = 0.0;
+                for k in 0..NUM_ADD_HARMONICS {
+                    if add_amp[k] > 0.0 {
+                        sum += add_amp[k] * fast_sin(self.add_phase[k]);
+                        self.add_phase[k] += dt1 * add_ratio[k];
+                        if self.add_phase[k] >= 1.0 {
+                            self.add_phase[k] -= 1.0;
+                        }
+                    }
+                }
+                sum
+            } else if is_wt {
                 if self.hold_count > 0 {
                     // Decimation: hold the previous output
                     self.hold_count -= 1;

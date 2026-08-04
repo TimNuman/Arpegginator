@@ -288,6 +288,43 @@ fn wavetable_preset_pages_and_position_track() {
 }
 
 #[test]
+fn additive_harm_page_edits_partials() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    let add = (0..patch::NUM_PRESETS)
+        .find(|&i| patch::PRESETS[i].values[patch::P_ENGINE] == patch::ENGINE_ADDITIVE)
+        .expect("no additive preset");
+    engine_load_sound_preset(&mut s, ch, add);
+
+    // Page list: PRESET → HARM → ADD → AMP
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_HARM);
+    engine_arrow_press(&mut s, DIR_UP, 0);
+    assert_eq!(s.sound_page, PAGE_ADD);
+
+    // Every column is a one-wide fader for one partial; press sets + focuses
+    s.sound_page = PAGE_HARM;
+    engine_button_press(&mut s, 0, 4, 0); // harmonic 5 to max
+    assert_eq!(s.sound_patches[ch][patch::P_H1 + 4], 100);
+    assert_eq!(s.sound_focus[PAGE_HARM as usize], 4);
+    engine_button_press(&mut s, 7, 4, 0); // and back to zero
+    assert_eq!(s.sound_patches[ch][patch::P_H1 + 4], 0);
+
+    // Right encoder edits the focused partial (fine step for shift)
+    engine_arrow_press(&mut s, DIR_RIGHT, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_H1 + 4], 5);
+    engine_arrow_press(&mut s, DIR_RIGHT, MOD_SHIFT);
+    assert_eq!(s.sound_patches[ch][patch::P_H1 + 4], 6);
+
+    // Grid: all 16 columns render (dim marker at minimum)
+    engine_compute_grid(&mut s, 0.0);
+    for c in 0..16 {
+        assert_ne!(s.button_values[7][c] & 0xF, BTN_OFF, "column {c} should render");
+    }
+}
+
+#[test]
 fn preset_cells_are_colored_by_engine() {
     let mut s = init_state();
     s.ui_mode = UiMode::Sound as u8;
