@@ -53,14 +53,14 @@ fn switching_to_drum_channel_leaves_sound_mode() {
 fn left_encoder_cycles_pages_and_wraps() {
     let mut s = init_state();
     s.ui_mode = UiMode::Sound as u8;
-    assert_eq!(s.sound_page, PAGE_TYPE);
+    assert_eq!(s.sound_page, PAGE_PRESET);
     engine_arrow_press(&mut s, DIR_UP, 0);
     assert_eq!(s.sound_page, PAGE_OSC1);
     engine_arrow_press(&mut s, DIR_DOWN, 0);
     engine_arrow_press(&mut s, DIR_DOWN, 0);
     assert_eq!(s.sound_page, PAGE_FX, "down from page 0 wraps to the last page");
     engine_arrow_press(&mut s, DIR_UP, 0);
-    assert_eq!(s.sound_page, PAGE_TYPE);
+    assert_eq!(s.sound_page, PAGE_PRESET);
 }
 
 #[test]
@@ -186,18 +186,76 @@ fn fader_grid_renders_expected_columns() {
 }
 
 #[test]
-fn type_page_renders_and_selects() {
+fn preset_page_selects_and_loads() {
     let mut s = init_state();
     s.ui_mode = UiMode::Sound as u8;
-    s.sound_page = PAGE_TYPE;
-    engine_compute_grid(&mut s, 0.0);
-    assert_eq!(s.button_values[0][0], BTN_COLOR_100, "subtractive row selected");
-    assert_eq!(s.button_values[1][0], BTN_WHITE_25, "unavailable engines dimmed");
-
-    // Selecting an unavailable engine is rejected
-    engine_button_press(&mut s, 2, 0, 0);
     let ch = s.current_channel as usize;
-    assert_eq!(s.sound_patches[ch][patch::P_ENGINE], patch::ENGINE_SUBTRACTIVE);
+    assert_eq!(s.sound_presets[ch], 0, "boots on preset 0");
+
+    // Press preset cell 2 (ACID LINE) — full patch loads, clean state
+    engine_button_press(&mut s, 0, 2, 0);
+    assert_eq!(s.sound_presets[ch], 2);
+    assert_eq!(s.sound_patches[ch], patch::PRESETS[2].values);
+    assert_eq!(s.sound_edited[ch], 0);
+
+    // Out-of-range cells are ignored
+    let before = s.sound_presets[ch];
+    engine_button_press(&mut s, 6, 15, 0);
+    assert_eq!(s.sound_presets[ch], before);
+}
+
+#[test]
+fn preset_encoder_steps_and_wraps() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    engine_arrow_press(&mut s, DIR_LEFT, 0);
+    assert_eq!(
+        s.sound_presets[ch] as usize,
+        patch::NUM_PRESETS - 1,
+        "left from preset 0 wraps to the last"
+    );
+    engine_arrow_press(&mut s, DIR_RIGHT, 0);
+    assert_eq!(s.sound_presets[ch], 0);
+    assert_eq!(s.sound_patches[ch], patch::PRESETS[0].values, "stepping loads the preset");
+}
+
+#[test]
+fn editing_flags_edited_and_reset_restores() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    let ch = s.current_channel as usize;
+    engine_button_press(&mut s, 0, 1, 0); // load FAT STACK
+    assert_eq!(s.sound_edited[ch], 0);
+
+    // Edit a fader on the ENV page → edited
+    s.sound_page = PAGE_ENV;
+    engine_button_press(&mut s, 0, 0, 0);
+    assert_eq!(s.sound_edited[ch], 1);
+    assert_ne!(s.sound_patches[ch], patch::PRESETS[1].values);
+
+    // Grid shows the reset cell + amber selected preset
+    s.sound_page = PAGE_PRESET;
+    engine_compute_grid(&mut s, 0.0);
+    assert_eq!(s.button_values[7][15], BTN_COLOR_100, "reset cell lit when edited");
+    assert_eq!(s.color_overrides[0][1], crate::engine_sound::SOUND_ACCENT);
+
+    // Reset cell restores the preset and clears the flag
+    engine_button_press(&mut s, 7, 15, 0);
+    assert_eq!(s.sound_edited[ch], 0);
+    assert_eq!(s.sound_patches[ch], patch::PRESETS[1].values);
+    engine_compute_grid(&mut s, 0.0);
+    assert_eq!(s.button_values[7][15] & 0xF, BTN_OFF, "reset cell hidden when clean");
+}
+
+#[test]
+fn presets_are_per_channel() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    engine_button_press(&mut s, 0, 3, 0); // ch 0 → RUBBER BASS
+    assert_eq!(s.sound_presets[0], 3);
+    assert_eq!(s.sound_presets[1], 0, "other channels keep their preset");
+    assert_eq!(s.sound_patches[1], patch::PRESETS[0].values);
 }
 
 #[test]

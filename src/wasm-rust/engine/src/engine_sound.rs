@@ -14,11 +14,13 @@
 use crate::engine_core::*;
 use crate::engine_input::{DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, MOD_SHIFT};
 use crate::platform::platform_sound_param;
-use arp3_synth::patch::{self, clamp_param, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_WAVES, PARAM_MAX};
+use arp3_synth::patch::{
+    self, clamp_param, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
+};
 
 // ============ Pages ============
 
-pub const PAGE_TYPE: u8 = 0;
+pub const PAGE_PRESET: u8 = 0;
 pub const PAGE_OSC1: u8 = 1;
 pub const PAGE_OSC2: u8 = 2;
 pub const PAGE_AMP: u8 = 3;
@@ -28,7 +30,7 @@ pub const PAGE_FX: u8 = 6;
 pub const NUM_SOUND_PAGES: usize = 7;
 
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] =
-    ["TYPE", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX"];
+    ["PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX"];
 
 pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "ADD", "FM", "WAVE"];
 pub static WAVE_LABELS: [&str; NUM_WAVES] = ["SAW", "SQR", "TRI", "SIN", "PLS", "NSE"];
@@ -105,14 +107,33 @@ pub fn format_param_value(param: usize, value: i16) -> FmtBuf<12> {
 
 // ============ Param state ============
 
-/// Set one patch param on a channel: clamp, store, and emit to the synth.
+/// Set one patch param on a channel: clamp, store, emit to the synth, and
+/// flag the channel's patch as deviating from its preset.
 pub fn engine_set_sound_param(s: &mut EngineState, ch: usize, param: usize, value: i16) {
     if ch >= NUM_CHANNELS || param >= NUM_PARAMS {
         return;
     }
     let clamped = clamp_param(param, value);
+    if s.sound_patches[ch][param] != clamped {
+        s.sound_edited[ch] = 1;
+    }
     s.sound_patches[ch][param] = clamped;
     platform_sound_param(ch as u8, param as u8, clamped);
+}
+
+/// Load a factory preset into a channel: copy values, emit them all to the
+/// synth, and clear the edited flag. Also used by the reset cell to restore
+/// the current preset over local edits.
+pub fn engine_load_sound_preset(s: &mut EngineState, ch: usize, preset: usize) {
+    if ch >= NUM_CHANNELS || preset >= NUM_PRESETS {
+        return;
+    }
+    s.sound_patches[ch] = PRESETS[preset].values;
+    s.sound_presets[ch] = preset as u8;
+    s.sound_edited[ch] = 0;
+    for param in 0..NUM_PARAMS {
+        platform_sound_param(ch as u8, param as u8, s.sound_patches[ch][param]);
+    }
 }
 
 /// Emit every param of every melodic channel — called by the host once the
@@ -128,10 +149,9 @@ pub fn engine_sync_sound_params(s: &EngineState) {
     }
 }
 
-/// Which param a page's chooser edits (None for fader pages).
+/// Which param a page's chooser edits (None for the preset and fader pages).
 fn chooser_param(page: u8) -> Option<usize> {
     match page {
-        PAGE_TYPE => Some(patch::P_ENGINE),
         PAGE_OSC1 => Some(patch::P_WAVE1),
         PAGE_OSC2 => Some(patch::P_WAVE2),
         _ => None,
@@ -176,6 +196,17 @@ pub fn handle_arrow_sound(s: &mut EngineState, dir: u8, mods: u8) {
         }
         // Right encoder: edit the focused value
         DIR_LEFT | DIR_RIGHT => {
+            // Preset page: step through presets, loading as you go
+            if s.sound_page == PAGE_PRESET {
+                let ch = s.current_channel as usize;
+                if !s.is_drum_channel(ch) {
+                    let cur = s.sound_presets[ch] as usize;
+                    let n = NUM_PRESETS;
+                    let next = if dir == DIR_RIGHT { (cur + 1) % n } else { (cur + n - 1) % n };
+                    engine_load_sound_preset(s, ch, next);
+                }
+                return;
+            }
             // On the Osc 2 page, Shift+L/R nudges detune instead (fine)
             let param = if s.sound_page == PAGE_OSC2 && shift {
                 Some(patch::P_DETUNE)
@@ -201,11 +232,18 @@ pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
     let row = row as usize;
     let col = col as usize;
 
-    // Chooser pages
-    if page == PAGE_TYPE {
-        // Rows are engine types; only implemented ones are selectable
-        if row < NUM_ENGINE_TYPES && (row as i16) <= PARAM_MAX[patch::P_ENGINE] {
-            engine_set_sound_param(s, ch, patch::P_ENGINE, row as i16);
+    // Preset page: cells select presets; the bottom-right cell resets local
+    // edits back to the selected preset
+    if page == PAGE_PRESET {
+        if row == VISIBLE_ROWS - 1 && col == VISIBLE_COLS - 1 {
+            if s.sound_edited[ch] != 0 {
+                engine_load_sound_preset(s, ch, s.sound_presets[ch] as usize);
+            }
+            return;
+        }
+        let idx = row * VISIBLE_COLS + col;
+        if idx < NUM_PRESETS {
+            engine_load_sound_preset(s, ch, idx);
         }
         return;
     }
@@ -245,20 +283,31 @@ static WAVE_ROWS: [[u8; 8]; NUM_WAVES] = [
     [3, 0, 5, 2, 6, 1, 4, 3], // noise: jitter
 ];
 
-fn render_chooser_type(s: &mut EngineState) {
+fn render_preset_page(s: &mut EngineState) {
     let ch = s.current_channel as usize;
-    let selected = s.sound_patches[ch][patch::P_ENGINE] as usize;
-    for (i, _) in ENGINE_TYPE_LABELS.iter().enumerate() {
-        let available = (i as i16) <= PARAM_MAX[patch::P_ENGINE];
-        for c in 0..5 {
-            s.button_values[i][c] = if i == selected {
-                BTN_COLOR_100
-            } else if available {
-                BTN_WHITE_50
-            } else {
-                BTN_WHITE_25
-            };
+    let selected = s.sound_presets[ch] as usize;
+    let edited = s.sound_edited[ch] != 0;
+
+    for idx in 0..NUM_PRESETS {
+        let (r, c) = (idx / VISIBLE_COLS, idx % VISIBLE_COLS);
+        if r >= VISIBLE_ROWS - 1 {
+            break; // last row is reserved for the reset cell
         }
+        if idx == selected {
+            s.button_values[r][c] = BTN_COLOR_100;
+            if edited {
+                // Amber selected cell: this preset has local edits
+                s.color_overrides[r][c] = SOUND_ACCENT;
+            }
+        } else {
+            s.button_values[r][c] = BTN_WHITE_25;
+        }
+    }
+
+    // Reset cell (bottom-right): appears only when there's something to reset
+    if edited {
+        s.button_values[VISIBLE_ROWS - 1][VISIBLE_COLS - 1] = BTN_COLOR_100;
+        s.color_overrides[VISIBLE_ROWS - 1][VISIBLE_COLS - 1] = SOUND_ACCENT;
     }
 }
 
@@ -334,7 +383,7 @@ pub fn render_sound_mode(s: &mut EngineState) -> bool {
     }
 
     match s.sound_page {
-        PAGE_TYPE => render_chooser_type(s),
+        PAGE_PRESET => render_preset_page(s),
         PAGE_OSC1 => render_osc_page(s, patch::P_WAVE1),
         PAGE_OSC2 => render_osc_page(s, patch::P_WAVE2),
         _ => render_fader_page(s),
