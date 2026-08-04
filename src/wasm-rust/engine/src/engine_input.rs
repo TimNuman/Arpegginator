@@ -767,14 +767,19 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
     if (modifiers & MOD_CTRL) != 0 {
         // Row 7: mode buttons + ghost toggle
         if row == 7 {
-            if col <= 1 {
-                static MODE_MAP: [u8; 2] = [UiMode::Pattern as u8, UiMode::Modify as u8];
+            if col <= 2 {
+                static MODE_MAP: [u8; 3] =
+                    [UiMode::Pattern as u8, UiMode::Modify as u8, UiMode::Sound as u8];
                 let mode = MODE_MAP[col as usize];
                 // Block Modify mode when current pattern has no notes
                 if mode == UiMode::Modify as u8 {
                     let ch = s.current_channel as usize;
                     let pat = s.current_patterns[ch] as usize;
                     if s.patterns[ch][pat].event_count == 0 { return; }
+                }
+                // Block Sound mode on drum channels (no drum synthesis yet)
+                if mode == UiMode::Sound as u8 && s.is_drum_channel(s.current_channel as usize) {
+                    return;
                 }
                 s.ui_mode = mode;
             } else if col == 15 {
@@ -785,6 +790,10 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
 
         // Rows 0..NUM_CHANNELS: channel/pattern selection (mode unchanged)
         channel_grid_press(s, row as usize, col, modifiers);
+        // Sound mode has no meaning on a drum channel — fall back to Pattern
+        if s.ui_mode == UiMode::Sound as u8 && s.is_drum_channel(s.current_channel as usize) {
+            s.ui_mode = UiMode::Pattern as u8;
+        }
         return;
     }
 
@@ -793,6 +802,7 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
         UiMode::Channel => handle_channel_press(s, row, col, modifiers),
         UiMode::Loop => handle_loop_press(s, row, col, modifiers),
         UiMode::Modify => handle_modify_press(s, row, col, modifiers),
+        UiMode::Sound => crate::engine_sound::handle_sound_press(s, row, col, modifiers),
     }
 }
 
@@ -1162,6 +1172,7 @@ pub fn engine_arrow_press(s: &mut EngineState, direction: u8, modifiers: u8) {
         UiMode::Pattern => handle_arrow_pattern(s, direction, modifiers),
         UiMode::Loop => handle_arrow_loop(s, direction, modifiers),
         UiMode::Modify => handle_arrow_modify(s, direction, modifiers),
+        UiMode::Sound => crate::engine_sound::handle_arrow_sound(s, direction, modifiers),
         _ => {}
     }
 }

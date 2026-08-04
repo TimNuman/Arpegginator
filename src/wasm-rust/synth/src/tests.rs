@@ -128,6 +128,90 @@ fn all_notes_off_silences_quickly() {
 }
 
 #[test]
+fn every_waveform_produces_bounded_audio() {
+    for wave in 0..patch::NUM_WAVES as i16 {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_param(0, patch::P_WAVE1 as u8, wave);
+        synth.set_param(0, patch::P_WAVE2 as u8, wave);
+        synth.note_on(0, 60, 100);
+        let stats = render_blocks(&mut synth, 30);
+        assert!(stats.mean_abs() > 0.003, "wave {wave} should produce audio");
+        assert!(stats.peak <= 1.0, "wave {wave} out of bounds, peak {}", stats.peak);
+        assert_eq!(stats.non_finite, 0, "wave {wave} produced NaN/inf");
+    }
+}
+
+#[test]
+fn param_edits_change_sound_live() {
+    let render_sum = |edit: Option<(usize, i16)>| {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.note_on(0, 60, 100);
+        render_blocks(&mut synth, 10);
+        if let Some((param, value)) = edit {
+            synth.set_param(0, param as u8, value);
+        }
+        // Same note keeps sounding — edits must be audible without retrigger
+        render_blocks(&mut synth, 30).sum_abs
+    };
+    let baseline = render_sum(None);
+    for (param, value) in [
+        (patch::P_CUTOFF, 5),
+        (patch::P_OSC_MIX, 100),
+        (patch::P_SUB_ON, 1),
+        (patch::P_DRIVE, 100),
+        (patch::P_VOLUME, 10),
+    ] {
+        let edited = render_sum(Some((param, value)));
+        assert!(
+            (edited - baseline).abs() / baseline > 0.01,
+            "editing param {param} to {value} should audibly change output"
+        );
+    }
+}
+
+#[test]
+fn params_clamp_to_range() {
+    let mut synth = Synth::new();
+    synth.set_param(0, patch::P_WAVE1 as u8, 99);
+    assert_eq!(synth.get_param(0, patch::P_WAVE1 as u8), patch::PARAM_MAX[patch::P_WAVE1]);
+    synth.set_param(0, patch::P_SUSTAIN as u8, -5);
+    assert_eq!(synth.get_param(0, patch::P_SUSTAIN as u8), 0);
+    // Out-of-range channel/param ids must not panic
+    synth.set_param(200, 250, 50);
+}
+
+#[test]
+fn glide_slides_between_notes() {
+    let mut synth = Synth::new();
+    synth.set_sample_rate(SR);
+    synth.set_param(0, patch::P_GLIDE as u8, 80);
+    synth.note_on(0, 48, 100);
+    render_blocks(&mut synth, 10);
+    synth.note_off(0, 48);
+    synth.note_on(0, 72, 100);
+    // Must stay bounded and finite while the pitch travels two octaves
+    let stats = render_blocks(&mut synth, 60);
+    assert!(stats.mean_abs() > 0.003);
+    assert!(stats.peak <= 1.0);
+    assert_eq!(stats.non_finite, 0);
+}
+
+#[test]
+fn channels_have_independent_patches() {
+    let mut synth = Synth::new();
+    synth.set_sample_rate(SR);
+    synth.set_param(1, patch::P_VOLUME as u8, 0);
+    synth.note_on(0, 60, 100);
+    synth.note_on(1, 60, 100);
+    let stats = render_blocks(&mut synth, 20);
+    // Channel 0 still sounds at default volume; channel 1 is silenced
+    assert!(stats.mean_abs() > 0.005, "channel 0 must be unaffected by channel 1's patch");
+    assert_eq!(synth.get_param(0, patch::P_VOLUME as u8), patch::DEFAULTS[patch::P_VOLUME]);
+}
+
+#[test]
 fn deterministic_output() {
     let run = || {
         let mut synth = Synth::new();

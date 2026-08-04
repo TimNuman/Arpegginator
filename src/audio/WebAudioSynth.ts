@@ -39,6 +39,8 @@ export class WebAudioSynth {
   private silentLoop: HTMLAudioElement | null = null;
   /** Rust WASM synth (AudioWorklet) for melodic channels */
   private rustSynth = new RustSynth();
+  /** Fires once the Rust synth is producing audio — App syncs patch params */
+  onRustSynthReady: (() => void) | null = null;
 
   /** Create (or return) the AudioContext. Safe to call any time. */
   private ensure(): AudioContext {
@@ -73,7 +75,9 @@ export class WebAudioSynth {
 
     // Load the Rust synth worklet in the background; melodic notes use the
     // JS piano until it's ready (or forever, if the browser can't run it)
-    void this.rustSynth.load(ctx, master);
+    void this.rustSynth.load(ctx, master).then((ok) => {
+      if (ok) this.onRustSynthReady?.();
+    });
 
     return ctx;
   }
@@ -168,6 +172,16 @@ export class WebAudioSynth {
       this.pianoVoices.delete(key);
       voice.release(this.ctx.currentTime);
     }
+  }
+
+  /** True once melodic notes are being rendered by the Rust synth. */
+  isRustSynthReady(): boolean {
+    return this.rustSynth.isReady();
+  }
+
+  /** Forward a Sound-mode patch edit to the Rust synth. */
+  setSoundParam(channel: number, param: number, value: number): void {
+    this.rustSynth.setParam(channel, param, value);
   }
 
   allNotesOff(): void {

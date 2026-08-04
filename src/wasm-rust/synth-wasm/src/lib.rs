@@ -54,6 +54,12 @@ pub extern "C" fn synth_all_notes_off() {
     G_SYNTH.get_mut().all_notes_off();
 }
 
+/// Set one patch parameter (UI units, see arp3_synth::patch).
+#[no_mangle]
+pub extern "C" fn synth_set_param(channel: u32, param: u32, value: i32) {
+    G_SYNTH.get_mut().set_param(channel as u8, param as u8, value as i16);
+}
+
 /// Render `frames` mono samples (clamped to MAX_BLOCK) and return a pointer
 /// to the f32 block in WASM memory. Valid until the next call.
 #[no_mangle]

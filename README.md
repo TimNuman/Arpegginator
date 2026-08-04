@@ -41,7 +41,8 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 
 ### Sound
 
-- Built-in sounds -- no MIDI hardware needed. Drum channels play a Web Audio 808-style kit (kick, snare, clap, hats, toms, cymbals, cowbell, and more, mapped by GM drum note). Melodic channels play the Rust synth (`arp3-synth`): a polyphonic subtractive engine (detuned polyBLEP saws, state-variable lowpass, ADSR) compiled to WASM and rendered in an AudioWorklet -- the same `no_std` DSP crate that will drive the Teensy's audio output on hardware. Browsers without AudioWorklet fall back to a Web Audio piano (works on e.g. iPad Safari).
+- Built-in sounds -- no MIDI hardware needed. Drum channels play a Web Audio 808-style kit (kick, snare, clap, hats, toms, cymbals, cowbell, and more, mapped by GM drum note). Melodic channels play the Rust synth (`arp3-synth`): a polyphonic subtractive engine (selectable waveforms, sub osc, state-variable lowpass, ADSR, glide, drive) compiled to WASM and rendered in an AudioWorklet -- the same `no_std` DSP crate that will drive the Teensy's audio output on hardware. Browsers without AudioWorklet fall back to a Web Audio piano (works on e.g. iPad Safari).
+- **Sound mode** -- per-channel patch editing on the grid (Ctrl + third bottom-row button). The left encoder cycles pages (engine type, osc 1/2 waveform choosers that draw the wave in LEDs, sub, amp, envelope, filter, FX), the right encoder edits the focused value (Shift for fine), and the grid is directly pressable: fader banks for continuous params, selector rows for waveforms. Edits are audible immediately while the sequencer runs.
 - Sends note-on/off to any connected MIDI device via Web MIDI API
 - Receives MIDI clock for external sync (start, stop, continue, tempo detection)
 - Device selections persist across sessions

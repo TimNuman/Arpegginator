@@ -958,6 +958,67 @@ fn render_modify(s: &EngineState, mods: u8) {
     }
 }
 
+fn render_sound(s: &EngineState, mods: u8) {
+    use crate::engine_sound::*;
+    let ch = s.current_channel as usize;
+    let page = s.sound_page;
+    let patch_vals = &s.sound_patches[ch];
+    let shift = (mods & MOD_SHIFT) != 0;
+
+    // ---- Row 0: SOUND | CH xx TYPE ----
+    let mut hdr = FmtBuf::<16>::new();
+    let _ = write!(hdr, "CH {} ", ch + 1);
+    hdr.push_str(ENGINE_TYPE_LABELS[(patch_vals[arp3_synth::patch::P_ENGINE] as usize)
+        .min(ENGINE_TYPE_LABELS.len() - 1)]);
+    draw_row(ROW_Y5[0], "SOUND", &hdr, GFX_VALUE);
+
+    // ---- Row 1: PAGE label + all page names in cycle order, current highlighted ----
+    {
+        gfx_aa_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_AA_SMALL);
+        let label = SOUND_PAGE_LABELS[(page as usize).min(SOUND_PAGE_LABELS.len() - 1)];
+        gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], label, GFX_YELLOW, &FONT_AA_SMALL_BOLD);
+    }
+
+    // ---- Rows 2-3: params of the current page ----
+    let focused = focused_param(s);
+    let draw_param = |slot: usize, param: usize| {
+        // Two params per row: slots 0/2 left column, 1/3 right column
+        let y = ROW_Y5[2 + slot / 2];
+        let (x_label, x_right) = if slot % 2 == 0 {
+            (PAD_X, PAD_X + HALF_W - 6)
+        } else {
+            (PAD_X + HALF_W + 4, CONTENT_RIGHT)
+        };
+        let value = format_param_value(param, patch_vals[param]);
+        let color = if focused == Some(param) { GFX_YELLOW } else { GFX_VALUE };
+        gfx_aa_text(x_label, y, param_label(param), GFX_LABEL, &FONT_AA_SMALL);
+        gfx_aa_text_right(x_right, y, &value, color, &FONT_AA_SMALL_BOLD);
+    };
+
+    match page {
+        PAGE_TYPE => draw_param(0, arp3_synth::patch::P_ENGINE),
+        PAGE_OSC1 => draw_param(0, arp3_synth::patch::P_WAVE1),
+        PAGE_OSC2 => {
+            draw_param(0, arp3_synth::patch::P_WAVE2);
+            draw_param(1, arp3_synth::patch::P_DETUNE);
+        }
+        PAGE_SUB => {
+            draw_param(0, arp3_synth::patch::P_SUB_LEVEL);
+            draw_param(1, arp3_synth::patch::P_SUB_ON);
+        }
+        _ => {
+            for (i, &param) in page_faders(page).iter().enumerate().take(4) {
+                draw_param(i, param);
+            }
+        }
+    }
+
+    // ---- Legend ----
+    draw_legend_item(0, 0, "", GFX_DIM);
+    draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
+    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+}
+
 fn render_channel(s: &EngineState) {
     let ch = s.current_channel;
     let pat = s.current_patterns[ch as usize];
@@ -1078,6 +1139,9 @@ pub fn modifier_hint(s: &EngineState, held: u8, key: u8) -> &'static str {
         UiMode::Modify => {
             if key == MOD_META { "loop/stay" } else { "" }
         }
+        UiMode::Sound => {
+            if key == MOD_SHIFT { "fine" } else { "" }
+        }
     }
 }
 
@@ -1093,6 +1157,7 @@ pub fn oled_render(s: &EngineState, modifiers: u8) {
         UiMode::Channel => render_channel(s),
         UiMode::Loop => render_loop(s, modifiers),
         UiMode::Modify => render_modify(s, modifiers),
+        UiMode::Sound => render_sound(s, modifiers),
     }
 }
 
