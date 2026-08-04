@@ -212,6 +212,41 @@ fn channels_have_independent_patches() {
 }
 
 #[test]
+fn fm_engine_all_algorithms_bounded_and_audible() {
+    for algo in 0..8i16 {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_FM);
+        synth.set_param(0, patch::P_ALGO as u8, algo);
+        synth.set_param(0, patch::P_RATIO1 as u8, 2);
+        synth.set_param(0, patch::P_FM_AMT as u8, 80);
+        synth.set_param(0, patch::P_FB as u8, 60);
+        synth.set_param(0, patch::P_MENV as u8, 70);
+        synth.note_on(0, 60, 110);
+        synth.note_on(0, 67, 90);
+        let stats = render_blocks(&mut synth, 40);
+        assert!(stats.mean_abs() > 0.003, "algo {algo} should produce audio");
+        assert!(stats.peak <= 1.0, "algo {algo} out of bounds, peak {}", stats.peak);
+        assert_eq!(stats.non_finite, 0, "algo {algo} produced NaN/inf");
+    }
+}
+
+#[test]
+fn fm_engine_switch_mid_note_is_safe() {
+    let mut synth = Synth::new();
+    synth.set_sample_rate(SR);
+    synth.note_on(0, 60, 100);
+    render_blocks(&mut synth, 10);
+    // Flip a sounding voice to FM and back — must stay bounded, no panic
+    synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_FM);
+    let fm = render_blocks(&mut synth, 20);
+    synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_SUBTRACTIVE);
+    let back = render_blocks(&mut synth, 20);
+    assert!(fm.peak <= 1.0 && back.peak <= 1.0);
+    assert_eq!(fm.non_finite + back.non_finite, 0);
+}
+
+#[test]
 fn presets_are_valid_and_audible() {
     assert_eq!(patch::PRESETS[0].values, patch::DEFAULTS, "slot 0 is the boot patch");
     for (i, preset) in patch::PRESETS.iter().enumerate() {

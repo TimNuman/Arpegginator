@@ -15,7 +15,8 @@ use crate::engine_core::*;
 use crate::engine_input::{DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, MOD_SHIFT};
 use crate::platform::platform_sound_param;
 use arp3_synth::patch::{
-    self, clamp_param, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
+    self, clamp_param, ALGO_CARRIERS, ALGO_ROUTES, ENGINE_FM, NUM_ENGINE_TYPES, NUM_PARAMS,
+    NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
 };
 
 // ============ Pages ============
@@ -27,21 +28,46 @@ pub const PAGE_AMP: u8 = 3;
 pub const PAGE_ENV: u8 = 4;
 pub const PAGE_FILT: u8 = 5;
 pub const PAGE_FX: u8 = 6;
-pub const NUM_SOUND_PAGES: usize = 7;
+// FM-engine pages
+pub const PAGE_ALGO: u8 = 7;
+pub const PAGE_OP: u8 = 8;
+pub const PAGE_FM: u8 = 9;
+pub const NUM_SOUND_PAGES: usize = 10;
 
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] =
-    ["PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX"];
+    ["PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM"];
 
-pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "ADD", "FM", "WAVE"];
+/// Page cycle per engine — the left encoder walks this list. The synthesis
+/// pages differ; preset/amp/env/filter/fx are shared.
+static SUBTR_PAGES: [u8; 7] =
+    [PAGE_PRESET, PAGE_OSC1, PAGE_OSC2, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
+static FM_PAGES: [u8; 8] =
+    [PAGE_PRESET, PAGE_ALGO, PAGE_OP, PAGE_FM, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
+
+pub fn engine_pages(engine: i16) -> &'static [u8] {
+    if engine == ENGINE_FM { &FM_PAGES } else { &SUBTR_PAGES }
+}
+
+fn current_engine(s: &EngineState) -> i16 {
+    s.sound_patches[s.current_channel as usize][patch::P_ENGINE]
+}
+
+pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "FM", "ADD", "WAVE"];
 pub static WAVE_LABELS: [&str; NUM_WAVES] = ["SAW", "SQR", "TRI", "SIN", "PLS", "NSE"];
 
-/// Fader-bank pages: the params behind each fader, left to right.
-pub fn page_faders(page: u8) -> &'static [usize] {
+/// Fader-bank pages: the params behind each fader, left to right. AMP swaps
+/// the (subtractive-only) osc mix out when the engine is FM.
+pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
     match page {
+        PAGE_AMP if engine == ENGINE_FM => {
+            &[patch::P_VOLUME, patch::P_SUB_LEVEL, patch::P_GLIDE]
+        }
         PAGE_AMP => &[patch::P_VOLUME, patch::P_OSC_MIX, patch::P_SUB_LEVEL, patch::P_GLIDE],
         PAGE_ENV => &[patch::P_ATTACK, patch::P_DECAY, patch::P_SUSTAIN, patch::P_RELEASE],
         PAGE_FILT => &[patch::P_CUTOFF, patch::P_RESO, patch::P_FENV, patch::P_KEYTRACK],
         PAGE_FX => &[patch::P_DRIVE],
+        PAGE_OP => &[patch::P_RATIO1, patch::P_RATIO2, patch::P_RATIO3, patch::P_RATIO4],
+        PAGE_FM => &[patch::P_FM_AMT, patch::P_FB, patch::P_MENV, patch::P_DETUNE],
         _ => &[],
     }
 }
@@ -65,6 +91,14 @@ pub fn param_label(param: usize) -> &'static str {
         patch::P_FENV => "ENV",
         patch::P_KEYTRACK => "KEY",
         patch::P_DRIVE => "DRIVE",
+        patch::P_ALGO => "ALGO",
+        patch::P_RATIO1 => "R1",
+        patch::P_RATIO2 => "R2",
+        patch::P_RATIO3 => "R3",
+        patch::P_RATIO4 => "R4",
+        patch::P_FM_AMT => "FM",
+        patch::P_FB => "FB",
+        patch::P_MENV => "MENV",
         _ => "?",
     }
 }
@@ -84,6 +118,10 @@ pub fn format_param_value(param: usize, value: i16) -> FmtBuf<12> {
         patch::P_ENGINE => buf.push_str(ENGINE_TYPE_LABELS[(value as usize).min(NUM_ENGINE_TYPES - 1)]),
         patch::P_WAVE1 | patch::P_WAVE2 => buf.push_str(WAVE_LABELS[(value as usize).min(NUM_WAVES - 1)]),
         patch::P_DETUNE => { let _ = write!(buf, "{}CT", value); }
+        patch::P_ALGO => { let _ = write!(buf, "{}", value + 1); }
+        patch::P_RATIO1 | patch::P_RATIO2 | patch::P_RATIO3 | patch::P_RATIO4 => {
+            if value <= 0 { buf.push_str("X.5") } else { let _ = write!(buf, "X{}", value); }
+        }
         patch::P_CUTOFF => {
             let hz = patch::cutoff_hz(value);
             if hz >= 1000.0 {
@@ -134,6 +172,12 @@ pub fn engine_load_sound_preset(s: &mut EngineState, ch: usize, preset: usize) {
     for param in 0..NUM_PARAMS {
         platform_sound_param(ch as u8, param as u8, s.sound_patches[ch][param]);
     }
+    // The preset may switch engines; if the current page doesn't exist for
+    // the new engine, fall back to the preset page
+    let engine = s.sound_patches[ch][patch::P_ENGINE];
+    if !engine_pages(engine).contains(&s.sound_page) {
+        s.sound_page = PAGE_PRESET;
+    }
 }
 
 /// Emit every param of every melodic channel — called by the host once the
@@ -154,6 +198,7 @@ fn chooser_param(page: u8) -> Option<usize> {
     match page {
         PAGE_OSC1 => Some(patch::P_WAVE1),
         PAGE_OSC2 => Some(patch::P_WAVE2),
+        PAGE_ALGO => Some(patch::P_ALGO),
         _ => None,
     }
 }
@@ -163,7 +208,7 @@ pub fn focused_param(s: &EngineState) -> Option<usize> {
     if let Some(p) = chooser_param(s.sound_page) {
         return Some(p);
     }
-    let faders = page_faders(s.sound_page);
+    let faders = page_faders(current_engine(s), s.sound_page);
     if faders.is_empty() {
         return None;
     }
@@ -179,20 +224,23 @@ fn step_param(s: &mut EngineState, param: usize, delta: i16) {
     engine_set_sound_param(s, ch, param, cur + delta);
 }
 
-/// Encoder step size: enumerated params move one option, percent params move
-/// in coarse steps (Shift = fine).
+/// Encoder step size: enumerated/small-range params (waves, algos, ratios)
+/// move one option, percent params move in coarse steps (Shift = fine).
 fn encoder_step(param: usize, fine: bool) -> i16 {
-    if PARAM_MAX[param] <= 5 || fine { 1 } else { 5 }
+    if PARAM_MAX[param] <= 15 || fine { 1 } else { 5 }
 }
 
 pub fn handle_arrow_sound(s: &mut EngineState, dir: u8, mods: u8) {
     let shift = (mods & MOD_SHIFT) != 0;
 
     match dir {
-        // Left encoder: cycle page
+        // Left encoder: cycle the current engine's page list
         DIR_UP | DIR_DOWN => {
-            let n = NUM_SOUND_PAGES as u8;
-            s.sound_page = if dir == DIR_UP { (s.sound_page + 1) % n } else { (s.sound_page + n - 1) % n };
+            let pages = engine_pages(current_engine(s));
+            let idx = pages.iter().position(|&pg| pg == s.sound_page).unwrap_or(0);
+            let n = pages.len();
+            let next = if dir == DIR_UP { (idx + 1) % n } else { (idx + n - 1) % n };
+            s.sound_page = pages[next];
         }
         // Right encoder: edit the focused value
         DIR_LEFT | DIR_RIGHT => {
@@ -247,16 +295,17 @@ pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, _mods: u8) {
         }
         return;
     }
-    if let Some(wave_param) = chooser_param(page) {
-        // Bottom row is the waveform selector strip
-        if row == VISIBLE_ROWS - 1 && col < NUM_WAVES {
-            engine_set_sound_param(s, ch, wave_param, col as i16);
+    if let Some(chooser) = chooser_param(page) {
+        // Bottom row is the option selector strip (waves or algorithms)
+        let options = (PARAM_MAX[chooser] as usize + 1).min(VISIBLE_COLS);
+        if row == VISIBLE_ROWS - 1 && col < options {
+            engine_set_sound_param(s, ch, chooser, col as i16);
         }
         return;
     }
 
     // Fader banks: 3 columns per fader + 1 gap column
-    let faders = page_faders(page);
+    let faders = page_faders(current_engine(s), page);
     let fader_idx = col / 4;
     if col % 4 == 3 || fader_idx >= faders.len() {
         return;
@@ -341,7 +390,7 @@ fn render_osc_page(s: &mut EngineState, wave_param: usize) {
 fn render_fader_page(s: &mut EngineState) {
     let ch = s.current_channel as usize;
     let page = s.sound_page;
-    let faders = page_faders(page);
+    let faders = page_faders(current_engine(s), page);
     let focus = (s.sound_focus[page as usize] as usize).min(faders.len().saturating_sub(1));
 
     for (i, &param) in faders.iter().enumerate() {
@@ -373,6 +422,84 @@ fn render_fader_page(s: &mut EngineState) {
     }
 }
 
+/// FM algorithm diagram: draw the 4 operators as blocks positioned by their
+/// depth in the modulation graph (carriers on the bottom row, modulators
+/// stacked above what they feed), with dim connector cells between. Bottom
+/// row is the 8-algorithm selector strip.
+fn render_algo_page(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    let algo = (s.sound_patches[ch][patch::P_ALGO] as usize).min(7);
+    let routes = &ALGO_ROUTES[algo];
+    let carriers = ALGO_CARRIERS[algo];
+
+    // Depth of each op above the carrier row: carriers sit at 0, an op sits
+    // one level above the deepest op it modulates. Routing is strictly
+    // ascending (op i only feeds higher ops), so iterate targets descending.
+    let mut level = [0usize; 4];
+    for op in (0..4).rev() {
+        let mut max_target = None;
+        for target in (op + 1)..4 {
+            if routes[target] & (1 << op) != 0 {
+                max_target = Some(level[target].max(max_target.unwrap_or(0)));
+            }
+        }
+        if let Some(t) = max_target {
+            level[op] = t + 1;
+        }
+    }
+
+    // Column assignment: spread the ops on each level across the grid
+    let mut col_of = [0usize; 4];
+    for lv in 0..4 {
+        let ops: [bool; 4] = core::array::from_fn(|op| level[op] == lv);
+        let n = ops.iter().filter(|&&b| b).count();
+        if n == 0 {
+            continue;
+        }
+        let mut placed = 0;
+        for op in 0..4 {
+            if ops[op] {
+                col_of[op] = (VISIBLE_COLS * (placed + 1)) / (n + 1);
+                placed += 1;
+            }
+        }
+    }
+
+    for op in 0..4 {
+        let vr = 5 - (level[op] * 2).min(5);
+        let c = col_of[op].clamp(1, VISIBLE_COLS - 1);
+        let is_carrier = carriers & (1 << op) != 0;
+        let val = if is_carrier { BTN_COLOR_100 } else { BTN_COLOR_50 };
+        s.button_values[vr][c - 1] = val;
+        s.button_values[vr][c] = val;
+        // Feedback op (op 1) gets the amber accent when feedback is active
+        if op == 0 && s.sound_patches[ch][patch::P_FB] > 0 {
+            s.color_overrides[vr][c - 1] = SOUND_ACCENT;
+            s.color_overrides[vr][c] = SOUND_ACCENT;
+        }
+        // Connector down to each op this one modulates
+        for target in (op + 1)..4 {
+            if routes[target] & (1 << op) != 0 {
+                let tr = 5 - (level[target] * 2).min(5);
+                let tc = col_of[target].clamp(1, VISIBLE_COLS - 1);
+                let (lo, hi) = if vr < tr { (vr, tr) } else { (tr, vr) };
+                for rr in (lo + 1)..hi {
+                    let cc = if rr == lo + 1 { c } else { tc };
+                    if s.button_values[rr][cc - 1] == BTN_OFF {
+                        s.button_values[rr][cc - 1] = BTN_COLOR_25;
+                    }
+                }
+            }
+        }
+    }
+
+    // Bottom row: algorithm selector strip
+    for c in 0..8 {
+        s.button_values[VISIBLE_ROWS - 1][c] =
+            if c == algo { BTN_COLOR_100 } else { BTN_WHITE_25 };
+    }
+}
+
 /// Render the Sound-mode grid. Returns false when the current channel is a
 /// drum channel — the caller falls back to pattern mode (drum synthesis
 /// isn't a thing yet).
@@ -386,6 +513,7 @@ pub fn render_sound_mode(s: &mut EngineState) -> bool {
         PAGE_PRESET => render_preset_page(s),
         PAGE_OSC1 => render_osc_page(s, patch::P_WAVE1),
         PAGE_OSC2 => render_osc_page(s, patch::P_WAVE2),
+        PAGE_ALGO => render_algo_page(s),
         _ => render_fader_page(s),
     }
     true

@@ -1018,8 +1018,13 @@ fn render_sound(s: &EngineState, mods: u8) {
             draw_param(0, arp3_synth::patch::P_WAVE2);
             draw_param(1, arp3_synth::patch::P_DETUNE);
         }
+        PAGE_ALGO => {
+            draw_param(0, arp3_synth::patch::P_ALGO);
+            draw_param(1, arp3_synth::patch::P_FB);
+        }
         _ => {
-            for (i, &param) in page_faders(page).iter().enumerate().take(4) {
+            let engine = patch_vals[arp3_synth::patch::P_ENGINE];
+            for (i, &param) in page_faders(engine, page).iter().enumerate().take(4) {
                 draw_param(i, param);
             }
         }
