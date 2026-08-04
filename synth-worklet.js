@@ -25,13 +25,33 @@ class RustSynthProcessor extends AudioWorkletProcessor {
     }
 
     this.port.onmessage = (event) => {
-      const [type, a, b, c] = event.data;
+      const [type, a, b, c, d] = event.data;
       if (!this.exports) return;
       if (type === 0) this.exports.synth_note_on(a, b, c);
       else if (type === 1) this.exports.synth_note_off(a, b);
       else if (type === 2) this.exports.synth_all_notes_off();
       else if (type === 3) this.exports.synth_set_param(a, b, c);
+      else if (type === 4) this.exports.synth_set_slot_param(a, b, c, d);
+      else if (type === 5) this.exports.synth_drum_trigger(a, b, c);
+      else if (type === 6) this.exports.synth_drum_release(a, b);
+      else if (type === 7) this.loadSample(a, b, c);
     };
+  }
+
+  // Copy an Int16Array take into WASM sample memory and activate it (an
+  // empty/omitted take clears the slot). Runs between render quanta, so the
+  // swap is atomic from the renderer's point of view.
+  loadSample(channel, slot, samples) {
+    const ex = this.exports;
+    if (!samples || samples.length === 0) {
+      ex.synth_sample_clear(channel, slot);
+      return;
+    }
+    const ptr = ex.synth_sample_buffer(channel, slot, samples.length);
+    if (!ptr) return;
+    // Fresh view after synth_sample_buffer — memory.grow detaches buffers
+    new Int16Array(ex.memory.buffer, ptr, samples.length).set(samples);
+    ex.synth_sample_commit(channel, slot, samples.length);
   }
 
   process(_inputs, outputs) {
