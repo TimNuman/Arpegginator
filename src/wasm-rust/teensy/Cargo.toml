@@ -5,8 +5,8 @@ edition.workspace = true
 
 [features]
 # Forwarded to arp3-engine. Default on = early micro-timing + flam at the cost
-# of a small fixed latency. Build `cargo build --release --no-default-features`
-# for zero added MIDI latency on hardware.
+# of a small fixed latency. Build `cargo build --profile teensy
+# --no-default-features` for zero added MIDI latency on hardware.
 default = ["lookahead"]
 lookahead = ["arp3-engine/lookahead"]
 

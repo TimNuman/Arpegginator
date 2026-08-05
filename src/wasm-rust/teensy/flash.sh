@@ -5,12 +5,12 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WORKSPACE_DIR="$SCRIPT_DIR/.."
-TARGET_DIR="$WORKSPACE_DIR/target/thumbv7em-none-eabihf/release"
+TARGET_DIR="$WORKSPACE_DIR/target/thumbv7em-none-eabihf/teensy"
 export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 
 echo "Building..."
 cd "$SCRIPT_DIR"
-cargo build --release
+cargo build --profile teensy
 
 echo "Converting ELF to HEX..."
 llvm-objcopy -O ihex "$TARGET_DIR/arp3-teensy" "$TARGET_DIR/arp3-teensy.hex"
