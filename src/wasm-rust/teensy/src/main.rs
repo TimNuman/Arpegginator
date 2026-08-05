@@ -73,11 +73,13 @@ mod protocol {
     pub const CMD_RESET: u8 = 0x1E;
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;
+    pub const CMD_GET_PERF: u8 = 0x22;
     pub const CMD_PING: u8 = 0x7E;
 
     pub const RSP_PONG: u8 = 0x7E;
     pub const RSP_TICK: u8 = 0x40;
     pub const RSP_STATE: u8 = 0x41;
+    pub const RSP_PERF: u8 = 0x42;
 
     pub fn encode_i32(val: i32, out: &mut [u8; 5]) {
         let v = val as u32;
@@ -113,6 +115,12 @@ static PENDING_TICKS: AtomicU32 = AtomicU32::new(0);
 /// Upper bound on catch-up per main-loop pass, so a huge backlog (e.g.
 /// after a debugger halt) drains over several passes instead of wedging one.
 const MAX_TICK_CATCHUP: u32 = 24;
+
+/// Worst main-loop pass since the last CMD_GET_PERF, in DWT cycles. A pass
+/// is the tick/MIDI service jitter window, so this is the number to watch
+/// alongside the audio ISR max when checking timing on hardware. Written
+/// and read only from the main loop; atomic just to live in a static.
+static LOOP_MAX_CYCLES: AtomicU32 = AtomicU32::new(0);
 
 #[bsp::rt::interrupt]
 fn PIT() {
@@ -303,6 +311,17 @@ fn main() -> ! {
     engine_core::engine_core_init(&mut state);
     state.bpm = DEFAULT_BPM;
 
+    // Enable the DWT cycle counter first: preview note-off timing, grid
+    // refresh pacing, and the audio ISR's duration instrumentation all read
+    // it, and the SAI interrupt starts inside audio::init below.
+    unsafe {
+        let dcb = &*cortex_m::peripheral::DCB::PTR;
+        let dwt = &*cortex_m::peripheral::DWT::PTR;
+        dcb.demcr.modify(|r| r | (1 << 24));
+        dwt.cyccnt.write(0);
+        dwt.ctrl.modify(|r| r | 1);
+    }
+
     // ---- Internal synth on MQS (pins 10/12) ----
     let iomuxc_gpr = unsafe { bsp::ral::iomuxc_gpr::IOMUXC_GPR::instance() };
     audio::init(&mut ccm, &ccm_analog, &iomuxc_gpr, pins.p10, pins.p12);
@@ -331,15 +350,6 @@ fn main() -> ! {
     let mut preview_count: usize = 0;
     let mut preview_off_at: u32 = 0;
 
-    // Enable DWT cycle counter for preview note-off + grid refresh timing
-    unsafe {
-        let dcb = &*cortex_m::peripheral::DCB::PTR;
-        let dwt = &*cortex_m::peripheral::DWT::PTR;
-        dcb.demcr.modify(|r| r | (1 << 24));
-        dwt.cyccnt.write(0);
-        dwt.ctrl.modify(|r| r | 1);
-    }
-
     // Grid refresh pacing: recomputing every pass burned the whole idle
     // budget on 128 cells of float color math and made worst-case pass
     // latency (= tick/MIDI service jitter) worse. ~120Hz is beyond anything
@@ -364,6 +374,8 @@ fn main() -> ! {
 
     // ---- Main Loop ----
     loop {
+        let pass_start = dwt_cycles();
+
         // 1. Poll USB
         if usb_device.poll(&mut [&mut usb_midi]) {
             if usb_device.state() == UsbDeviceState::Configured {
@@ -546,6 +558,12 @@ fn main() -> ! {
                 grid_ms -= GRID_MS_WRAP;
             }
             arp3_engine::engine_ui::engine_compute_grid(&mut state, grid_ms);
+        }
+
+        // 6. Record worst-case pass duration for CMD_GET_PERF
+        let pass_cycles = dwt_cycles().wrapping_sub(pass_start);
+        if pass_cycles > LOOP_MAX_CYCLES.load(Ordering::Relaxed) {
+            LOOP_MAX_CYCLES.store(pass_cycles, Ordering::Relaxed);
         }
     }
 }
@@ -758,6 +776,21 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     sysex[i] = ((off >> 7) & 0x7F) as u8; i += 1;
                 }
                 let _ = midi.send_sysex(&sysex[..i]);
+            }
+            protocol::CMD_GET_PERF => {
+                // Worst audio-ISR duration and worst main-loop pass (both in
+                // 600MHz DWT cycles) since the last query; reading resets.
+                let isr_max = audio::take_max_isr_cycles();
+                let loop_max = LOOP_MAX_CYCLES.swap(0, Ordering::Relaxed);
+                let mut sysex = [0u8; 12];
+                sysex[0] = SYSEX_MFR;
+                sysex[1] = protocol::RSP_PERF;
+                let mut b = [0u8; 5];
+                protocol::encode_i32(isr_max as i32, &mut b);
+                sysex[2..7].copy_from_slice(&b);
+                protocol::encode_i32(loop_max as i32, &mut b);
+                sysex[7..12].copy_from_slice(&b);
+                let _ = midi.send_sysex(&sysex);
             }
             protocol::CMD_REBOOT => {
                 unsafe { core::arch::asm!("bkpt #251"); }

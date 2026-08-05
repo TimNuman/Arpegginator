@@ -193,6 +193,26 @@ pub fn fill_usb_packet(buf: &mut [u8; crate::usb_midi::AUDIO_PACKET_BYTES]) -> u
     frames * 4
 }
 
+// ============ Instrumentation ============
+
+/// Worst-case ISR duration in DWT cycles since the last `take`. The render
+/// deadline is the FIFO left at interrupt entry (watermark 24 words = ~272us
+/// = ~163k cycles at 600MHz); read this over SysEx (CMD_GET_PERF) on real
+/// patches to see actual headroom instead of estimating it.
+static ISR_MAX_CYCLES: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+/// Fetch and reset the worst-case ISR duration. Called from the main loop.
+pub fn take_max_isr_cycles() -> u32 {
+    ISR_MAX_CYCLES.swap(0, Ordering::Relaxed)
+}
+
+#[inline]
+fn dwt_cycles() -> u32 {
+    // The main loop enables DWT before the SAI interrupt is unmasked.
+    unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() }
+}
+
 // ============ ISR-owned state ============
 
 // SAFETY (for all three Globals): written once in `init()` before SAI3_TX is
@@ -301,6 +321,7 @@ fn apply_cmd(synth: &mut Synth, cmd: AudioCmd) {
 
 #[bsp::rt::interrupt]
 fn SAI3_TX() {
+    let t0 = dwt_cycles();
     let Some(tx) = TX.get_mut().as_mut() else { return };
     let synth = SYNTH.get_mut();
 
@@ -329,5 +350,12 @@ fn SAI3_TX() {
         usb_push(s); // tap the same stream for USB audio capture
         let s = s as u16;
         tx.write_frame_u16(chan, &[s, s]);
+    }
+
+    // Only this ISR writes the max (nothing preempts it), so a plain
+    // compare-and-store is race-free; the main loop swaps it back to 0.
+    let elapsed = dwt_cycles().wrapping_sub(t0);
+    if elapsed > ISR_MAX_CYCLES.load(Ordering::Relaxed) {
+        ISR_MAX_CYCLES.store(elapsed, Ordering::Relaxed);
     }
 }
