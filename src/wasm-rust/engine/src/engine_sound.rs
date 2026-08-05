@@ -39,28 +39,31 @@ pub const PAGE_DIGI: u8 = 11;
 pub const PAGE_HARM: u8 = 12;
 pub const PAGE_ADD: u8 = 13;
 // Drum-sampler pages (drum channels only)
+// Mod-matrix page (all melodic engines): wheel targets + depths
+pub const PAGE_MOD: u8 = 19;
+
 pub const PAGE_SSLOT: u8 = 14;
 pub const PAGE_SREC: u8 = 15;
 pub const PAGE_STRIM: u8 = 16;
 pub const PAGE_SPLAY: u8 = 17;
 pub const PAGE_SMOD: u8 = 18;
-pub const NUM_SOUND_PAGES: usize = 19;
+pub const NUM_SOUND_PAGES: usize = 20;
 
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
     "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
-    "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD",
+    "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD", "WHEEL",
 ];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
 /// pages differ; preset/amp/env/filter/fx are shared.
-static SUBTR_PAGES: [u8; 7] =
-    [PAGE_PRESET, PAGE_OSC1, PAGE_OSC2, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
-static FM_PAGES: [u8; 8] =
-    [PAGE_PRESET, PAGE_ALGO, PAGE_OP, PAGE_FM, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
-static WT_PAGES: [u8; 7] =
-    [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
-static ADD_PAGES: [u8; 7] =
-    [PAGE_PRESET, PAGE_HARM, PAGE_ADD, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX];
+static SUBTR_PAGES: [u8; 8] =
+    [PAGE_PRESET, PAGE_OSC1, PAGE_OSC2, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
+static FM_PAGES: [u8; 9] =
+    [PAGE_PRESET, PAGE_ALGO, PAGE_OP, PAGE_FM, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
+static WT_PAGES: [u8; 8] =
+    [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
+static ADD_PAGES: [u8; 8] =
+    [PAGE_PRESET, PAGE_HARM, PAGE_ADD, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
 static SAMPLER_PAGES: [u8; 5] = [PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD];
 
 pub fn engine_pages(engine: i16) -> &'static [u8] {
@@ -110,6 +113,10 @@ pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
         PAGE_ENV => &[patch::P_ATTACK, patch::P_DECAY, patch::P_SUSTAIN, patch::P_RELEASE],
         PAGE_FILT => &[patch::P_CUTOFF, patch::P_RESO, patch::P_FENV, patch::P_KEYTRACK],
         PAGE_FX => &[patch::P_DRIVE],
+        PAGE_MOD => &[
+            patch::P_MOD1_TARGET, patch::P_MOD1_DEPTH,
+            patch::P_MOD2_TARGET, patch::P_MOD2_DEPTH,
+        ],
         PAGE_OP => &[patch::P_RATIO1, patch::P_RATIO2, patch::P_RATIO3, patch::P_RATIO4],
         PAGE_FM => &[patch::P_FM_AMT, patch::P_FB, patch::P_MENV, patch::P_DETUNE],
         PAGE_DIGI => &[patch::P_WT_POS, patch::P_WT_WARP, patch::P_CRUSH, patch::P_DETUNE],
@@ -149,6 +156,11 @@ pub fn param_label(param: usize) -> &'static str {
         patch::P_WT_WARP => "WARP",
         patch::P_CRUSH => "CRUSH",
         patch::P_ADD_STRETCH => "STRCH",
+        patch::P_MOD1_TARGET => "TGT1",
+        patch::P_MOD1_DEPTH => "AMT1",
+        patch::P_MOD2_TARGET => "TGT2",
+        patch::P_MOD2_DEPTH => "AMT2",
+        patch::P_MOD_VALUE => "WHEEL",
         patch::P_H1..=patch::P_H16 => {
             static H_LABELS: [&str; NUM_ADD_HARMONICS] = [
                 "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12",
@@ -173,6 +185,16 @@ pub fn format_param_value(param: usize, value: i16) -> FmtBuf<12> {
     };
     match param {
         patch::P_ENGINE => buf.push_str(ENGINE_TYPE_LABELS[(value as usize).min(NUM_ENGINE_TYPES - 1)]),
+        patch::P_MOD1_TARGET | patch::P_MOD2_TARGET => {
+            if value <= 0 || value as usize > patch::MAX_MOD_TARGET {
+                buf.push_str("OFF");
+            } else {
+                buf.push_str(param_label(value as usize));
+            }
+        }
+        patch::P_MOD1_DEPTH | patch::P_MOD2_DEPTH => {
+            let _ = write!(buf, "{:+}%", value - 100);
+        }
         patch::P_WAVE1 | patch::P_WAVE2 => buf.push_str(WAVE_LABELS[(value as usize).min(NUM_WAVES - 1)]),
         patch::P_DETUNE => { let _ = write!(buf, "{}CT", value); }
         patch::P_ALGO => { let _ = write!(buf, "{}", value + 1); }
