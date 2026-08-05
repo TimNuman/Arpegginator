@@ -86,6 +86,8 @@ export interface Engine {
   // resolved internally); JS just forwards to MIDI.
   onNoteOn: ((channel: number, midiNote: number, velocity: number) => void) | null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null;
+  /** Control change from the engine (e.g. the WHEEL lane as CC1) — forward to MIDI out */
+  onMidiCc: ((channel: number, controller: number, value: number) => void) | null;
   onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null;
   /** Synth patch param changed (Sound mode edit or sync) — forward to audio */
   onSoundParam: ((channel: number, param: number, value: number) => void) | null;

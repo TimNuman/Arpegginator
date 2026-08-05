@@ -1675,6 +1675,11 @@ pub fn engine_core_tick(s: &mut EngineState) {
                         crate::platform::platform_sound_param(
                             ch, arp3_synth::patch::P_MOD_VALUE as u8, wheel,
                         );
+                        // Mirror the lane to external gear as a real mod
+                        // wheel (CC1), rescaled to MIDI's 0..127.
+                        crate::platform::platform_midi_cc(
+                            ch, 1, ((wheel as i32 * 127) / 100) as u8,
+                        );
                     }
 
                     // Apply swing: delay odd 16th notes

@@ -218,6 +218,7 @@ function App() {
     playNote,
     stopNote,
     stopAllNotes,
+    sendControlChange,
   } = useMidi({
     onStart: () => playExternalRef.current(),
     onStop: () => stopExternalRef.current(),
@@ -299,6 +300,17 @@ function App() {
     [stopSound],
   );
 
+  // Sequenced mod-wheel (and any future CC): external gear only -- the
+  // built-in synth receives the same modulation via onSoundParam.
+  const handleMidiCc = useCallback(
+    (channel: number, controller: number, value: number) => {
+      if (selectedOutput) {
+        sendControlChange(controller, value, channel + 1);
+      }
+    },
+    [selectedOutput, sendControlChange],
+  );
+
   // Read transport state from WASM
   const isPlaying = wasmEngine?.getIsPlaying() ?? false;
   const isExternalPlayback = wasmEngine?.getIsExternalPlayback() ?? false;
@@ -328,6 +340,7 @@ function App() {
     if (engine) {
       engine.onNoteOn = handleNoteOn;
       engine.onNoteOff = handleNoteOff;
+      engine.onMidiCc = handleMidiCc;
       engine.onPlayPreviewNote = (channel: number, row: number, lengthTicks: number) => {
         const isDrum = engine.getChannelType(channel) === 1;
         const midiNote = isDrum ? Math.max(0, Math.min(127, row)) : engine.noteToMidi(row);
@@ -358,6 +371,7 @@ function App() {
       if (engine) {
         engine.onNoteOn = null;
         engine.onNoteOff = null;
+        engine.onMidiCc = null;
         engine.onPlayPreviewNote = null;
         engine.onSoundParam = null;
         engine.onSampleParam = null;
@@ -365,7 +379,7 @@ function App() {
       }
       synth.onRustSynthReady = null;
     };
-  }, [handleNoteOn, handleNoteOff, handlePlayNote, wasmEngine]);
+  }, [handleNoteOn, handleNoteOff, handleMidiCc, handlePlayNote, wasmEngine]);
 
   const clearPendingTimeouts = () => {
     pendingTimeouts.current.forEach(clearTimeout);

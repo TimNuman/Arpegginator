@@ -48,6 +48,10 @@ export class TeensyEngine implements Engine {
     this.wasm.onNoteOff = null;
   }
 
+  // The hardware emits CC on its own MIDI outs, so like note on/off this is
+  // accepted but never forwarded to the mirror wasm engine.
+  onMidiCc: ((channel: number, controller: number, value: number) => void) | null = null;
+
   // Sound params come from the mirror wasm engine — the browser synth mirrors
   // the patch state edited on the hardware
   get onSoundParam() {

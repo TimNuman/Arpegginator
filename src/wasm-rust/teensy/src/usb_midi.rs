@@ -48,6 +48,11 @@ pub fn note_off_packet(channel: u8, note: u8) -> [u8; 4] {
     [CIN_NOTE_OFF, 0x80 | (channel & 0x0F), note & 0x7F, 0]
 }
 
+/// Build a Control Change event packet for the host (CIN 0xB).
+pub fn cc_packet(channel: u8, controller: u8, value: u8) -> [u8; 4] {
+    [0x0B, 0xB0 | (channel & 0x0F), controller & 0x7F, value & 0x7F]
+}
+
 pub struct MidiClass<'a, B: UsbBus> {
     interface_ac: InterfaceNumber,
     interface_ms: InterfaceNumber,

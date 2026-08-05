@@ -286,6 +286,13 @@ impl MidiOut<'_> {
             self.usb.push(usb_midi::note_off_packet(ch, note));
         }
     }
+
+    fn control_change(&mut self, ch: u8, cc: u8, value: u8) {
+        self.uart.push(&[0xB0 | (ch & 0x0F), cc & 0x7F, value & 0x7F]);
+        if self.usb_ok {
+            self.usb.push(usb_midi::cc_packet(ch, cc, value));
+        }
+    }
 }
 
 // ============ Entry Point ============
@@ -503,6 +510,9 @@ fn main() -> ! {
                     }
                     MidiEvent::KIND_SOUND_PARAM => {
                         audio::sound_param(ev.channel, ev.note as u8, ev.length_ticks as i16);
+                    }
+                    MidiEvent::KIND_CC => {
+                        midi.control_change(ev.channel, ev.note as u8, ev.velocity);
                     }
                     MidiEvent::KIND_PREVIEW => {
                         // Kill old preview notes on first note of a new batch
