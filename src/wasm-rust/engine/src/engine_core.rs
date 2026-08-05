@@ -88,7 +88,7 @@ pub const NUM_CHANNELS: usize = 6;
 pub const NUM_PATTERNS: usize = 8;
 pub const MAX_EVENTS: usize = 128;
 pub const MAX_SUB_MODE_LEN: usize = 32;
-pub const NUM_SUB_MODES: usize = 6;
+pub const NUM_SUB_MODES: usize = 7;
 pub const MAX_CHORD_SIZE: usize = 8;
 pub const MAX_SCALE_NOTES: usize = 128;
 pub const NUM_SCALES: usize = 31;
@@ -202,6 +202,9 @@ pub enum SubModeId {
     Flam = 3,
     Modulate = 4,
     Inversion = 5,
+    /// Sequenced mod wheel: a 0-100 controller lane streamed to the synth's
+    /// mod matrix (and out as MIDI CC1) per firing repeat.
+    Wheel = 6,
 }
 
 pub const ARP_CHORD: u8 = 0;
@@ -418,6 +421,7 @@ pub static SM_DEFAULTS: [SubModeArray; NUM_SUB_MODES] = [
     make_sm_default(0),   // Flam
     make_sm_default(0),   // Modulate
     make_sm_default(0),   // Inversion
+    make_sm_default(0),   // Wheel
 ];
 
 pub fn get_sub_mode<'a>(pool: &'a SubModePool, handles: &[u16; NUM_SUB_MODES], sm: usize) -> &'a SubModeArray {
@@ -1660,6 +1664,18 @@ pub fn engine_core_tick(s: &mut EngineState) {
                     let timing_raw = resolve_sub_mode(s, &ev, 2, r, ch);
                     let flam_prob = resolve_sub_mode(s, &ev, 3, r, ch);
                     let mod_val = resolve_sub_mode(s, &ev, 4, r, ch);
+
+                    // Sequenced mod wheel: one channel-wide value per repeat,
+                    // streamed to the synth's mod matrix. Emitted before the
+                    // hit-chance roll so the lane advances like automation
+                    // even when the hit itself is skipped.
+                    if ev.has_sub_mode(SubModeId::Wheel) {
+                        let wheel = resolve_sub_mode(s, &ev, SubModeId::Wheel as usize, r, ch)
+                            .clamp(0, 100);
+                        crate::platform::platform_sound_param(
+                            ch, arp3_synth::patch::P_MOD_VALUE as u8, wheel,
+                        );
+                    }
 
                     // Apply swing: delay odd 16th notes
                     let swing_offset = if (ev_tick / 120) % 2 == 1 {

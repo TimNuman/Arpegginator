@@ -337,3 +337,25 @@ fn alloc_event_id_increments() {
     let id2 = engine_alloc_event_id(&mut s);
     assert_eq!(id2, id1 + 1);
 }
+
+// ============ Wheel sub-mode (sequenced mod wheel) ============
+
+#[test]
+fn wheel_sub_mode_stores_values_like_other_lanes() {
+    let mut s = init_state();
+    let idx = crate::engine_edit::engine_toggle_event(&mut s, 5, 0, 240);
+    assert!(idx >= 0);
+
+    crate::engine_edit::engine_set_sub_mode_value(
+        &mut s, idx as u16, SubModeId::Wheel as u8, 0, 80,
+    );
+
+    let h = s.patterns[0][0].event_handles[idx as usize];
+    assert!(s.event_pool[h].has_sub_mode(SubModeId::Wheel));
+    let read = get_sub_mode(
+        &s.sub_mode_pool,
+        &s.event_pool[h].sub_mode_handles,
+        SubModeId::Wheel as usize,
+    );
+    assert_eq!(read.values[0], 80);
+}
