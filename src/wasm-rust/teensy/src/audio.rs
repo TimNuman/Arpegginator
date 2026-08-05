@@ -18,9 +18,9 @@
 //! The SAI3_TX FIFO-watermark interrupt is the audio thread. It drains a
 //! lock-free command queue (notes + patch params, pushed by the main loop),
 //! renders the synth in 32-sample blocks, and tops the 32-word FIFO up past
-//! the watermark. At 44.1kHz stereo that's ~5.5k interrupts/s doing mostly
-//! FIFO writes, with a synth render every fourth one — well under 5% of the
-//! 600MHz core, and immune to long main-loop work (display, LEDs, USB).
+//! the watermark (24, see init). At 44.1kHz stereo that's ~11k interrupts/s
+//! doing mostly FIFO writes, with a synth render every eighth one — and
+//! immune to long main-loop work (display, LEDs, USB).
 //!
 //! Safety model: `TX`/`SYNTH`/`RENDER` are written during `init()` before
 //! the interrupt is unmasked, and are only touched from the ISR afterwards.
@@ -256,8 +256,17 @@ pub fn init(
     // MQS taps the internal SAI3 signals, so no SAI pins are configured.
     let sai3 = unsafe { ral::sai::SAI3::instance() };
     let sai = sai::Sai::without_pins(sai3, 1, 0);
+    // Raise the TX watermark from the default 16 to 24 (of 32 FIFO words).
+    // The ISR renders a whole 32-sample block inline, and the deadline for
+    // that render is however much FIFO is left when the interrupt fires:
+    // watermark words / 2 words-per-frame / 44.1kHz. At 16 that's ~181us,
+    // which a worst-case render (8 additive/FM voices + sampler voices) can
+    // blow through; at 24 it's ~272us. Cost: the interrupt rate roughly
+    // doubles (~11k/s), each service topping up fewer words.
+    let mut sai_config = SaiConfig::i2s(sai::bclk_div(8));
+    sai_config.tx_fifo_wm = 24;
     let (tx, _rx) = sai
-        .split(16, 2, Packing::None, &SaiConfig::i2s(sai::bclk_div(8)))
+        .split(16, 2, Packing::None, &sai_config)
         .expect("valid SAI config");
     let mut tx = tx.expect("tx channel");
 
