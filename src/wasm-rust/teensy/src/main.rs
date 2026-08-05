@@ -278,7 +278,7 @@ fn main() -> ! {
     let mut preview_count: usize = 0;
     let mut preview_off_at: u32 = 0;
 
-    // Enable DWT cycle counter for preview note-off timing
+    // Enable DWT cycle counter for preview note-off + grid refresh timing
     unsafe {
         let dcb = &*cortex_m::peripheral::DCB::PTR;
         let dwt = &*cortex_m::peripheral::DWT::PTR;
@@ -286,6 +286,16 @@ fn main() -> ! {
         dwt.cyccnt.write(0);
         dwt.ctrl.modify(|r| r | 1);
     }
+
+    // Grid refresh pacing: recomputing every pass burned the whole idle
+    // budget on 128 cells of float color math and made worst-case pass
+    // latency (= tick/MIDI service jitter) worse. ~120Hz is beyond anything
+    // LEDs or the eye need. Milliseconds are accumulated from cycle deltas
+    // so the pulse animation gets a real timebase (it was frozen at 0.0).
+    const GRID_INTERVAL_CYCLES: u32 = 5_000_000; // ~8.3ms at 600MHz
+    const GRID_MS_WRAP: f32 = 1_100_000.0; // multiple of the pulse period
+    let mut last_grid_cycles = dwt_cycles();
+    let mut grid_ms: f32 = 0.0;
 
     let mut midi_rx_buf = [0u8; 64];
     let mut accum_buf = [0u8; 256];
@@ -464,9 +474,24 @@ fn main() -> ! {
             }
         }
 
-        // 5. Recompute grid (updates rendered_notes cache for button press hit-testing)
-        arp3_engine::engine_ui::engine_compute_grid(&mut state, 0.0);
+        // 5. Recompute grid at ~120Hz (button-press hit-testing refreshes
+        // the rendered_notes cache itself, so staleness here only affects
+        // LED output)
+        let now = dwt_cycles();
+        let delta = now.wrapping_sub(last_grid_cycles);
+        if delta >= GRID_INTERVAL_CYCLES {
+            last_grid_cycles = now;
+            grid_ms += delta as f32 / 600_000.0;
+            if grid_ms >= GRID_MS_WRAP {
+                grid_ms -= GRID_MS_WRAP;
+            }
+            arp3_engine::engine_ui::engine_compute_grid(&mut state, grid_ms);
+        }
     }
+}
+
+fn dwt_cycles() -> u32 {
+    unsafe { (*cortex_m::peripheral::DWT::PTR).cyccnt.read() }
 }
 
 // ============ Tick Helpers ============

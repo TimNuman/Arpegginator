@@ -764,6 +764,11 @@ fn handle_modify_press(s: &mut EngineState, vis_row: u8, vis_col: u8, mods: u8) 
 // ============ Main Button Press Dispatch ============
 
 pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8) {
+    // Hit-testing below reads the rendered-notes cache; refresh it here so
+    // presses stay exact even when the host recomputes the grid at a lower
+    // rate than it processes input (the Teensy main loop paces the grid at
+    // ~120Hz). No-op unless the channel is dirty.
+    crate::engine_ui::engine_ensure_rendered(s, s.current_channel);
     if (modifiers & MOD_CTRL) != 0 {
         // Row 7: mode buttons + ghost toggle
         if row == 7 {
