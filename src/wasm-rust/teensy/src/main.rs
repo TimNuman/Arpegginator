@@ -168,26 +168,79 @@ impl MidiTxRing {
     }
 }
 
+// ============ USB MIDI TX Ring (coalesced, retried note events) ============
+
+/// Queued 4-byte USB MIDI event packets. One bulk write per note event
+/// meant that once the endpoint held an unsent packet, every further event
+/// in the same burst hit WouldBlock and was silently dropped — dense chords
+/// and flams lost notes. Events queue here instead; `flush` coalesces up to
+/// 16 of them into one 64-byte bulk transfer and leaves them queued when
+/// the endpoint is busy, retrying next pass.
+struct UsbTxRing {
+    buf: [[u8; 4]; 128],
+    write: usize,
+    read: usize,
+}
+
+impl UsbTxRing {
+    const fn new() -> Self {
+        UsbTxRing { buf: [[0; 4]; 128], write: 0, read: 0 }
+    }
+
+    /// Queue one event packet; dropped if the ring is full.
+    fn push(&mut self, pkt: [u8; 4]) {
+        let next = (self.write + 1) % self.buf.len();
+        if next == self.read {
+            return;
+        }
+        self.buf[self.write] = pkt;
+        self.write = next;
+    }
+
+    fn clear(&mut self) {
+        self.read = self.write;
+    }
+
+    /// Send queued packets, up to 16 per bulk transfer. Stops (keeping the
+    /// rest queued) as soon as the endpoint reports busy.
+    fn flush<B: usb_device::bus::UsbBus>(&mut self, usb: &MidiClass<B>) {
+        while self.read != self.write {
+            let mut out = [0u8; 64];
+            let mut n = 0;
+            let mut r = self.read;
+            while r != self.write && n < 16 {
+                out[n * 4..n * 4 + 4].copy_from_slice(&self.buf[r]);
+                r = (r + 1) % self.buf.len();
+                n += 1;
+            }
+            if usb.write_packets(&out[..n * 4]).is_err() {
+                break;
+            }
+            self.read = r;
+        }
+    }
+}
+
 // ============ MIDI Output Helper ============
 
-struct MidiOut<'a, B: usb_device::bus::UsbBus> {
+struct MidiOut<'a> {
     uart: &'a mut MidiTxRing,
-    usb: &'a MidiClass<'a, B>,
+    usb: &'a mut UsbTxRing,
     usb_ok: bool,
 }
 
-impl<'a, B: usb_device::bus::UsbBus> MidiOut<'a, B> {
+impl MidiOut<'_> {
     fn note_on(&mut self, ch: u8, note: u8, vel: u8) {
         self.uart.push(&[0x90 | (ch & 0x0F), note & 0x7F, vel & 0x7F]);
         if self.usb_ok {
-            let _ = self.usb.note_on(ch, note, vel);
+            self.usb.push(usb_midi::note_on_packet(ch, note, vel));
         }
     }
 
     fn note_off(&mut self, ch: u8, note: u8) {
         self.uart.push(&[0x80 | (ch & 0x0F), note & 0x7F, 0]);
         if self.usb_ok {
-            let _ = self.usb.note_off(ch, note);
+            self.usb.push(usb_midi::note_off_packet(ch, note));
         }
     }
 }
@@ -301,8 +354,9 @@ fn main() -> ! {
     let mut accum_buf = [0u8; 256];
     let mut accum_len: usize = 0;
 
-    // Hardware MIDI out buffers here; drained non-blocking each loop pass
+    // MIDI out buffers here; drained non-blocking each loop pass
     let mut uart_tx = MidiTxRing::new();
+    let mut usb_tx = UsbTxRing::new();
 
     // USB audio: one iso packet in flight (built once, retried until sent)
     let mut usb_audio_pkt = [0u8; usb_midi::AUDIO_PACKET_BYTES];
@@ -375,9 +429,9 @@ fn main() -> ! {
             }
         }
 
-        // 3. Drain MIDI event queue → UART ring + USB MIDI
+        // 3. Drain MIDI event queue → UART ring + USB ring
         {
-            let mut midi = MidiOut { uart: &mut uart_tx, usb: &usb_midi, usb_ok: usb_configured };
+            let mut midi = MidiOut { uart: &mut uart_tx, usb: &mut usb_tx, usb_ok: usb_configured };
             let mut new_preview_started = false;
 
             use platform::arm_platform::MidiEvent;
@@ -447,8 +501,14 @@ fn main() -> ! {
             }
         }
 
-        // 3b. Feed queued hardware-MIDI bytes into the UART FIFO
+        // 3b. Feed queued MIDI into the UART FIFO and the USB endpoint
         uart_tx.drain(&mut midi_uart);
+        if usb_configured {
+            usb_tx.flush(&usb_midi);
+        } else {
+            // Don't replay a disconnect-era backlog at the host later
+            usb_tx.clear();
+        }
 
         // 4. Read USB MIDI packets, accumulate across reads for SysEx spanning multiple packets
         if usb_configured {
