@@ -247,10 +247,13 @@ impl SamplerVoice {
                 // Granular: window advances at `speed`, heads read at `pitch`
                 let a = Self::read(sample, start, end, self.head_a, looped);
                 let b = Self::read(sample, start, end, self.head_b, looped);
-                // Equal-power crossfade between the two heads
+                // Equal-power crossfade between the two heads, on the sine
+                // law: fast_sin(0.25·x) = sin(πx/2), and sin² + cos² keeps
+                // the summed power at unity like the sqrt pair did — without
+                // two software sqrtf calls per sample.
                 let x = self.grain_phase;
-                let ga = libm::sqrtf(1.0 - x);
-                let gb = libm::sqrtf(x);
+                let ga = crate::fast_sin(0.25 * (1.0 - x));
+                let gb = crate::fast_sin(0.25 * x);
                 self.head_a += pitch;
                 self.head_b += pitch;
                 self.grain_phase += 1.0 / grain_len;

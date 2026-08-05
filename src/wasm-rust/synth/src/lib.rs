@@ -230,7 +230,7 @@ fn osc_sample(wave: i16, t: f32, dt: f32, noise: &mut u32) -> f32 {
         WAVE_SAW => blep_saw(t, dt),
         WAVE_SQUARE => blep_pulse(t, dt, 0.5),
         WAVE_TRI => 4.0 * libm::fabsf(t - 0.5) - 1.0,
-        WAVE_SINE => libm::sinf(core::f32::consts::TAU * t),
+        WAVE_SINE => fast_sin(t),
         WAVE_PULSE => blep_pulse(t, dt, 0.25),
         WAVE_NOISE => xorshift(noise),
         _ => 0.0,
@@ -245,13 +245,22 @@ fn soft_sat(x: f32) -> f32 {
     x * (27.0 + x2) / (27.0 + 9.0 * x2)
 }
 
+/// Fractional part in [0,1) for any input magnitude below 2^31. A cast
+/// round-trip instead of libm::floorf, which is a software routine on
+/// thumbv7em — this is per-sample-per-oscillator hot.
+#[inline]
+fn fract_pos(x: f32) -> f32 {
+    let f = x - (x as i32) as f32;
+    if f < 0.0 { f + 1.0 } else { f }
+}
+
 /// sin(2π·t) for normalized phase, via the parabola + correction trick
 /// (~0.1% error). Roughly 4× cheaper than libm::sinf — with four operators
 /// per voice per sample, the FM engine leans on this. The slight impurity is
 /// in character for chip-style FM.
 #[inline]
-fn fast_sin(t: f32) -> f32 {
-    let t = t - libm::floorf(t); // wrap to [0,1)
+pub(crate) fn fast_sin(t: f32) -> f32 {
+    let t = fract_pos(t); // wrap to [0,1)
     let x = if t < 0.5 { t } else { t - 1.0 }; // [-0.5,0.5)
     let y = 16.0 * x * (0.5 - libm::fabsf(x));
     0.225 * (y * libm::fabsf(y) - y) + y
@@ -400,6 +409,7 @@ impl Voice {
         let crush = p[P_CRUSH] as f32 / 100.0;
         // Amplitude steps from 4096 down to ~8, decimation hold 1..12 samples
         let crush_levels = libm::powf(2.0, 12.0 - 9.0 * crush);
+        let inv_crush_levels = 1.0 / crush_levels; // no per-sample divide
         let crush_hold = (1.0 + crush * 11.0) as u8;
         let wave1 = p[P_WAVE1];
         let wave2 = p[P_WAVE2];
@@ -490,7 +500,7 @@ impl Voice {
                     }
                     // Bit crush: quantize amplitude, then hold via decimation
                     if crush > 0.0 {
-                        o = libm::floorf(o * crush_levels) / crush_levels;
+                        o = libm::floorf(o * crush_levels) * inv_crush_levels;
                         self.hold_count = crush_hold - 1;
                     }
                     self.held = o;
@@ -524,9 +534,10 @@ impl Voice {
                     // High ratios at high notes can step phase by more than a
                     // whole cycle per sample, so wrap with a true modulo —
                     // a single subtraction would let the phase grow without
-                    // bound and rot away f32 precision
-                    self.op_phase[i] += dt1 * ratio;
-                    self.op_phase[i] -= libm::floorf(self.op_phase[i]);
+                    // bound and rot away f32 precision. The phase is always
+                    // non-negative here, so trunc-by-cast is that modulo.
+                    let p = self.op_phase[i] + dt1 * ratio;
+                    self.op_phase[i] = p - (p as i32) as f32;
                 }
                 self.fb_last = outs[0];
                 carrier_sum * carrier_norm
@@ -546,7 +557,7 @@ impl Voice {
             };
 
             if sub_level > 0.0 {
-                osc += sub_level * libm::sinf(core::f32::consts::TAU * self.phase_sub);
+                osc += sub_level * fast_sin(self.phase_sub);
             }
             self.phase_sub += dt_sub;
             if self.phase_sub >= 1.0 {
