@@ -585,6 +585,29 @@ fn midi_to_freq(note: u8) -> f32 {
     440.0 * libm::exp2f((note as f32 - 69.0) / 12.0)
 }
 
+/// Apply the two mod-matrix slots to a working copy of a patch: each slot
+/// offsets its target param by depth × wheel value, clamped to the param's
+/// range. Integer math on UI units, so the result is exactly what a fader
+/// at that position would sound like. The stored patch is never touched.
+fn apply_mod_slots(p: &mut Patch) {
+    let value = p[P_MOD_VALUE] as i32;
+    if value == 0 {
+        return;
+    }
+    for (target_param, depth_param) in
+        [(P_MOD1_TARGET, P_MOD1_DEPTH), (P_MOD2_TARGET, P_MOD2_DEPTH)]
+    {
+        let target = p[target_param] as usize;
+        if target == 0 || target > MAX_MOD_TARGET {
+            continue;
+        }
+        let max = PARAM_MAX[target] as i32;
+        // depth 0..200 → -1..+1 of the target's full range
+        let offset = (p[depth_param] as i32 - 100) * max * value / (100 * 100);
+        p[target] = (p[target] as i32 + offset).clamp(0, max) as i16;
+    }
+}
+
 // ============ Synth ============
 
 /// Wavetable resolution: 256 samples + 1 guard sample for interpolation.
@@ -658,7 +681,10 @@ impl Synth {
         let key = channel as i32 * 128 + note as i32;
         let vel = (velocity.min(127) as f32) / 127.0;
         let ch = channel as usize % NUM_SYNTH_CHANNELS;
-        let patch = self.patches[ch];
+        // Mods apply to note-on-time reads too (envelope times, glide), so a
+        // wheel targeting e.g. attack is honored from the next note.
+        let mut patch = self.patches[ch];
+        apply_mod_slots(&mut patch);
         let glide_from = self.last_freq[ch];
         self.last_freq[ch] = midi_to_freq(note);
         self.age_counter = self.age_counter.wrapping_add(1);
@@ -739,7 +765,8 @@ impl Synth {
         let Synth { voices, patches, wt_tables, sample_rate, .. } = self;
         for v in voices.iter_mut() {
             if v.key != -1 {
-                let patch = patches[v.channel as usize % NUM_SYNTH_CHANNELS];
+                let mut patch = patches[v.channel as usize % NUM_SYNTH_CHANNELS];
+                apply_mod_slots(&mut patch);
                 v.render(out, &patch, wt_tables, *sample_rate);
             }
         }

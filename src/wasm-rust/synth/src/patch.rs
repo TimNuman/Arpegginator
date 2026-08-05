@@ -44,7 +44,20 @@ pub const P_ADD_STRETCH: usize = 28; // inharmonicity: harmonic stretch
 pub const P_H1: usize = 29; // 16 harmonic levels, P_H1 + k for harmonic k+1
 pub const P_H16: usize = 44;
 pub const NUM_ADD_HARMONICS: usize = 16;
-pub const NUM_PARAMS: usize = 45;
+// Mod matrix: the sequencer's Wheel sub-mode streams P_MOD_VALUE per firing
+// repeat; two slots each offset a target param by depth × value at render
+// time. Non-destructive — the stored patch never changes, so Sound-mode
+// edits and sequenced modulation can't fight over the same value.
+pub const P_MOD1_TARGET: usize = 45; // 0 = off, else target param index
+pub const P_MOD1_DEPTH: usize = 46; // 0..200, 100 = neutral (bipolar)
+pub const P_MOD2_TARGET: usize = 47;
+pub const P_MOD2_DEPTH: usize = 48;
+pub const P_MOD_VALUE: usize = 49; // live wheel value 0..100
+pub const NUM_PARAMS: usize = 50;
+
+/// Highest param index a mod slot may target (the mod params themselves and
+/// the engine selector at index 0 are excluded).
+pub const MAX_MOD_TARGET: usize = P_H16;
 
 // Engine types. All four are implemented; the engine follows the preset.
 pub const ENGINE_SUBTRACTIVE: i16 = 0;
@@ -94,6 +107,11 @@ pub const PARAM_MAX: [i16; NUM_PARAMS] = [
     100, // ADD_STRETCH
     100, 100, 100, 100, 100, 100, 100, 100, // H1-H8
     100, 100, 100, 100, 100, 100, 100, 100, // H9-H16
+    MAX_MOD_TARGET as i16, // MOD1_TARGET
+    200, // MOD1_DEPTH
+    MAX_MOD_TARGET as i16, // MOD2_TARGET
+    200, // MOD2_DEPTH
+    100, // MOD_VALUE
 ];
 
 /// Defaults tuned to match the original hard-coded voice: detuned saws,
@@ -127,6 +145,7 @@ pub const DEFAULTS: [i16; NUM_PARAMS] = [
     0,        // no harmonic stretch
     100, 0, 0, 0, 0, 0, 0, 0, // fundamental only
     0, 0, 0, 0, 0, 0, 0, 0,
+    0, 100, 0, 100, 0, // mod matrix off, depths neutral, wheel at 0
 ];
 
 /// One channel's sound settings, in UI units.
@@ -153,7 +172,8 @@ const fn preset(
         name,
         values: [ENGINE_SUBTRACTIVE, w1, w2, sub, vol, mix, det, gld, a, d, s, r, cut, res, fenv, key, drv,
                  0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0,
-                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 0, 100, 0, 100, 0],
     }
 }
 
@@ -171,7 +191,8 @@ const fn fm_preset(
         name,
         values: [ENGINE_FM, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
                  algo, r1, r2, r3, r4, fm, fb, menv, 0, 0, 0,
-                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 0, 100, 0, 100, 0],
     }
 }
 
@@ -189,7 +210,8 @@ const fn wt_preset(
         name,
         values: [ENGINE_WAVETABLE, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
                  0, 1, 1, 1, 1, 50, 0, 50, pos, warp, crush,
-                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 0, 100, 0, 100, 0],
     }
 }
 
@@ -208,7 +230,8 @@ const fn add_preset(
         values: [ENGINE_ADDITIVE, WAVE_SAW, WAVE_SAW, sub, vol, 40, 0, gld, a, d, s, r, cut, res, fenv, key, drv,
                  0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0,
                  stretch, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
-                 h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]],
+                 h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15],
+                 0, 100, 0, 100, 0],
     }
 }
 

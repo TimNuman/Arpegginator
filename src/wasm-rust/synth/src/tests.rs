@@ -477,3 +477,47 @@ fn deterministic_output() {
     };
     assert_eq!(run(), run(), "same inputs must produce identical audio");
 }
+
+#[test]
+fn mod_matrix_offsets_target_without_touching_patch() {
+    // Slot 1: wheel closes the volume all the way down (depth 0 = -100%).
+    let mut synth = Synth::new();
+    synth.set_sample_rate(SR);
+    synth.set_param(0, patch::P_MOD1_TARGET as u8, patch::P_VOLUME as i16);
+    synth.set_param(0, patch::P_MOD1_DEPTH as u8, 0);
+
+    synth.note_on(0, 60, 100);
+    let unmodded = render_blocks(&mut synth, 20);
+    assert!(unmodded.mean_abs() > 0.005, "wheel at 0 must leave the sound alone");
+
+    synth.set_param(0, patch::P_MOD_VALUE as u8, 100);
+    synth.note_on(0, 60, 100);
+    let modded = render_blocks(&mut synth, 20);
+    assert!(
+        modded.mean_abs() < unmodded.mean_abs() / 4.0,
+        "full wheel at -100% volume depth should mute: {} vs {}",
+        modded.mean_abs(),
+        unmodded.mean_abs()
+    );
+    assert_eq!(unmodded.non_finite + modded.non_finite, 0);
+
+    // The stored patch is untouched -- modulation is a render-time overlay.
+    assert_eq!(synth.get_param(0, patch::P_VOLUME as u8), patch::DEFAULTS[patch::P_VOLUME]);
+}
+
+#[test]
+fn mod_matrix_second_slot_and_bounds() {
+    // Both slots on distinct targets; extreme depths must stay clamped.
+    let mut synth = Synth::new();
+    synth.set_sample_rate(SR);
+    synth.set_param(0, patch::P_MOD1_TARGET as u8, patch::P_CUTOFF as i16);
+    synth.set_param(0, patch::P_MOD1_DEPTH as u8, 200);
+    synth.set_param(0, patch::P_MOD2_TARGET as u8, patch::P_DRIVE as i16);
+    synth.set_param(0, patch::P_MOD2_DEPTH as u8, 200);
+    synth.set_param(0, patch::P_MOD_VALUE as u8, 100);
+    synth.note_on(0, 48, 110);
+    let stats = render_blocks(&mut synth, 30);
+    assert!(stats.mean_abs() > 0.003);
+    assert!(stats.peak <= 1.0, "modded output out of bounds, peak {}", stats.peak);
+    assert_eq!(stats.non_finite, 0);
+}
