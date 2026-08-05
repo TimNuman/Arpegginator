@@ -21,7 +21,6 @@ use bsp::usbd::{BusAdapter, EndpointMemory, EndpointState, Speed, gpt};
 use usb_device::bus::UsbBusAllocator;
 use usb_device::device::{StringDescriptors, UsbDeviceBuilder, UsbDeviceState, UsbVidPid};
 
-use embedded_io::Write as _;
 
 use arp3_engine::cell::Global;
 use arp3_engine::engine_core::{self, EngineState, TICKS_PER_QUARTER};
@@ -99,24 +98,70 @@ mod protocol {
     }
 }
 
+// ============ UART TX Ring (non-blocking hardware MIDI out) ============
+
+/// Software TX buffer in front of the LPUART FIFO. Blocking writes at 31250
+/// baud cost 320us/byte once the shallow hardware FIFO fills — a chord burst
+/// across channels could stall the main loop for milliseconds, delaying
+/// sequencer ticks. Bytes queue here instead, and `drain` moves them into
+/// the FIFO with non-blocking writes on every main-loop pass. 512 bytes is
+/// ~160ms of MIDI at full wire rate; a full ring drops the whole message so
+/// the byte stream can't tear mid-message.
+struct MidiTxRing {
+    buf: [u8; 512],
+    write: usize,
+    read: usize,
+}
+
+impl MidiTxRing {
+    const fn new() -> Self {
+        MidiTxRing { buf: [0; 512], write: 0, read: 0 }
+    }
+
+    fn free(&self) -> usize {
+        self.buf.len() - 1 - (self.write + self.buf.len() - self.read) % self.buf.len()
+    }
+
+    /// Queue a complete MIDI message; dropped whole if the ring is full.
+    fn push(&mut self, msg: &[u8]) {
+        if self.free() < msg.len() {
+            return;
+        }
+        for &b in msg {
+            self.buf[self.write] = b;
+            self.write = (self.write + 1) % self.buf.len();
+        }
+    }
+
+    /// Move queued bytes into the UART FIFO; stops as soon as it's full.
+    fn drain(&mut self, uart: &mut board::Lpuart) {
+        while self.read != self.write {
+            if !uart.try_write(self.buf[self.read]) {
+                break;
+            }
+            self.read = (self.read + 1) % self.buf.len();
+        }
+    }
+}
+
 // ============ MIDI Output Helper ============
 
 struct MidiOut<'a, B: usb_device::bus::UsbBus> {
-    uart: &'a mut board::Lpuart,
+    uart: &'a mut MidiTxRing,
     usb: &'a MidiClass<'a, B>,
     usb_ok: bool,
 }
 
 impl<'a, B: usb_device::bus::UsbBus> MidiOut<'a, B> {
     fn note_on(&mut self, ch: u8, note: u8, vel: u8) {
-        let _ = self.uart.write_all(&[0x90 | (ch & 0x0F), note & 0x7F, vel & 0x7F]);
+        self.uart.push(&[0x90 | (ch & 0x0F), note & 0x7F, vel & 0x7F]);
         if self.usb_ok {
             let _ = self.usb.note_on(ch, note, vel);
         }
     }
 
     fn note_off(&mut self, ch: u8, note: u8) {
-        let _ = self.uart.write_all(&[0x80 | (ch & 0x0F), note & 0x7F, 0]);
+        self.uart.push(&[0x80 | (ch & 0x0F), note & 0x7F, 0]);
         if self.usb_ok {
             let _ = self.usb.note_off(ch, note);
         }
@@ -211,6 +256,9 @@ fn main() -> ! {
     let mut accum_buf = [0u8; 256];
     let mut accum_len: usize = 0;
 
+    // Hardware MIDI out buffers here; drained non-blocking each loop pass
+    let mut uart_tx = MidiTxRing::new();
+
     // USB audio: one iso packet in flight (built once, retried until sent)
     let mut usb_audio_pkt = [0u8; usb_midi::AUDIO_PACKET_BYTES];
     let mut usb_audio_pending: usize = 0;
@@ -277,9 +325,9 @@ fn main() -> ! {
             }
         }
 
-        // 3. Drain MIDI event queue → UART + USB MIDI
+        // 3. Drain MIDI event queue → UART ring + USB MIDI
         {
-            let mut midi = MidiOut { uart: &mut midi_uart, usb: &usb_midi, usb_ok: usb_configured };
+            let mut midi = MidiOut { uart: &mut uart_tx, usb: &usb_midi, usb_ok: usb_configured };
             let mut new_preview_started = false;
 
             use platform::arm_platform::MidiEvent;
@@ -348,6 +396,9 @@ fn main() -> ! {
                 }
             }
         }
+
+        // 3b. Feed queued hardware-MIDI bytes into the UART FIFO
+        uart_tx.drain(&mut midi_uart);
 
         // 4. Read USB MIDI packets, accumulate across reads for SysEx spanning multiple packets
         if usb_configured {

@@ -17,5 +17,4 @@ teensy4-bsp = { version = "0.6", features = ["rt"] }
 teensy4-panic = "0.3"
 cortex-m = "0.7"
 embedded-alloc = "0.7"
-embedded-io = "0.7" # blocking Write trait for UART MIDI (impl'd by imxrt-hal's Lpuart)
 usb-device = "0.3" # USB device framework (matches teensy4-bsp's version)
