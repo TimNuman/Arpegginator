@@ -18,6 +18,7 @@ mod wasm {
     extern "C" {
         fn js_note_on(ch: i32, note: i32, vel: i32);
         fn js_note_off(ch: i32, note: i32);
+        fn js_midi_cc(ch: i32, cc: i32, value: i32);
         fn js_set_current_tick(tick: i32);
         fn js_set_current_patterns(ptr: i32);
         fn js_clear_queued_pattern(ch: i32);
@@ -34,6 +35,10 @@ mod wasm {
 
     pub fn platform_note_off(channel: u8, midi_note: u8) {
         unsafe { js_note_off(channel as i32, midi_note as i32); }
+    }
+
+    pub fn platform_midi_cc(channel: u8, cc: u8, value: u8) {
+        unsafe { js_midi_cc(channel as i32, cc as i32, value as i32); }
     }
 
     pub fn platform_set_current_tick(tick: i32) {
@@ -110,6 +115,8 @@ pub mod arm_platform {
         pub const KIND_SAMPLE_PARAM: u8 = 4;
         /// Recorder control press: `velocity` = action.
         pub const KIND_REC_CONTROL: u8 = 5;
+        /// MIDI control change: `note` = controller number, `velocity` = value.
+        pub const KIND_CC: u8 = 6;
 
         const fn zero() -> Self {
             MidiEvent { kind: 0, channel: 0, note: 0, velocity: 0, length_ticks: 0 }
@@ -157,6 +164,12 @@ mod arm {
     pub fn platform_note_off(channel: u8, midi_note: u8) {
         enqueue_midi(MidiEvent {
             kind: MidiEvent::KIND_NOTE_OFF, channel, note: midi_note as i16, velocity: 0, length_ticks: 0,
+        });
+    }
+
+    pub fn platform_midi_cc(channel: u8, cc: u8, value: u8) {
+        enqueue_midi(MidiEvent {
+            kind: MidiEvent::KIND_CC, channel, note: cc as i16, velocity: value, length_ticks: 0,
         });
     }
 
@@ -211,6 +224,8 @@ mod noop {
     pub fn platform_note_on(_channel: u8, _midi_note: u8, _velocity: u8) {}
 
     pub fn platform_note_off(_channel: u8, _midi_note: u8) {}
+
+    pub fn platform_midi_cc(_channel: u8, _cc: u8, _value: u8) {}
 
     pub fn platform_set_current_tick(_tick: i32) {}
 

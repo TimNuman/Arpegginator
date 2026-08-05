@@ -182,6 +182,15 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
     [selectedOutput],
   );
 
+  const sendControlChange = useCallback(
+    (controller: number, value: number, channel = 1) => {
+      if (selectedOutput) {
+        selectedOutput.channels[channel].sendControlChange(controller, value);
+      }
+    },
+    [selectedOutput],
+  );
+
   const stopNote = useCallback((note: number, channel = 1) => {
     const output = activeNotes.current.get(note);
     if (output) {
@@ -230,5 +239,6 @@ export const useMidi = (transportCallbacks?: MidiTransportCallbacks) => {
     playNote,
     stopNote,
     stopAllNotes,
+    sendControlChange,
   };
 };

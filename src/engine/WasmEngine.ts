@@ -42,6 +42,7 @@ async function loadRustWasm(
     env: {
       js_note_on: callbacks.noteOn ?? (() => {}),
       js_note_off: callbacks.noteOff ?? (() => {}),
+      js_midi_cc: callbacks.midiCc ?? (() => {}),
       js_set_current_tick: callbacks.setCurrentTick ?? (() => {}),
       js_set_current_patterns: callbacks.setCurrentPatterns ?? (() => {}),
       js_clear_queued_pattern: callbacks.clearQueuedPattern ?? (() => {}),
@@ -76,6 +77,7 @@ export class WasmEngine implements Engine {
   // emits fully-scheduled note-ons, so JS just forwards them to MIDI.
   onNoteOn: ((channel: number, midiNote: number, velocity: number) => void) | null = null;
   onNoteOff: ((channel: number, midiNote: number) => void) | null = null;
+  onMidiCc: ((channel: number, controller: number, value: number) => void) | null = null;
   onPlayPreviewNote: ((channel: number, row: number, lengthTicks: number) => void) | null = null;
   onSoundParam: ((channel: number, param: number, value: number) => void) | null = null;
   onSampleParam: ((channel: number, slot: number, param: number, value: number) => void) | null =
@@ -92,6 +94,9 @@ export class WasmEngine implements Engine {
       },
       noteOff: (ch: number, note: number) => {
         this.onNoteOff?.(ch, note);
+      },
+      midiCc: (ch: number, cc: number, value: number) => {
+        this.onMidiCc?.(ch, cc, value);
       },
       setCurrentTick: () => {
         markDirty();
