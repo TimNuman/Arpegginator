@@ -38,6 +38,16 @@ const CIN_SYSEX_END_1: u8 = 0x05;       // SysEx end with 1 byte
 const CIN_SYSEX_END_2: u8 = 0x06;       // SysEx end with 2 bytes
 const CIN_SYSEX_END_3: u8 = 0x07;       // SysEx end with 3 bytes
 
+/// Build a Note On event packet for the host.
+pub fn note_on_packet(channel: u8, note: u8, velocity: u8) -> [u8; 4] {
+    [CIN_NOTE_ON, 0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F]
+}
+
+/// Build a Note Off event packet for the host.
+pub fn note_off_packet(channel: u8, note: u8) -> [u8; 4] {
+    [CIN_NOTE_OFF, 0x80 | (channel & 0x0F), note & 0x7F, 0]
+}
+
 pub struct MidiClass<'a, B: UsbBus> {
     interface_ac: InterfaceNumber,
     interface_ms: InterfaceNumber,
@@ -82,26 +92,11 @@ impl<'a, B: UsbBus> MidiClass<'a, B> {
         self.ep_audio_in.address().index()
     }
 
-    /// Send a Note On event to the USB host
-    pub fn note_on(&self, channel: u8, note: u8, velocity: u8) -> Result<usize> {
-        let packet = [
-            CIN_NOTE_ON,
-            0x90 | (channel & 0x0F),
-            note & 0x7F,
-            velocity & 0x7F,
-        ];
-        self.ep_in.write(&packet)
-    }
-
-    /// Send a Note Off event to the USB host
-    pub fn note_off(&self, channel: u8, note: u8) -> Result<usize> {
-        let packet = [
-            CIN_NOTE_OFF,
-            0x80 | (channel & 0x0F),
-            note & 0x7F,
-            0,
-        ];
-        self.ep_in.write(&packet)
+    /// Write pre-built 4-byte USB MIDI event packets (up to 64 bytes = 16
+    /// events per bulk transfer). Errors (endpoint busy) leave the data
+    /// unsent so the caller can retry.
+    pub fn write_packets(&self, data: &[u8]) -> Result<usize> {
+        self.ep_in.write(data)
     }
 
     /// Send a SysEx message to the USB host.
