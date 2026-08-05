@@ -32,7 +32,6 @@ dependencies = [
  "arp3-synth",
  "cortex-m",
  "embedded-alloc",
- "embedded-io",
  "teensy4-bsp",
  "teensy4-panic",
  "usb-device",
