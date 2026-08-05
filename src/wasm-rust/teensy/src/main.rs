@@ -3,6 +3,8 @@
 //! USB MIDI device — appears in DAWs as "Arp3 Sequencer"
 //! Control protocol uses SysEx (F0 7D ... F7) via Web MIDI from browser
 //! Note output is standard MIDI — goes directly to Ableton/DAW
+//! Note input is standard MIDI too — incoming note events play the internal
+//! synth on the listen-mask channels, so the device doubles as a sound module
 //! Also outputs on LPUART4 (pins 8/7) at 31250 baud for hardware MIDI
 
 #![no_std]
@@ -229,6 +231,37 @@ impl UsbTxRing {
     }
 }
 
+// ============ External MIDI → Internal Synth ============
+
+/// Channels (bit N = MIDI channel N) the internal synth answers on for
+/// note events arriving from the host. Defaults to the four default melodic
+/// sequencer channels; reconfigure it if channel types change (the two
+/// default drum channels have no synth voice to drive). MIDI channel N maps
+/// directly to synth channel N — same numbering the sequencer uses.
+const DEFAULT_SYNTH_LISTEN_MASK: u8 = 0x0F;
+
+/// Feed an external note event to the internal synth. Returns true when the
+/// packet was a note event (consumed — whether or not it was on a listening
+/// channel), false to pass it on to the SysEx accumulator. A note-on with
+/// velocity 0 is a note-off, per the MIDI convention.
+fn route_note_to_synth(pkt: &[u8; 4], listen_mask: u8) -> bool {
+    let cin = pkt[0] & 0x0F;
+    if cin != 0x08 && cin != 0x09 {
+        return false;
+    }
+    let ch = pkt[1] & 0x0F;
+    if (ch as usize) >= arp3_synth::NUM_SYNTH_CHANNELS || listen_mask & (1 << ch) == 0 {
+        return true;
+    }
+    let (note, vel) = (pkt[2] & 0x7F, pkt[3] & 0x7F);
+    if cin == 0x09 && vel > 0 {
+        audio::note_on(ch, note, vel);
+    } else {
+        audio::note_off(ch, note);
+    }
+    true
+}
+
 // ============ MIDI Output Helper ============
 
 struct MidiOut<'a> {
@@ -367,6 +400,9 @@ fn main() -> ! {
     // MIDI out buffers here; drained non-blocking each loop pass
     let mut uart_tx = MidiTxRing::new();
     let mut usb_tx = UsbTxRing::new();
+
+    // Which channels the internal synth answers on for host note events
+    let synth_listen_mask: u8 = DEFAULT_SYNTH_LISTEN_MASK;
 
     // USB audio: one iso packet in flight (built once, retried until sent)
     let mut usb_audio_pkt = [0u8; usb_midi::AUDIO_PACKET_BYTES];
@@ -522,15 +558,36 @@ fn main() -> ! {
             usb_tx.clear();
         }
 
-        // 4. Read USB MIDI packets, accumulate across reads for SysEx spanning multiple packets
+        // 4. Read USB MIDI packets. Note events on listen-mask channels play
+        // the internal synth directly (the device is a playable MIDI synth,
+        // independent of the sequencer); everything else accumulates across
+        // reads for the SysEx control parser.
         if usb_configured {
             loop {
                 if accum_buf.len() - accum_len < 64 { break; }
                 match usb_midi.read(&mut midi_rx_buf) {
                     Ok(count) if count > 0 => {
-                        accum_buf[accum_len..accum_len + count]
-                            .copy_from_slice(&midi_rx_buf[..count]);
-                        accum_len += count;
+                        let mut i = 0;
+                        while i + 4 <= count {
+                            let pkt = [
+                                midi_rx_buf[i],
+                                midi_rx_buf[i + 1],
+                                midi_rx_buf[i + 2],
+                                midi_rx_buf[i + 3],
+                            ];
+                            if !route_note_to_synth(&pkt, synth_listen_mask) {
+                                accum_buf[accum_len..accum_len + 4].copy_from_slice(&pkt);
+                                accum_len += 4;
+                            }
+                            i += 4;
+                        }
+                        // MIDI-class reads are 4-byte packets, but pass any
+                        // trailing bytes through rather than lose them
+                        if i < count {
+                            accum_buf[accum_len..accum_len + (count - i)]
+                                .copy_from_slice(&midi_rx_buf[i..count]);
+                            accum_len += count - i;
+                        }
                     }
                     _ => break,
                 }
