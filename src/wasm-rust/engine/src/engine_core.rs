@@ -1616,19 +1616,44 @@ pub fn engine_core_tick(s: &mut EngineState) {
 
         let should_play = s.channel_audible(ch as usize, any_soloed);
 
-        if should_play && channel_tick >= loop_data.start && channel_tick < loop_end {
+        let length_ticks = s.patterns[ch as usize][pat_idx as usize].length_ticks;
+        if should_play
+            && channel_tick >= loop_data.start
+            && channel_tick < loop_end
+            && channel_tick < length_ticks
+        {
             let ec = s.patterns[ch as usize][pat_idx as usize].event_count;
 
             (0..ec as usize).for_each(|ei| {
-                // Must clone because resolve_sub_mode borrows s mutably
                 let h = s.patterns[ch as usize][pat_idx as usize].event_handles[ei];
-                let ev = s.event_pool[h].clone();
-                if ev.enabled == 0 { return; }
 
-                (0..ev.repeat_amount).for_each(|r| {
-                    let ev_tick = ev.position + r as i32 * ev.repeat_space;
-                    if ev_tick >= s.patterns[ch as usize][pat_idx as usize].length_ticks { return; }
-                    if ev_tick != channel_tick { return; }
+                // Solve for the repeat index landing on this tick instead of
+                // walking every repeat: the tick fires at 480 PPQN, so this
+                // runs up to ~2400 times a second per channel and the miss
+                // case (nothing on this tick) must stay O(1) per event. Also
+                // skips the event clone below on misses.
+                let (first_r, hit_count) = {
+                    let ev = &s.event_pool[h];
+                    if ev.enabled == 0 { return; }
+                    let delta = channel_tick - ev.position;
+                    if ev.repeat_space != 0 {
+                        // Spaced repeats: at most one index can match.
+                        if delta % ev.repeat_space != 0 { return; }
+                        let r = delta / ev.repeat_space;
+                        if r < 0 || r >= ev.repeat_amount as i32 { return; }
+                        (r as u16, 1u16)
+                    } else {
+                        // Zero spacing stacks every repeat on the position.
+                        if delta != 0 { return; }
+                        (0u16, ev.repeat_amount)
+                    }
+                };
+
+                // Must clone because resolve_sub_mode borrows s mutably
+                let ev = s.event_pool[h].clone();
+
+                (first_r..first_r + hit_count).for_each(|r| {
+                    let ev_tick = channel_tick;
 
                     let velocity = resolve_sub_mode(s, &ev, 0, r, ch);
                     let chance = resolve_sub_mode(s, &ev, 1, r, ch);
