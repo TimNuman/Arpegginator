@@ -3,11 +3,11 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WORKSPACE_DIR="$SCRIPT_DIR/.."
-TARGET_DIR="$WORKSPACE_DIR/target/thumbv7em-none-eabihf/release"
+TARGET_DIR="$WORKSPACE_DIR/target/thumbv7em-none-eabihf/teensy"
 
 echo "Building Arp3 Teensy firmware..."
 cd "$SCRIPT_DIR"
-cargo build --release
+cargo build --profile teensy
 
 # Convert ELF to HEX
 echo "Converting ELF to HEX..."

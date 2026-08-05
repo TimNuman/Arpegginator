@@ -10,3 +10,11 @@ opt-level = "z"
 lto = true
 strip = true
 panic = "abort"
+
+# Firmware profile: speed over size. Flash is 8MB and .text lives in ITCM
+# (77KB before this change), so "z" buys nothing on the Teensy while costing
+# 25-30% synth render time. The wasm build keeps `release` for download size.
+[profile.teensy]
+inherits = "release"
+opt-level = 3
+codegen-units = 1
