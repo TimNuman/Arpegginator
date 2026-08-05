@@ -53,7 +53,8 @@ pub const P_MOD1_DEPTH: usize = 46; // 0..200, 100 = neutral (bipolar)
 pub const P_MOD2_TARGET: usize = 47;
 pub const P_MOD2_DEPTH: usize = 48;
 pub const P_MOD_VALUE: usize = 49; // live wheel value 0..100
-pub const NUM_PARAMS: usize = 50;
+pub const P_MOD_SLEW: usize = 50; // 0 = stepped, else glide time between values
+pub const NUM_PARAMS: usize = 51;
 
 /// Highest param index a mod slot may target (the mod params themselves and
 /// the engine selector at index 0 are excluded).
@@ -112,6 +113,7 @@ pub const PARAM_MAX: [i16; NUM_PARAMS] = [
     MAX_MOD_TARGET as i16, // MOD2_TARGET
     200, // MOD2_DEPTH
     100, // MOD_VALUE
+    100, // MOD_SLEW
 ];
 
 /// Defaults tuned to match the original hard-coded voice: detuned saws,
@@ -145,7 +147,7 @@ pub const DEFAULTS: [i16; NUM_PARAMS] = [
     0,        // no harmonic stretch
     100, 0, 0, 0, 0, 0, 0, 0, // fundamental only
     0, 0, 0, 0, 0, 0, 0, 0,
-    0, 100, 0, 100, 0, // mod matrix off, depths neutral, wheel at 0
+    0, 100, 0, 100, 0, 0, // mod matrix off, depths neutral, wheel at 0, stepped
 ];
 
 /// One channel's sound settings, in UI units.
@@ -173,7 +175,7 @@ const fn preset(
         values: [ENGINE_SUBTRACTIVE, w1, w2, sub, vol, mix, det, gld, a, d, s, r, cut, res, fenv, key, drv,
                  0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0,
                  0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                 0, 100, 0, 100, 0],
+                 0, 100, 0, 100, 0, 0],
     }
 }
 
@@ -192,7 +194,7 @@ const fn fm_preset(
         values: [ENGINE_FM, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
                  algo, r1, r2, r3, r4, fm, fb, menv, 0, 0, 0,
                  0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                 0, 100, 0, 100, 0],
+                 0, 100, 0, 100, 0, 0],
     }
 }
 
@@ -211,7 +213,7 @@ const fn wt_preset(
         values: [ENGINE_WAVETABLE, WAVE_SAW, WAVE_SAW, sub, vol, 40, det, gld, a, d, s, r, cut, res, fenv, key, drv,
                  0, 1, 1, 1, 1, 50, 0, 50, pos, warp, crush,
                  0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                 0, 100, 0, 100, 0],
+                 0, 100, 0, 100, 0, 0],
     }
 }
 
@@ -231,7 +233,7 @@ const fn add_preset(
                  0, 1, 1, 1, 1, 50, 0, 50, 0, 0, 0,
                  stretch, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
                  h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15],
-                 0, 100, 0, 100, 0],
+                 0, 100, 0, 100, 0, 0],
     }
 }
 
@@ -317,6 +319,11 @@ pub fn cutoff_hz(v: i16) -> f32 {
 /// Glide time in seconds: 0 = off, else 5ms .. 400ms (log).
 pub fn glide_s(v: i16) -> f32 {
     if v <= 0 { 0.0 } else { map_log(v, 0.005, 80.0) }
+}
+
+/// Wheel slew time in seconds: 0 = stepped, else 10ms .. 2s (log).
+pub fn slew_s(v: i16) -> f32 {
+    if v <= 0 { 0.0 } else { map_log(v, 0.01, 200.0) }
 }
 
 /// Osc2 detune as a frequency ratio (value = cents).

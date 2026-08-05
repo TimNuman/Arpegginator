@@ -112,7 +112,7 @@ pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
         PAGE_AMP => &[patch::P_VOLUME, patch::P_OSC_MIX, patch::P_SUB_LEVEL, patch::P_GLIDE],
         PAGE_ENV => &[patch::P_ATTACK, patch::P_DECAY, patch::P_SUSTAIN, patch::P_RELEASE],
         PAGE_FILT => &[patch::P_CUTOFF, patch::P_RESO, patch::P_FENV, patch::P_KEYTRACK],
-        PAGE_FX => &[patch::P_DRIVE],
+        PAGE_FX => &[patch::P_DRIVE, patch::P_MOD_SLEW],
         PAGE_MOD => &[
             patch::P_MOD1_TARGET, patch::P_MOD1_DEPTH,
             patch::P_MOD2_TARGET, patch::P_MOD2_DEPTH,
@@ -161,6 +161,7 @@ pub fn param_label(param: usize) -> &'static str {
         patch::P_MOD2_TARGET => "TGT2",
         patch::P_MOD2_DEPTH => "AMT2",
         patch::P_MOD_VALUE => "WHEEL",
+        patch::P_MOD_SLEW => "SLEW",
         patch::P_H1..=patch::P_H16 => {
             static H_LABELS: [&str; NUM_ADD_HARMONICS] = [
                 "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12",
@@ -181,6 +182,7 @@ pub fn format_param_value(param: usize, value: i16) -> FmtBuf<12> {
         patch::P_ATTACK => Some(patch::attack_s(value)),
         patch::P_DECAY | patch::P_RELEASE => Some(patch::decay_s(value)),
         patch::P_GLIDE => Some(patch::glide_s(value)),
+        patch::P_MOD_SLEW => Some(patch::slew_s(value)),
         _ => None,
     };
     match param {
@@ -195,6 +197,7 @@ pub fn format_param_value(param: usize, value: i16) -> FmtBuf<12> {
         patch::P_MOD1_DEPTH | patch::P_MOD2_DEPTH => {
             let _ = write!(buf, "{:+}%", value - 100);
         }
+        patch::P_MOD_SLEW if value <= 0 => buf.push_str("OFF"),
         patch::P_WAVE1 | patch::P_WAVE2 => buf.push_str(WAVE_LABELS[(value as usize).min(NUM_WAVES - 1)]),
         patch::P_DETUNE => { let _ = write!(buf, "{}CT", value); }
         patch::P_ALGO => { let _ = write!(buf, "{}", value + 1); }

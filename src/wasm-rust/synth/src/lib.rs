@@ -589,8 +589,8 @@ fn midi_to_freq(note: u8) -> f32 {
 /// offsets its target param by depth × wheel value, clamped to the param's
 /// range. Integer math on UI units, so the result is exactly what a fader
 /// at that position would sound like. The stored patch is never touched.
-fn apply_mod_slots(p: &mut Patch) {
-    let value = p[P_MOD_VALUE] as i32;
+fn apply_mod_slots(p: &mut Patch, wheel: i32) {
+    let value = wheel.clamp(0, 100);
     if value == 0 {
         return;
     }
@@ -620,6 +620,9 @@ pub struct Synth {
     patches: [Patch; NUM_SYNTH_CHANNELS],
     /// Last note-on frequency per channel — glide starting point.
     last_freq: [f32; NUM_SYNTH_CHANNELS],
+    /// Wheel value after optional slew (P_MOD_SLEW), tracked per channel at
+    /// block rate so both mod slots glide between sequenced steps together.
+    mod_smoothed: [f32; NUM_SYNTH_CHANNELS],
     /// Cached wavetable bank, generated from patch::wt_base on first render.
     wt_tables: [[f32; WT_LEN + 1]; NUM_WT_TABLES],
     wt_ready: bool,
@@ -634,6 +637,7 @@ impl Synth {
             voices: [Voice::new(); MAX_VOICES],
             patches: [DEFAULTS; NUM_SYNTH_CHANNELS],
             last_freq: [0.0; NUM_SYNTH_CHANNELS],
+            mod_smoothed: [0.0; NUM_SYNTH_CHANNELS],
             wt_tables: [[0.0; WT_LEN + 1]; NUM_WT_TABLES],
             wt_ready: false,
             sample_rate: 44_100.0,
@@ -682,9 +686,10 @@ impl Synth {
         let vel = (velocity.min(127) as f32) / 127.0;
         let ch = channel as usize % NUM_SYNTH_CHANNELS;
         // Mods apply to note-on-time reads too (envelope times, glide), so a
-        // wheel targeting e.g. attack is honored from the next note.
+        // wheel targeting e.g. attack is honored from the next note. Uses the
+        // slewed value so smoothed sweeps are heard mid-glide.
         let mut patch = self.patches[ch];
-        apply_mod_slots(&mut patch);
+        apply_mod_slots(&mut patch, self.mod_smoothed[ch] as i32);
         let glide_from = self.last_freq[ch];
         self.last_freq[ch] = midi_to_freq(note);
         self.age_counter = self.age_counter.wrapping_add(1);
@@ -761,12 +766,28 @@ impl Synth {
         let n = out.len().min(MAX_BLOCK);
         let out = &mut out[..n];
         out.fill(0.0);
+        // Advance each channel's slewed wheel value one block toward its
+        // sequenced target. Slew 0 snaps (stepped, the default); otherwise a
+        // one-pole glide with the block-length-corrected coefficient, so the
+        // rate is identical across the browser's 128-sample and the Teensy's
+        // 32-sample blocks.
+        for ch in 0..NUM_SYNTH_CHANNELS {
+            let target = self.patches[ch][P_MOD_VALUE] as f32;
+            let tau = slew_s(self.patches[ch][P_MOD_SLEW]);
+            if tau <= 0.0 {
+                self.mod_smoothed[ch] = target;
+            } else {
+                let coef = 1.0 - libm::expf(-(n as f32) / (tau * self.sample_rate));
+                self.mod_smoothed[ch] += coef * (target - self.mod_smoothed[ch]);
+            }
+        }
         // Split borrows so voices render against the shared table bank
-        let Synth { voices, patches, wt_tables, sample_rate, .. } = self;
+        let Synth { voices, patches, wt_tables, sample_rate, mod_smoothed, .. } = self;
         for v in voices.iter_mut() {
             if v.key != -1 {
-                let mut patch = patches[v.channel as usize % NUM_SYNTH_CHANNELS];
-                apply_mod_slots(&mut patch);
+                let ch = v.channel as usize % NUM_SYNTH_CHANNELS;
+                let mut patch = patches[ch];
+                apply_mod_slots(&mut patch, mod_smoothed[ch] as i32);
                 v.render(out, &patch, wt_tables, *sample_rate);
             }
         }

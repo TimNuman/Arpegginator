@@ -521,3 +521,45 @@ fn mod_matrix_second_slot_and_bounds() {
     assert!(stats.peak <= 1.0, "modded output out of bounds, peak {}", stats.peak);
     assert_eq!(stats.non_finite, 0);
 }
+
+#[test]
+fn mod_slew_glides_between_wheel_steps() {
+    // Volume-kill mapping again, but with slew: the mute must arrive
+    // gradually instead of on the next block.
+    let mut setup = |slew: i16| {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_param(0, patch::P_MOD1_TARGET as u8, patch::P_VOLUME as i16);
+        synth.set_param(0, patch::P_MOD1_DEPTH as u8, 0);
+        synth.set_param(0, patch::P_MOD_SLEW as u8, slew);
+        synth.set_param(0, patch::P_SUSTAIN as u8, 100);
+        synth.note_on(0, 60, 100);
+        let _ = render_blocks(&mut synth, 10); // settle attack
+        synth.set_param(0, patch::P_MOD_VALUE as u8, 100);
+        synth
+    };
+
+    // Stepped (slew 0): quiet almost immediately
+    let mut stepped = setup(0);
+    let right_after = render_blocks(&mut stepped, 5);
+
+    // Slewed (~140ms): still clearly audible right after the step...
+    let mut slewed = setup(50);
+    let early = render_blocks(&mut slewed, 5);
+    assert!(
+        early.mean_abs() > right_after.mean_abs() * 4.0,
+        "slew should delay the mute: early {} vs stepped {}",
+        early.mean_abs(),
+        right_after.mean_abs()
+    );
+
+    // ...and converged to silence once several time constants pass (~1.2s)
+    let late = render_blocks(&mut slewed, 400);
+    assert!(
+        late.mean_abs() < early.mean_abs() / 4.0,
+        "slew must converge: late {} vs early {}",
+        late.mean_abs(),
+        early.mean_abs()
+    );
+    assert_eq!(early.non_finite + late.non_finite, 0);
+}
