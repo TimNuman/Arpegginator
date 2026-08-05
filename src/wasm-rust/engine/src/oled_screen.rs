@@ -280,7 +280,7 @@ fn chord_name_upper(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
 
 // ============ Sub-mode / loop mode labels ============
 
-static SUB_MODE_LABELS: [&str; 6] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV"];
+static SUB_MODE_LABELS: [&str; 7] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV", "WHL"];
 static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
 static INTERVAL_NAMES: [&str; 12] = [
     "UNISON", "MIN 2ND", "2ND", "MIN 3RD", "3RD", "4TH",
@@ -371,8 +371,8 @@ fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
 /// highlighted (yellow when actively editable). With `handles`, sub-modes
 /// that have explicit data render bold.
 fn draw_mode_row(y: i16, sub_mode: usize, highlight: bool, handles: Option<&[u16; NUM_SUB_MODES]>) {
-    // Cycle order: VEL(0), MOD(4), INV(5), HIT(1), FLAM(3), TIME(2)
-    static MODE_DISPLAY_ORDER: [usize; 6] = [0, 4, 5, 1, 3, 2];
+    // Cycle order: VEL(0), MOD(4), INV(5), HIT(1), FLAM(3), TIME(2), WHL(6)
+    static MODE_DISPLAY_ORDER: [usize; 7] = [0, 4, 5, 1, 3, 2, 6];
     gfx_aa_text(PAD_X, y, "MODE", GFX_LABEL, &FONT_AA_SMALL);
     let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
     for &i in MODE_DISPLAY_ORDER.iter() {

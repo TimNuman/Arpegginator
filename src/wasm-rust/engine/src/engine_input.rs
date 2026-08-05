@@ -813,9 +813,10 @@ pub fn engine_button_press(s: &mut EngineState, row: u8, col: u8, modifiers: u8)
 
 // ============ Arrow Press ============
 
-static MODIFY_SUB_MODE_ORDER: [u8; 6] = [
+static MODIFY_SUB_MODE_ORDER: [u8; 7] = [
     SubModeId::Velocity as u8, SubModeId::Modulate as u8, SubModeId::Inversion as u8,
     SubModeId::Hit as u8, SubModeId::Flam as u8, SubModeId::Timing as u8,
+    SubModeId::Wheel as u8,
 ];
 
 fn adjust_loop_end(s: &mut EngineState, dir: u8, fine: bool) {
