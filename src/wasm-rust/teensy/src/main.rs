@@ -16,6 +16,7 @@ use teensy4_panic as _;
 
 use bsp::board;
 use bsp::hal::pit::Channel as PitChannel;
+use bsp::interrupt;
 use bsp::usbd::{BusAdapter, EndpointMemory, EndpointState, Speed, gpt};
 
 use usb_device::bus::UsbBusAllocator;
@@ -96,6 +97,29 @@ mod protocol {
             | ((data[4] as u32) << 28);
         v as i32
     }
+}
+
+// ============ Sequencer Tick Counter (PIT ISR) ============
+
+use core::sync::atomic::{AtomicU32, Ordering};
+
+/// Ticks elapsed but not yet processed. The PIT ISR increments; the main
+/// loop drains. Counting in an interrupt (instead of polling `is_elapsed`,
+/// which is a single flag) means a long main-loop pass — UART bursts, USB
+/// work, grid recompute — delays ticks instead of silently losing them: the
+/// loop catches up on the next pass and the transport doesn't drift.
+static PENDING_TICKS: AtomicU32 = AtomicU32::new(0);
+
+/// Upper bound on catch-up per main-loop pass, so a huge backlog (e.g.
+/// after a debugger halt) drains over several passes instead of wedging one.
+const MAX_TICK_CATCHUP: u32 = 24;
+
+#[bsp::rt::interrupt]
+fn PIT() {
+    // Only channel 0's interrupt is ever enabled; clear its flag and count.
+    let pit = unsafe { bsp::ral::pit::PIT::instance() };
+    bsp::ral::write_reg!(bsp::ral::pit::timer, &pit.TIMER[0], TFLG, TIF: 1);
+    PENDING_TICKS.fetch_add(1, Ordering::Relaxed);
 }
 
 // ============ UART TX Ring (non-blocking hardware MIDI out) ============
@@ -234,6 +258,17 @@ fn main() -> ! {
     // ---- Configure PIT0 ----
     let mut pit_reload = bpm_to_pit_reload(DEFAULT_BPM);
     pit.set_load_timer_value(PIT_CH, pit_reload);
+    // The channel itself is only enabled while playing (CMD_PLAY/STOP);
+    // its interrupt just counts ticks into PENDING_TICKS.
+    pit.set_interrupt_enable(PIT_CH, true);
+    unsafe {
+        let mut cp = cortex_m::Peripherals::steal();
+        // Audio must preempt everything else: SAI3_TX above PIT (i.MX RT
+        // implements the top 4 priority bits; lower value = higher priority).
+        cp.NVIC.set_priority(interrupt::SAI3_TX, 0x10);
+        cp.NVIC.set_priority(interrupt::PIT, 0x80);
+        cortex_m::peripheral::NVIC::unmask(interrupt::PIT);
+    }
 
     let mut tick_counter: u32 = 0;
 
@@ -297,31 +332,36 @@ fn main() -> ! {
             usb_audio_pending = 0;
         }
 
-        // 2. Process sequencer tick
-        if state.is_playing != 0 && pit.is_elapsed(PIT_CH) {
-            pit.clear_elapsed(PIT_CH);
-
+        // 2. Process sequencer ticks counted by the PIT ISR, catching up
+        // (bounded) if a long pass backed several up.
+        if state.is_playing != 0 && PENDING_TICKS.load(Ordering::Relaxed) > 0 {
             let new_reload = bpm_to_pit_reload(state.bpm);
             if new_reload != pit_reload {
                 pit_reload = new_reload;
                 pit.set_load_timer_value(PIT_CH, pit_reload);
             }
 
-            engine_core::engine_core_tick(&mut state);
-            tick_counter = tick_counter.wrapping_add(1);
+            let mut budget = MAX_TICK_CATCHUP;
+            while budget > 0 && PENDING_TICKS.load(Ordering::Relaxed) > 0 {
+                PENDING_TICKS.fetch_sub(1, Ordering::Relaxed);
+                budget -= 1;
 
-            if tick_counter.is_multiple_of(TICKS_PER_QUARTER as u32) {
-                led.toggle();
-            }
+                engine_core::engine_core_tick(&mut state);
+                tick_counter = tick_counter.wrapping_add(1);
 
-            // Send tick update via SysEx every 48 ticks (~10× per beat)
-            if usb_configured && tick_counter.is_multiple_of(48) {
-                let mut tb = [0u8; 5];
-                protocol::encode_i32(state.current_tick, &mut tb);
-                let _ = usb_midi.send_sysex(&[
-                    SYSEX_MFR, protocol::RSP_TICK,
-                    tb[0], tb[1], tb[2], tb[3], tb[4],
-                ]);
+                if tick_counter.is_multiple_of(TICKS_PER_QUARTER as u32) {
+                    led.toggle();
+                }
+
+                // Send tick update via SysEx every 48 ticks (~10× per beat)
+                if usb_configured && tick_counter.is_multiple_of(48) {
+                    let mut tb = [0u8; 5];
+                    protocol::encode_i32(state.current_tick, &mut tb);
+                    let _ = usb_midi.send_sysex(&[
+                        SYSEX_MFR, protocol::RSP_TICK,
+                        tb[0], tb[1], tb[2], tb[3], tb[4],
+                    ]);
+                }
             }
         }
 
@@ -472,12 +512,14 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 }
                 state.is_playing = 1;
                 pit.set_load_timer_value(PitChannel::Chan0, bpm_to_pit_reload(state.bpm));
+                PENDING_TICKS.store(0, Ordering::Relaxed);
                 pit.enable(PitChannel::Chan0);
             }
             protocol::CMD_STOP => {
                 engine_core::engine_core_stop(state);
                 state.is_playing = 0;
                 pit.disable(PitChannel::Chan0);
+                PENDING_TICKS.store(0, Ordering::Relaxed);
                 audio::all_notes_off();
             }
             protocol::CMD_RESET => {
@@ -486,6 +528,7 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                 state.current_tick = -1;
                 state.resume_tick = -1;
                 pit.disable(PitChannel::Chan0);
+                PENDING_TICKS.store(0, Ordering::Relaxed);
                 audio::all_notes_off();
             }
             protocol::CMD_SET_BPM => {
