@@ -66,7 +66,7 @@ fn left_encoder_cycles_pages_and_wraps() {
     assert_eq!(s.sound_page, PAGE_OSC1);
     engine_arrow_press(&mut s, DIR_DOWN, 0);
     engine_arrow_press(&mut s, DIR_DOWN, 0);
-    assert_eq!(s.sound_page, PAGE_FX, "down from page 0 wraps to the last page");
+    assert_eq!(s.sound_page, PAGE_MOD, "down from page 0 wraps to the last page");
     engine_arrow_press(&mut s, DIR_UP, 0);
     assert_eq!(s.sound_page, PAGE_PRESET);
 }
@@ -121,6 +121,29 @@ fn values_clamp_at_range_edges() {
         engine_arrow_press(&mut s, DIR_LEFT, 0);
     }
     assert_eq!(s.sound_patches[ch][patch::P_DRIVE], 0);
+}
+
+#[test]
+fn wheel_page_faders_edit_mod_matrix() {
+    let mut s = init_state();
+    s.ui_mode = UiMode::Sound as u8;
+    s.sound_page = PAGE_MOD;
+    let ch = s.current_channel as usize;
+
+    // Fader 1 (TGT1) occupies cols 0-2: full-height press = max target
+    engine_button_press(&mut s, 0, 0, 0);
+    assert_eq!(s.sound_patches[ch][patch::P_MOD1_TARGET], patch::MAX_MOD_TARGET as i16);
+
+    // Encoder clamps depth at both ends of its 0..200 range
+    s.sound_focus[PAGE_MOD as usize] = 1; // AMT1
+    for _ in 0..50 {
+        engine_arrow_press(&mut s, DIR_RIGHT, 0);
+    }
+    assert_eq!(s.sound_patches[ch][patch::P_MOD1_DEPTH], 200);
+    for _ in 0..100 {
+        engine_arrow_press(&mut s, DIR_LEFT, 0);
+    }
+    assert_eq!(s.sound_patches[ch][patch::P_MOD1_DEPTH], 0);
 }
 
 #[test]
