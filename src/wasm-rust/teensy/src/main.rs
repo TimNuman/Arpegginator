@@ -76,6 +76,7 @@ mod protocol {
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;
     pub const CMD_GET_PERF: u8 = 0x22;
+    pub const CMD_SOUND_PARAM: u8 = 0x23;
     pub const CMD_SET_SYNTH_CHANNELS: u8 = 0x24;
     pub const CMD_PING: u8 = 0x7E;
 
@@ -836,6 +837,29 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     sysex[i] = ((off >> 7) & 0x7F) as u8; i += 1;
                 }
                 let _ = midi.send_sysex(&sysex[..i]);
+            }
+            protocol::CMD_SOUND_PARAM => {
+                // F0 7D 23 <ch> <param> <lo7> <hi7> F7 — set one synth patch
+                // parameter from the host (value = lo | hi<<7, clamped to the
+                // param's range). The engine's mirror of the patch is updated
+                // for sequencer channels so Sound mode and the OLED agree
+                // with what the DSP is playing; channels 6-7 exist only in
+                // the synth and skip the mirror.
+                if payload.len() >= 4 {
+                    let ch = payload[0] as usize;
+                    let param = payload[1] as usize;
+                    let value = (payload[2] & 0x7F) as i16 | (((payload[3] & 0x7F) as i16) << 7);
+                    if ch < arp3_synth::NUM_SYNTH_CHANNELS
+                        && param < arp3_synth::patch::NUM_PARAMS
+                    {
+                        let clamped = arp3_synth::patch::clamp_param(param, value);
+                        if ch < engine_core::NUM_CHANNELS {
+                            state.sound_patches[ch][param] = clamped;
+                            state.sound_edited[ch] = 1;
+                        }
+                        audio::sound_param(ch as u8, param as u8, clamped);
+                    }
+                }
             }
             protocol::CMD_SET_SYNTH_CHANNELS => {
                 // 8-bit channel mask across two 7-bit bytes: bit N = the
