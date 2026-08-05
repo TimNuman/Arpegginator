@@ -76,6 +76,7 @@ mod protocol {
     pub const CMD_GET_STATE: u8 = 0x20;
     pub const CMD_REBOOT: u8 = 0x21;
     pub const CMD_GET_PERF: u8 = 0x22;
+    pub const CMD_SET_SYNTH_CHANNELS: u8 = 0x24;
     pub const CMD_PING: u8 = 0x7E;
 
     pub const RSP_PONG: u8 = 0x7E;
@@ -402,7 +403,7 @@ fn main() -> ! {
     let mut usb_tx = UsbTxRing::new();
 
     // Which channels the internal synth answers on for host note events
-    let synth_listen_mask: u8 = DEFAULT_SYNTH_LISTEN_MASK;
+    let mut synth_listen_mask: u8 = DEFAULT_SYNTH_LISTEN_MASK;
 
     // USB audio: one iso packet in flight (built once, retried until sent)
     let mut usb_audio_pkt = [0u8; usb_midi::AUDIO_PACKET_BYTES];
@@ -595,6 +596,7 @@ fn main() -> ! {
             if accum_len > 0 {
                 let consumed = process_midi_input(
                     &accum_buf[..accum_len], &mut state, &mut pit, &usb_midi,
+                    &mut synth_listen_mask,
                 );
                 if consumed > 0 && consumed < accum_len {
                     accum_buf.copy_within(consumed..accum_len, 0);
@@ -645,6 +647,7 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
     state: &mut EngineState,
     pit: &mut bsp::hal::pit::Pit,
     midi: &MidiClass<B>,
+    synth_listen_mask: &mut u8,
 ) -> usize {
     let mut offset = 0;
     while offset < buf.len() {
@@ -833,6 +836,13 @@ fn process_midi_input<B: usb_device::bus::UsbBus>(
                     sysex[i] = ((off >> 7) & 0x7F) as u8; i += 1;
                 }
                 let _ = midi.send_sysex(&sysex[..i]);
+            }
+            protocol::CMD_SET_SYNTH_CHANNELS => {
+                // 8-bit channel mask across two 7-bit bytes: bit N = the
+                // internal synth answers external note events on channel N.
+                if payload.len() >= 2 {
+                    *synth_listen_mask = (payload[0] & 0x7F) | ((payload[1] & 0x01) << 7);
+                }
             }
             protocol::CMD_GET_PERF => {
                 // Worst audio-ISR duration and worst main-loop pass (both in
