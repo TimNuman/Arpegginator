@@ -711,3 +711,138 @@ mod drum_tests {
         );
     }
 }
+
+// ============ FM drum kit ============
+
+mod fm_drum_tests {
+    use super::*;
+    use crate::drums::*;
+
+    fn fm_synth() -> Synth {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_drum_param(4, DP_KIT as u8, KIT_FM);
+        synth
+    }
+
+    #[test]
+    fn every_gm_note_renders_bounded_audio_on_fm_kit() {
+        for note in 35..=82u8 {
+            let mut synth = fm_synth();
+            synth.drum_trigger(4, note, 110);
+            let stats = render_blocks(&mut synth, 20);
+            assert!(stats.mean_abs() > 1e-4, "FM note {} should be audible", note);
+            assert!(stats.peak <= 1.0, "FM note {} peaked at {}", note, stats.peak);
+            assert_eq!(stats.non_finite, 0, "FM note {} produced NaN/inf", note);
+        }
+    }
+
+    #[test]
+    fn kit_selector_changes_the_sound() {
+        // Same snare hit on both kits: waveforms must differ audibly
+        fn capture(kit: i16) -> [f32; MAX_BLOCK * 10] {
+            let mut synth = Synth::new();
+            synth.set_sample_rate(SR);
+            synth.set_drum_param(4, DP_KIT as u8, kit);
+            synth.drum_trigger(4, 38, 110);
+            let mut out = [0.0f32; MAX_BLOCK * 10];
+            for chunk in out.chunks_mut(MAX_BLOCK) {
+                synth.render(chunk);
+            }
+            out
+        }
+        let analog = capture(KIT_ANALOG);
+        let fm = capture(KIT_FM);
+        let diff: f64 = analog
+            .iter()
+            .zip(fm.iter())
+            .map(|(a, b)| ((a - b) as f64).abs())
+            .sum::<f64>()
+            / analog.len() as f64;
+        assert!(diff > 1e-3, "kits must sound different, mean diff {}", diff);
+    }
+
+    #[test]
+    fn fm_knob_changes_the_kick() {
+        fn capture(fm_amt: i16) -> [f32; MAX_BLOCK * 15] {
+            let mut synth = fm_synth();
+            synth.set_drum_param(4, DPF_BD_FM as u8, fm_amt);
+            synth.drum_trigger(4, 36, 110);
+            let mut out = [0.0f32; MAX_BLOCK * 15];
+            for chunk in out.chunks_mut(MAX_BLOCK) {
+                synth.render(chunk);
+            }
+            out
+        }
+        let dry = capture(0);
+        let deep = capture(100);
+        let diff: f64 = dry
+            .iter()
+            .zip(deep.iter())
+            .map(|(a, b)| ((a - b) as f64).abs())
+            .sum::<f64>()
+            / dry.len() as f64;
+        assert!(diff > 1e-3, "FM depth must shape the kick, mean diff {}", diff);
+    }
+
+    #[test]
+    fn fm_kit_keeps_the_hi_hat_choke() {
+        let mut open = fm_synth();
+        open.drum_trigger(4, 46, 110);
+        render_blocks(&mut open, 70);
+        let ringing = render_blocks(&mut open, 20);
+        assert!(ringing.mean_abs() > 1e-5, "FM open hat should still ring");
+
+        let mut choked = fm_synth();
+        choked.drum_trigger(4, 46, 110);
+        render_blocks(&mut choked, 10);
+        choked.drum_trigger(4, 42, 110);
+        render_blocks(&mut choked, 60);
+        let tail = render_blocks(&mut choked, 20);
+        assert!(
+            tail.mean_abs() < ringing.mean_abs() / 4.0,
+            "closed hat must choke the FM open hat: {} vs {}",
+            tail.mean_abs(),
+            ringing.mean_abs()
+        );
+    }
+
+    #[test]
+    fn banks_are_independent_and_kit_switch_preserves_them() {
+        let mut synth = Synth::new();
+        synth.set_drum_param(4, DP_BD_TUNE as u8, 90); // analog bank
+        synth.set_drum_param(4, DPF_BD_TUNE as u8, 10); // FM bank
+        synth.set_drum_param(4, DP_KIT as u8, KIT_FM);
+        assert_eq!(synth.get_drum_param(4, DP_BD_TUNE as u8), 90);
+        assert_eq!(synth.get_drum_param(4, DPF_BD_TUNE as u8), 10);
+        synth.set_drum_param(4, DP_KIT as u8, KIT_ANALOG);
+        assert_eq!(synth.get_drum_param(4, DP_BD_TUNE as u8), 90);
+        // Kit selector clamps to the known kits
+        synth.set_drum_param(4, DP_KIT as u8, 9);
+        assert_eq!(synth.get_drum_param(4, DP_KIT as u8), (NUM_KITS - 1) as i16);
+    }
+
+    #[test]
+    fn ringing_voice_keeps_its_kit_when_switched() {
+        let mut synth = fm_synth();
+        synth.drum_trigger(4, 36, 110);
+        render_blocks(&mut synth, 5);
+        synth.set_drum_param(4, DP_KIT as u8, KIT_ANALOG);
+        // Must stay bounded and finite while the FM voice rings out
+        let stats = render_blocks(&mut synth, 40);
+        assert!(stats.mean_abs() > 1e-4);
+        assert_eq!(stats.non_finite, 0);
+    }
+
+    #[test]
+    fn all_off_silences_fm_kit() {
+        let mut synth = fm_synth();
+        synth.drum_trigger(4, 36, 120);
+        synth.drum_trigger(4, 49, 120);
+        render_blocks(&mut synth, 10);
+        synth.all_notes_off();
+        render_blocks(&mut synth, 20);
+        let tail = render_blocks(&mut synth, 5);
+        assert!(tail.peak < 1e-3, "all-off should silence the FM kit, peak {}", tail.peak);
+    }
+}

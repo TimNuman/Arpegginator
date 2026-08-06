@@ -1,15 +1,10 @@
-// drums.rs — analog-modeled TR-808 drum kit, in the spirit of Tiptop Audio's
-// 808 module line (BD808, SD808, RS808, CP808, MA808, CB808, HH808, CY808 and
-// the tom/conga voices): each instrument is a small circuit model with the
+// drums.rs — synthesized drum kits for the drum channels. Two engines,
+// selectable per channel (DP_KIT):
+//
+// ANALOG — a modeled TR-808, in the spirit of Tiptop Audio's 808 module
+// line (BD808, SD808, RS808, CP808, MA808, CB808, HH808, CY808 and the
+// tom/conga voices): each instrument is a small circuit model with the
 // module's front-panel controls exposed as parameters.
-//
-// Drum channels play this kit for any GM note whose sampler slot is empty —
-// a loaded sample replaces the recipe note-by-note, exactly like the old
-// Web Audio kit. Everything is f32, block-based, and allocation-free like
-// the rest of the crate, so the same code runs in the AudioWorklet and on
-// the Teensy.
-//
-// Circuit notes, per voice:
 //   BD  bridged-T resonator: swept sine with a tone-filtered click transient
 //   SD  two detuned body sines (~176/330Hz) + snappy highpassed noise
 //   LT/MT/HT swept sines with a noise skin-hit component; congas are the
@@ -22,6 +17,23 @@
 //   CY  6-square Schmitt bank + noise wash, tone blends body vs sizzle
 //   HH  the same bank an octave up, highpassed; CH and OH share one voice so
 //       a closed hat chokes a ringing open hat, as on the hardware
+//
+// FM — a 2-operator phase-modulation kit in the YM-chip / Machinedrum-EFM
+// spirit, sharing the analog kit's voice map (and choke behavior) but with
+// each instrument's FM knob driving a modulator with its own fast decay:
+//   BD  ratio-1 modulator on the swept carrier — growl and click in one knob
+//   SD  inharmonic ×2.43 modulator body + the same snappy noise
+//   TOM ×1.87 modulator, no noise — the FM supplies the skin
+//   RS/CL high-ratio metallic ring; CY/HH a two-stage modulator stack
+//       (m2→m1→carrier at ×5.42/×3.52) for the classic DX metal
+//   CP  the burst envelope with the noise ring-modulated toward metal
+//   MA  high-ratio chiff blended with noise
+//   CB  both 540/800Hz carriers driven by one shared modulator
+//
+// Both kits play for any GM note whose sampler slot is empty — a loaded
+// sample replaces the voice note-by-note. Everything is f32, block-based,
+// and allocation-free like the rest of the crate, so the same code runs in
+// the AudioWorklet and on the Teensy.
 
 use crate::patch::map_log;
 
@@ -67,15 +79,62 @@ pub const DP_HH_TUNE: usize = 27;
 pub const DP_HH_CH_DEC: usize = 28;
 pub const DP_HH_OH_DEC: usize = 29;
 pub const DP_HH_LEVEL: usize = 30;
-pub const NUM_DRUM_PARAMS: usize = 31;
 
-/// One drum channel's kit settings.
+/// Kit engine selector: 0 = analog 808, 1 = FM. Each kit keeps its own
+/// param bank, so switching back and forth never loses knob settings.
+pub const DP_KIT: usize = 31;
+pub const KIT_ANALOG: i16 = 0;
+pub const KIT_FM: i16 = 1;
+pub const NUM_KITS: usize = 2;
+
+// ============ FM kit bank (ids 32+) ============
+
+pub const DPF_BD_TUNE: usize = 32;
+pub const DPF_BD_FM: usize = 33;
+pub const DPF_BD_DECAY: usize = 34;
+pub const DPF_BD_LEVEL: usize = 35;
+pub const DPF_SD_TUNE: usize = 36;
+pub const DPF_SD_FM: usize = 37;
+pub const DPF_SD_SNAP: usize = 38;
+pub const DPF_SD_LEVEL: usize = 39;
+pub const DPF_TOM_TUNE: usize = 40;
+pub const DPF_TOM_FM: usize = 41;
+pub const DPF_TOM_DECAY: usize = 42;
+pub const DPF_TOM_LEVEL: usize = 43;
+pub const DPF_RS_TUNE: usize = 44;
+pub const DPF_RS_FM: usize = 45;
+pub const DPF_RS_DECAY: usize = 46;
+pub const DPF_RS_LEVEL: usize = 47;
+pub const DPF_CP_FM: usize = 48;
+pub const DPF_CP_DECAY: usize = 49;
+pub const DPF_CP_LEVEL: usize = 50;
+pub const DPF_MA_TONE: usize = 51;
+pub const DPF_MA_DECAY: usize = 52;
+pub const DPF_MA_LEVEL: usize = 53;
+pub const DPF_CB_TUNE: usize = 54;
+pub const DPF_CB_FM: usize = 55;
+pub const DPF_CB_DECAY: usize = 56;
+pub const DPF_CB_LEVEL: usize = 57;
+pub const DPF_CY_TUNE: usize = 58;
+pub const DPF_CY_FM: usize = 59;
+pub const DPF_CY_DECAY: usize = 60;
+pub const DPF_CY_LEVEL: usize = 61;
+pub const DPF_HH_FM: usize = 62;
+pub const DPF_HH_CH_DEC: usize = 63;
+pub const DPF_HH_OH_DEC: usize = 64;
+pub const DPF_HH_LEVEL: usize = 65;
+pub const NUM_DRUM_PARAMS: usize = 66;
+
+/// One drum channel's kit settings (both banks + the kit selector).
 pub type DrumPatch = [i16; NUM_DRUM_PARAMS];
 
-/// Every drum param is a 0..100 knob.
-pub const DRUM_PARAM_MAX: i16 = 100;
+/// Inclusive maximum per drum param (minimum is always 0).
+pub fn drum_param_max(param: usize) -> i16 {
+    if param == DP_KIT { (NUM_KITS - 1) as i16 } else { 100 }
+}
 
-/// Defaults tuned to the classic 808 sound (knobs around noon).
+/// Defaults tuned to the classic 808 sound (knobs around noon) and an FM
+/// bank voiced to sit at comparable loudness.
 pub const DRUM_PARAM_DEFAULTS: DrumPatch = [
     50, 35, 55, 90, // BD  tune/tone/decay/level
     50, 50, 60, 80, // SD  tune/tone/snap/level
@@ -86,10 +145,20 @@ pub const DRUM_PARAM_DEFAULTS: DrumPatch = [
     50, 40, 70, //     CB  tune/decay/level
     50, 55, 60, 65, // CY  tune/tone/decay/level
     50, 35, 55, 70, // HH  tune/ch dec/oh dec/level
+    KIT_ANALOG, //     kit engine
+    50, 45, 55, 90, // FM BD  tune/fm/decay/level
+    50, 40, 60, 80, // FM SD  tune/fm/snap/level
+    50, 45, 50, 80, // FM TOM tune/fm/decay/level
+    50, 50, 40, 75, // FM RS  tune/fm/decay/level
+    45, 45, 80, //     FM CP  fm/decay/level
+    55, 40, 65, //     FM MA  tone/decay/level
+    50, 55, 40, 70, // FM CB  tune/fm/decay/level
+    50, 60, 60, 65, // FM CY  tune/fm/decay/level
+    55, 35, 55, 70, // FM HH  fm/ch dec/oh dec/level
 ];
 
-pub fn clamp_drum_param(value: i16) -> i16 {
-    value.clamp(0, DRUM_PARAM_MAX)
+pub fn clamp_drum_param(param: usize, value: i16) -> i16 {
+    value.clamp(0, drum_param_max(param.min(NUM_DRUM_PARAMS - 1)))
 }
 
 // ============ UI value → DSP unit mappings (shared with the OLED) ============
@@ -216,6 +285,9 @@ pub struct DrumVoice {
     channel: u8,
     inst: u8,
     variant: u8,
+    /// Kit engine at trigger time — a ringing voice keeps its engine even if
+    /// the channel's kit is switched under it
+    fm: bool,
     /// Note-derived frequency spread within a shared voice
     pitch: f32,
     age: u32,
@@ -245,6 +317,7 @@ impl DrumVoice {
             channel: 0,
             inst: 0,
             variant: 0,
+            fm: false,
             pitch: 1.0,
             age: 0,
             vel: 0.0,
@@ -262,11 +335,13 @@ impl DrumVoice {
         }
     }
 
-    fn start(&mut self, channel: u8, inst: u8, variant: u8, pitch: f32, vel: f32, age: u32) {
+    #[allow(clippy::too_many_arguments)]
+    fn start(&mut self, channel: u8, inst: u8, variant: u8, fm: bool, pitch: f32, vel: f32, age: u32) {
         self.active = true;
         self.channel = channel;
         self.inst = inst;
         self.variant = variant;
+        self.fm = fm;
         self.pitch = pitch;
         self.age = age;
         self.vel = vel;
@@ -287,6 +362,20 @@ impl DrumVoice {
     /// edits are audible on ringing hits. Frees itself once decayed.
     #[allow(clippy::too_many_lines)]
     fn render(&mut self, out: &mut [f32], p: &DrumPatch, sample_rate: f32) {
+        if self.fm {
+            self.render_fm(out, p, sample_rate);
+        } else {
+            self.render_analog(out, p, sample_rate);
+        }
+        // Bursting clap keeps env high by design; everything is done once the
+        // envelopes are gone and the burst phase is over
+        if self.env < ENV_FLOOR && self.env2 < ENV_FLOOR && self.t > 0.04 {
+            self.active = false;
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn render_analog(&mut self, out: &mut [f32], p: &DrumPatch, sample_rate: f32) {
         let inv_sr = 1.0 / sample_rate;
         // One-pole coefficient for a cutoff in Hz
         let onepole = |hz: f32| -> f32 {
@@ -606,10 +695,347 @@ impl DrumVoice {
             }
         }
 
-        // Bursting clap keeps env high by design; everything is done once the
-        // envelopes are gone and the burst phase is over
-        if self.env < ENV_FLOOR && self.env2 < ENV_FLOOR && self.t > 0.04 {
-            self.active = false;
+    }
+
+    /// The FM kit: 2-op phase modulation per voice, mod envelopes tracked as
+    /// block-local exponentials seeded from `t` so live edits stay exact.
+    #[allow(clippy::too_many_lines)]
+    fn render_fm(&mut self, out: &mut [f32], p: &DrumPatch, sample_rate: f32) {
+        let inv_sr = 1.0 / sample_rate;
+        let onepole = |hz: f32| -> f32 {
+            1.0 - libm::expf(-core::f32::consts::TAU * hz.min(sample_rate * 0.45) * inv_sr)
+        };
+        let kill_coef = decay_coef(0.003, sample_rate);
+        let gain = 0.25 + 0.75 * self.vel * self.vel;
+        // Mod-index envelope for this block: value at t, decayed per sample
+        let menv_at = |tau: f32| libm::expf(-self.t / tau.max(1.0e-3));
+
+        match self.inst {
+            INST_BD => {
+                let base = bd_freq_hz(p[DPF_BD_TUNE]) * self.pitch;
+                let idx = p[DPF_BD_FM] as f32 / 100.0 * 1.8;
+                let pcoef = decay_coef(0.012, sample_rate);
+                let mut menv = menv_at(0.045);
+                let mcoef = decay_coef(0.045, sample_rate);
+                let mut acoef = decay_coef(bd_decay_s(p[DPF_BD_DECAY]), sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let level = p[DPF_BD_LEVEL] as f32 / 100.0 * 1.5 * gain;
+                for s in out.iter_mut() {
+                    self.penv *= pcoef;
+                    menv *= mcoef;
+                    let freq = base * (1.0 + 2.0 * self.penv);
+                    self.phases[0] += freq * inv_sr; // carrier
+                    self.phases[1] += freq * inv_sr; // ratio-1 modulator
+                    for ph in self.phases.iter_mut().take(2) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    let m = crate::fast_sin(self.phases[1]);
+                    let v = crate::fast_sin(self.phases[0] + idx * menv * m);
+                    self.env *= acoef;
+                    *s += crate::soft_sat(v * 1.3) * self.env * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_SD => {
+                let r = tune_ratio(p[DPF_SD_TUNE]) * self.pitch;
+                let f = 175.0 * r;
+                let idx = p[DPF_SD_FM] as f32 / 100.0 * 1.4;
+                let snap = p[DPF_SD_SNAP] as f32 / 100.0;
+                let pcoef = decay_coef(0.005, sample_rate);
+                let mut menv = menv_at(0.060);
+                let mcoef = decay_coef(0.060, sample_rate);
+                let mut bcoef = decay_coef(0.070, sample_rate);
+                let mut ncoef = decay_coef(0.030 + 0.110 * snap, sample_rate);
+                if self.killed {
+                    bcoef = kill_coef;
+                    ncoef = kill_coef;
+                }
+                let khp = onepole(3000.0);
+                let noise_gain = 0.25 + 0.85 * snap;
+                let level = p[DPF_SD_LEVEL] as f32 / 100.0 * 0.9 * gain;
+                for s in out.iter_mut() {
+                    self.penv *= pcoef;
+                    menv *= mcoef;
+                    let sweep = 1.0 + 0.5 * self.penv;
+                    self.phases[0] += f * sweep * inv_sr;
+                    self.phases[1] += f * 2.43 * sweep * inv_sr; // inharmonic mod
+                    for ph in self.phases.iter_mut().take(2) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    let m = crate::fast_sin(self.phases[1]);
+                    let body = crate::fast_sin(self.phases[0] + idx * menv * m);
+                    let n = crate::xorshift(&mut self.noise);
+                    self.lp1 += khp * (n - self.lp1);
+                    let hpn = n - self.lp1;
+                    self.env *= bcoef;
+                    self.env2 *= ncoef;
+                    *s += (body * self.env + hpn * self.env2 * noise_gain) * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_LT | INST_MT | INST_HT => {
+                let base = match self.inst {
+                    INST_LT => 82.0,
+                    INST_MT => 118.0,
+                    _ => 160.0,
+                };
+                let conga = self.variant == 1;
+                let freq_base = base * tune_ratio(p[DPF_TOM_TUNE]) * self.pitch;
+                let idx = p[DPF_TOM_FM] as f32 / 100.0 * 1.1;
+                let decay = p[DPF_TOM_DECAY] as f32 / 100.0;
+                let vscale = match self.inst {
+                    INST_LT => 1.0,
+                    INST_MT => 0.85,
+                    _ => 0.72,
+                };
+                let tau = (0.09 + 0.50 * decay) * vscale * if conga { 0.55 } else { 1.0 };
+                let mut acoef = decay_coef(tau, sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let pcoef = decay_coef(0.018, sample_rate);
+                let mut menv = menv_at(0.080);
+                let mcoef = decay_coef(0.080, sample_rate);
+                let level = p[DPF_TOM_LEVEL] as f32 / 100.0 * 1.0 * gain;
+                for s in out.iter_mut() {
+                    self.penv *= pcoef;
+                    menv *= mcoef;
+                    let freq = freq_base * (1.0 + 0.9 * self.penv);
+                    self.phases[0] += freq * inv_sr;
+                    self.phases[1] += freq * 1.87 * inv_sr;
+                    for ph in self.phases.iter_mut().take(2) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    let m = crate::fast_sin(self.phases[1]);
+                    let v = crate::fast_sin(self.phases[0] + idx * menv * m);
+                    self.env *= acoef;
+                    *s += v * self.env * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_RS | INST_CL => {
+                let r = tune_ratio(p[DPF_RS_TUNE]) * self.pitch;
+                let claves = self.inst == INST_CL;
+                let ds = map_log(p[DPF_RS_DECAY], 0.5, 6.0); // 0.5x .. 3x
+                let (fc, ratio, depth) =
+                    if claves { (1800.0 * r, 2.0, 0.9) } else { (455.0 * r, 3.53, 1.8) };
+                let idx = p[DPF_RS_FM] as f32 / 100.0 * depth;
+                let tau = if claves { 0.012 } else { 0.008 } * ds;
+                let mut acoef = decay_coef(tau, sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let pcoef = decay_coef(0.0012, sample_rate);
+                let mut menv = menv_at(0.030);
+                let mcoef = decay_coef(0.030, sample_rate);
+                let level = p[DPF_RS_LEVEL] as f32 / 100.0 * 0.8 * gain;
+                for s in out.iter_mut() {
+                    self.phases[0] += fc * inv_sr;
+                    self.phases[1] += fc * ratio * inv_sr;
+                    for ph in self.phases.iter_mut().take(2) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    self.penv *= pcoef;
+                    menv *= mcoef;
+                    let m = crate::fast_sin(self.phases[1]);
+                    let mut v = crate::fast_sin(self.phases[0] + idx * menv * m);
+                    self.env *= acoef;
+                    v = v * self.env + crate::xorshift(&mut self.noise) * self.penv * 0.3;
+                    *s += v * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_CP => {
+                // Same 3-burst envelope; FM knob ring-modulates the noise
+                // toward metal
+                let fmk = p[DPF_CP_FM] as f32 / 100.0;
+                let k_hi = onepole(1800.0);
+                let k_lo = onepole(650.0);
+                let burst_coef = decay_coef(0.004, sample_rate);
+                let mut tail_coef =
+                    decay_coef(0.030 + 0.250 * p[DPF_CP_DECAY] as f32 / 100.0, sample_rate);
+                if self.killed {
+                    tail_coef = kill_coef;
+                }
+                let level = p[DPF_CP_LEVEL] as f32 / 100.0 * 1.4 * gain;
+                for s in out.iter_mut() {
+                    if self.t < 0.033 {
+                        self.env *= burst_coef;
+                        if self.t >= self.next_burst {
+                            self.env = 1.0;
+                            self.next_burst += 0.011;
+                        }
+                    } else {
+                        self.env2 *= tail_coef;
+                        self.env = 0.7 * self.env2;
+                    }
+                    self.phases[0] += 940.0 * inv_sr;
+                    if self.phases[0] >= 1.0 {
+                        self.phases[0] -= 1.0;
+                    }
+                    let n = crate::xorshift(&mut self.noise);
+                    let ring = n * crate::fast_sin(self.phases[0]) * 1.8;
+                    let src = n * (1.0 - fmk) + ring * fmk;
+                    self.lp1 += k_hi * (src - self.lp1);
+                    self.lp2 += k_lo * (self.lp1 - self.lp2);
+                    *s += (self.lp1 - self.lp2) * self.env * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_MA => {
+                // High-ratio FM chiff blended with the noise
+                let fc = 4000.0 * libm::exp2f(1.5 * p[DPF_MA_TONE] as f32 / 100.0 - 0.75);
+                let khp = onepole(fc * 0.9);
+                let tau = (0.015 + 0.100 * p[DPF_MA_DECAY] as f32 / 100.0)
+                    * if self.variant == 1 { 1.8 } else { 1.0 };
+                let mut acoef = decay_coef(tau, sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let level = p[DPF_MA_LEVEL] as f32 / 100.0 * 0.7 * gain;
+                for s in out.iter_mut() {
+                    self.phases[0] += fc * inv_sr;
+                    self.phases[1] += fc * 1.41 * inv_sr;
+                    for ph in self.phases.iter_mut().take(2) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    let chiff =
+                        crate::fast_sin(self.phases[0] + 0.9 * crate::fast_sin(self.phases[1]));
+                    let n = crate::xorshift(&mut self.noise);
+                    self.lp1 += khp * (n - self.lp1);
+                    let v = 0.5 * (n - self.lp1) + 0.5 * chiff;
+                    self.env *= acoef;
+                    *s += v * self.env * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_CB => {
+                // Both classic carriers driven by one shared modulator
+                let r = tune_ratio(p[DPF_CB_TUNE]) * self.pitch;
+                let (f1, f2, fm) = (540.0 * r, 800.0 * r, 540.0 * 2.78 * r);
+                let idx = p[DPF_CB_FM] as f32 / 100.0 * 1.2;
+                let k_hi = onepole(1900.0);
+                let k_lo = onepole(600.0);
+                let spike_coef = decay_coef(0.012, sample_rate);
+                let mut menv = menv_at(0.060);
+                let mcoef = decay_coef(0.060, sample_rate);
+                let mut acoef =
+                    decay_coef(0.080 + 0.400 * p[DPF_CB_DECAY] as f32 / 100.0, sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let level = p[DPF_CB_LEVEL] as f32 / 100.0 * 0.8 * gain;
+                for s in out.iter_mut() {
+                    self.phases[0] += f1 * inv_sr;
+                    self.phases[1] += f2 * inv_sr;
+                    self.phases[2] += fm * inv_sr;
+                    for ph in self.phases.iter_mut().take(3) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    menv *= mcoef;
+                    let m = idx * menv * crate::fast_sin(self.phases[2]);
+                    let raw = 0.5
+                        * (crate::fast_sin(self.phases[0] + m)
+                            + crate::fast_sin(self.phases[1] + m));
+                    self.lp1 += k_hi * (raw - self.lp1);
+                    self.lp2 += k_lo * (self.lp1 - self.lp2);
+                    self.env *= acoef;
+                    self.env2 *= spike_coef;
+                    *s += (self.lp1 - self.lp2) * (0.45 * self.env + 0.55 * self.env2) * level;
+                    self.t += inv_sr;
+                }
+            }
+            INST_CY => {
+                // Two-stage modulator stack (m2 → m1 → carrier), DX metal
+                let r = tune_ratio_narrow(p[DPF_CY_TUNE]) * self.pitch;
+                let fc = 620.0 * r;
+                let idx = p[DPF_CY_FM] as f32 / 100.0 * 2.2;
+                let vscale = match self.variant {
+                    1 => 0.40, // ride
+                    2 => 0.60, // china / splash
+                    _ => 1.0,  // crash
+                };
+                let tau = map_log(p[DPF_CY_DECAY], 0.25, 10.0) * vscale;
+                let mut acoef = decay_coef(tau, sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let mut menv = menv_at(tau * 0.35);
+                let mcoef = decay_coef(tau * 0.35, sample_rate);
+                let k_hp = onepole(3800.0);
+                let level = p[DPF_CY_LEVEL] as f32 / 100.0 * 0.9 * gain;
+                for s in out.iter_mut() {
+                    self.phases[0] += fc * inv_sr;
+                    self.phases[1] += fc * 3.52 * inv_sr;
+                    self.phases[2] += fc * 5.42 * inv_sr;
+                    for ph in self.phases.iter_mut().take(3) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    menv *= mcoef;
+                    let m2 = crate::fast_sin(self.phases[2]);
+                    let m1 = crate::fast_sin(self.phases[1] + idx * 0.7 * m2);
+                    let raw = crate::fast_sin(self.phases[0] + idx * menv * m1);
+                    self.lp1 += k_hp * (raw - self.lp1);
+                    let v = 0.8 * (raw - self.lp1) + 0.2 * raw;
+                    self.env *= acoef;
+                    *s += v * self.env * level;
+                    self.t += inv_sr;
+                }
+            }
+            _ => {
+                // INST_HH — the same stack an octave up; CH still chokes OH
+                let fc = 1150.0;
+                let idx = p[DPF_HH_FM] as f32 / 100.0 * 2.5;
+                let tau = match self.variant {
+                    2 => 0.120 + 0.900 * p[DPF_HH_OH_DEC] as f32 / 100.0, // open
+                    1 => (0.020 + 0.130 * p[DPF_HH_CH_DEC] as f32 / 100.0) * 1.8, // pedal
+                    _ => 0.020 + 0.130 * p[DPF_HH_CH_DEC] as f32 / 100.0, // closed
+                };
+                let mut acoef = decay_coef(tau, sample_rate);
+                if self.killed {
+                    acoef = kill_coef;
+                }
+                let k_hp = onepole(6800.0);
+                let k_lp = onepole(13000.0);
+                let level = p[DPF_HH_LEVEL] as f32 / 100.0 * 0.55 * gain;
+                for s in out.iter_mut() {
+                    self.phases[0] += fc * inv_sr;
+                    self.phases[1] += fc * 3.52 * inv_sr;
+                    self.phases[2] += fc * 5.42 * inv_sr;
+                    for ph in self.phases.iter_mut().take(3) {
+                        if *ph >= 1.0 {
+                            *ph -= 1.0;
+                        }
+                    }
+                    let m2 = crate::fast_sin(self.phases[2]);
+                    let m1 = crate::fast_sin(self.phases[1] + idx * 0.8 * m2);
+                    let raw = crate::fast_sin(self.phases[0] + idx * m1);
+                    self.lp1 += k_hp * (raw - self.lp1);
+                    let hp1 = raw - self.lp1;
+                    self.lp2 += k_hp * (hp1 - self.lp2);
+                    let hp2 = hp1 - self.lp2;
+                    self.lp3 += k_lp * (hp2 - self.lp3);
+                    self.env *= acoef;
+                    *s += self.lp3 * self.env * level;
+                    self.t += inv_sr;
+                }
+            }
         }
     }
 }
@@ -636,7 +1062,7 @@ impl Drums {
     pub fn set_param(&mut self, channel: u8, param: u8, value: i16) {
         let ch = channel as usize % crate::NUM_SYNTH_CHANNELS;
         if (param as usize) < NUM_DRUM_PARAMS {
-            self.params[ch][param as usize] = clamp_drum_param(value);
+            self.params[ch][param as usize] = clamp_drum_param(param as usize, value);
         }
     }
 
@@ -651,6 +1077,7 @@ impl Drums {
     pub fn trigger(&mut self, channel: u8, note: u8, velocity: u8) {
         let ch = channel % crate::NUM_SYNTH_CHANNELS as u8;
         let (inst, variant, pitch) = note_to_inst(note);
+        let fm = self.params[ch as usize][DP_KIT] == KIT_FM;
         let vel = (velocity.min(127) as f32) / 127.0;
         self.age_counter = self.age_counter.wrapping_add(1);
         let age = self.age_counter;
@@ -669,7 +1096,7 @@ impl Drums {
                 }
                 oldest
             });
-        self.voices[idx].start(ch, inst, variant, pitch, vel, age);
+        self.voices[idx].start(ch, inst, variant, fm, pitch, vel, age);
     }
 
     /// Fast-fade every ringing voice (transport stop / all-notes-off).

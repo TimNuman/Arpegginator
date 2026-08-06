@@ -29,12 +29,12 @@ fn ctrl_bottom_row_enters_sound_mode() {
 }
 
 #[test]
-fn sound_mode_on_drum_channel_opens_808_pages() {
+fn sound_mode_on_drum_channel_opens_kit_pages() {
     let mut s = init_state();
     s.current_channel = drum_ch(&s);
     engine_button_press(&mut s, 7, 2, MOD_CTRL);
     assert_eq!(s.ui_mode, UiMode::Sound as u8);
-    assert_eq!(s.sound_page, PAGE_DBD, "drum channel snaps to the 808 kit page list");
+    assert_eq!(s.sound_page, PAGE_DKIT, "drum channel snaps to the kit chooser");
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn switching_to_drum_channel_keeps_sound_mode_and_snaps_page() {
     engine_button_press(&mut s, dch, dpat + 1, MOD_CTRL);
     assert_eq!(s.current_channel, dch);
     assert_eq!(s.ui_mode, UiMode::Sound as u8);
-    assert_eq!(s.sound_page, PAGE_DBD, "melodic page is foreign to drums; snaps to BD");
+    assert_eq!(s.sound_page, PAGE_DKIT, "melodic page is foreign to drums; snaps to KIT");
     // And back: a melodic channel snaps off the sampler pages
     let pat0 = s.current_patterns[0];
     engine_button_press(&mut s, 0, pat0 + 1, MOD_CTRL);
@@ -485,7 +485,7 @@ mod sampler {
     fn left_encoder_cycles_sampler_pages_and_wraps_to_kit() {
         let mut s = drum_state();
         assert_eq!(s.sound_page, PAGE_SSLOT);
-        for expect in [PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD, PAGE_DBD] {
+        for expect in [PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD, PAGE_DKIT] {
             engine_arrow_press(&mut s, DIR_UP, 0);
             assert_eq!(s.sound_page, expect);
         }
@@ -669,16 +669,20 @@ mod drumsynth {
         s.current_channel = drum_ch(&s);
         s.ui_mode = UiMode::Sound as u8;
         crate::engine_sound::ensure_valid_sound_page(&mut s);
+        // Instrument tests start on the BD page (the KIT chooser comes first)
+        s.sound_page = PAGE_DBD;
         s
     }
 
     #[test]
-    fn drum_channel_cycles_kit_pages_then_sampler() {
+    fn drum_channel_opens_kit_chooser_then_cycles_instruments() {
         let mut s = kit_state();
-        assert_eq!(s.sound_page, PAGE_DBD);
+        s.sound_page = PAGE_DKIT;
+        crate::engine_sound::ensure_valid_sound_page(&mut s);
+        assert_eq!(s.sound_page, PAGE_DKIT);
         for expect in [
-            PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY, PAGE_DHH,
-            PAGE_SSLOT,
+            PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
+            PAGE_DHH, PAGE_SSLOT,
         ] {
             engine_arrow_press(&mut s, DIR_UP, 0);
             assert_eq!(s.sound_page, expect);
@@ -686,26 +690,55 @@ mod drumsynth {
     }
 
     #[test]
+    fn kit_page_selects_engine_and_swaps_fader_banks() {
+        let mut s = kit_state();
+        let ch = s.current_channel as usize;
+        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_ANALOG, "channels boot on the analog kit");
+        s.sound_page = PAGE_DKIT;
+        // Bottom-row selector cell 1 = FM
+        engine_button_press(&mut s, 7, 1, 0);
+        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_FM);
+        // The BD page now edits the FM bank: second fader is the FM knob
+        s.sound_page = PAGE_DBD;
+        engine_button_press(&mut s, 0, 4, 0);
+        assert_eq!(s.drum_patches[ch][DPF_BD_FM], 100);
+        assert_eq!(s.drum_patches[ch][DP_BD_TONE], DRUM_PARAM_DEFAULTS[DP_BD_TONE],
+            "analog bank must be untouched by FM edits");
+        // Encoder on the KIT page steps back to analog
+        s.sound_page = PAGE_DKIT;
+        engine_arrow_press(&mut s, DIR_LEFT, 0);
+        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_ANALOG);
+    }
+
+    #[test]
     fn every_kit_page_has_faders_with_valid_params() {
-        for page in [
-            PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
-            PAGE_DHH,
-        ] {
-            let faders = crate::engine_drumsynth::drum_page_faders(page);
-            assert!(!faders.is_empty(), "page {} must have faders", page);
-            assert!(faders.len() <= 4);
-            for &p in faders {
-                assert!(p < NUM_DRUM_PARAMS);
+        for kit in [KIT_ANALOG, KIT_FM] {
+            for page in [
+                PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
+                PAGE_DHH,
+            ] {
+                let faders = crate::engine_drumsynth::drum_page_faders(page, kit);
+                assert!(!faders.is_empty(), "page {} must have faders", page);
+                assert!(faders.len() <= 4);
+                for &p in faders {
+                    assert!(p < NUM_DRUM_PARAMS);
+                }
             }
         }
-        // Every kit param is reachable from exactly one page
+        // Every knob is reachable from exactly one page of its kit; the kit
+        // selector itself lives on the KIT chooser page
         let mut seen = [0u8; NUM_DRUM_PARAMS];
-        for page in PAGE_DBD..=PAGE_DHH {
-            for &p in crate::engine_drumsynth::drum_page_faders(page) {
-                seen[p] += 1;
+        for kit in [KIT_ANALOG, KIT_FM] {
+            for page in PAGE_DBD..=PAGE_DHH {
+                for &p in crate::engine_drumsynth::drum_page_faders(page, kit) {
+                    seen[p] += 1;
+                }
             }
         }
-        assert!(seen.iter().all(|&n| n == 1), "params must map 1:1 onto pages");
+        for (p, &n) in seen.iter().enumerate() {
+            let expect = if p == DP_KIT { 0 } else { 1 };
+            assert_eq!(n, expect, "param {} appears on {} pages", p, n);
+        }
     }
 
     #[test]

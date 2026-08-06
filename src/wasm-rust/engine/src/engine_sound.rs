@@ -47,8 +47,8 @@ pub const PAGE_SREC: u8 = 15;
 pub const PAGE_STRIM: u8 = 16;
 pub const PAGE_SPLAY: u8 = 17;
 pub const PAGE_SMOD: u8 = 18;
-// 808 drum-synth pages (drum channels only): one page per instrument,
-// mirroring the Tiptop Audio 808 module line
+// Drum-synth pages (drum channels only): one page per instrument, shared by
+// the analog-808 and FM kits, plus the KIT engine chooser
 pub const PAGE_DBD: u8 = 20;
 pub const PAGE_DSD: u8 = 21;
 pub const PAGE_DTOM: u8 = 22;
@@ -58,12 +58,15 @@ pub const PAGE_DMA: u8 = 25;
 pub const PAGE_DCB: u8 = 26;
 pub const PAGE_DCY: u8 = 27;
 pub const PAGE_DHH: u8 = 28;
-pub const NUM_SOUND_PAGES: usize = 29;
+pub const PAGE_DKIT: u8 = 29;
+pub const NUM_SOUND_PAGES: usize = 30;
 
+// The drum instrument labels here are the analog spellings — the OLED asks
+// engine_drumsynth::drum_page_label for the kit-aware name.
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
     "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
     "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD", "WHEEL", "BD 808", "SD 808", "TOMS",
-    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT",
+    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT", "KIT",
 ];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
@@ -76,10 +79,11 @@ static WT_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
 static ADD_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_HARM, PAGE_ADD, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
-/// Drum channels cycle the 808 instrument pages first, then the sampler.
-static DRUM_PAGES: [u8; 14] = [
-    PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY, PAGE_DHH,
-    PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD,
+/// Drum channels cycle the kit chooser, the instrument pages, then the
+/// sampler.
+static DRUM_PAGES: [u8; 15] = [
+    PAGE_DKIT, PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
+    PAGE_DHH, PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD,
 ];
 
 pub fn engine_pages(engine: i16) -> &'static [u8] {
