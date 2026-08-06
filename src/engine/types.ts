@@ -92,9 +92,9 @@ export interface Engine {
   /** Synth patch param changed (Sound mode edit or sync) — forward to audio */
   onSoundParam: ((channel: number, param: number, value: number) => void) | null;
   /** Sampler slot param changed (Sound mode edit or sync) — forward to audio */
-  onSampleParam:
-    | ((channel: number, slot: number, param: number, value: number) => void)
-    | null;
+  onSampleParam: ((channel: number, slot: number, param: number, value: number) => void) | null;
+  /** 808 kit param changed (Sound mode edit or sync) — forward to audio */
+  onDrumParam: ((channel: number, param: number, value: number) => void) | null;
   /** REC cell pressed on the sampler's REC page — toggle the recorder */
   onRecControl: ((channel: number, action: number) => void) | null;
 

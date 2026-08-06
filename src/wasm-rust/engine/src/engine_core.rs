@@ -580,6 +580,8 @@ pub struct EngineState {
     pub sound_presets: [u8; NUM_CHANNELS],
     /// Nonzero once the channel's patch deviates from its preset
     pub sound_edited: [u8; NUM_CHANNELS],
+    /// 808 kit params per channel (drum channels only; see engine_drumsynth)
+    pub drum_patches: [arp3_synth::drums::DrumPatch; NUM_CHANNELS],
 
     // Drum sampler UI state (see engine_sampler)
     pub sampler_slot: [u8; NUM_CHANNELS],
@@ -698,6 +700,7 @@ impl EngineState {
         ];
 
         self.sound_patches = [arp3_synth::patch::DEFAULTS; NUM_CHANNELS];
+        self.drum_patches = [arp3_synth::drums::DRUM_PARAM_DEFAULTS; NUM_CHANNELS];
         self.sampler_params = [[arp3_synth::sampler::SLOT_PARAM_DEFAULTS;
             arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS];
         self.sampler_keys = [[-1; arp3_synth::sampler::NUM_SLOTS]; NUM_CHANNELS];

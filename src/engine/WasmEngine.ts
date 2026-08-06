@@ -50,6 +50,7 @@ async function loadRustWasm(
       js_play_preview_note: callbacks.playPreviewNote ?? (() => {}),
       js_sound_param: callbacks.soundParam ?? (() => {}),
       js_sample_param: callbacks.sampleParam ?? (() => {}),
+      js_drum_param: callbacks.drumParam ?? (() => {}),
       js_rec_control: callbacks.recControl ?? (() => {}),
     },
   };
@@ -82,6 +83,7 @@ export class WasmEngine implements Engine {
   onSoundParam: ((channel: number, param: number, value: number) => void) | null = null;
   onSampleParam: ((channel: number, slot: number, param: number, value: number) => void) | null =
     null;
+  onDrumParam: ((channel: number, param: number, value: number) => void) | null = null;
   onRecControl: ((channel: number, action: number) => void) | null = null;
 
   async load(): Promise<void> {
@@ -116,6 +118,9 @@ export class WasmEngine implements Engine {
       },
       sampleParam: (ch: number, slot: number, param: number, value: number) => {
         this.onSampleParam?.(ch, slot, param, value);
+      },
+      drumParam: (ch: number, param: number, value: number) => {
+        this.onDrumParam?.(ch, param, value);
       },
       recControl: (ch: number, action: number) => {
         this.onRecControl?.(ch, action);

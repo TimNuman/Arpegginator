@@ -47,11 +47,23 @@ pub const PAGE_SREC: u8 = 15;
 pub const PAGE_STRIM: u8 = 16;
 pub const PAGE_SPLAY: u8 = 17;
 pub const PAGE_SMOD: u8 = 18;
-pub const NUM_SOUND_PAGES: usize = 20;
+// 808 drum-synth pages (drum channels only): one page per instrument,
+// mirroring the Tiptop Audio 808 module line
+pub const PAGE_DBD: u8 = 20;
+pub const PAGE_DSD: u8 = 21;
+pub const PAGE_DTOM: u8 = 22;
+pub const PAGE_DRS: u8 = 23;
+pub const PAGE_DCP: u8 = 24;
+pub const PAGE_DMA: u8 = 25;
+pub const PAGE_DCB: u8 = 26;
+pub const PAGE_DCY: u8 = 27;
+pub const PAGE_DHH: u8 = 28;
+pub const NUM_SOUND_PAGES: usize = 29;
 
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
     "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
-    "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD", "WHEEL",
+    "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD", "WHEEL", "BD 808", "SD 808", "TOMS",
+    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT",
 ];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
@@ -64,7 +76,11 @@ static WT_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
 static ADD_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_HARM, PAGE_ADD, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
-static SAMPLER_PAGES: [u8; 5] = [PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD];
+/// Drum channels cycle the 808 instrument pages first, then the sampler.
+static DRUM_PAGES: [u8; 14] = [
+    PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY, PAGE_DHH,
+    PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD,
+];
 
 pub fn engine_pages(engine: i16) -> &'static [u8] {
     match engine {
@@ -75,11 +91,11 @@ pub fn engine_pages(engine: i16) -> &'static [u8] {
     }
 }
 
-/// The page list for the current channel: sampler pages on drum channels,
-/// the engine's synth pages otherwise.
+/// The page list for the current channel: 808 kit + sampler pages on drum
+/// channels, the engine's synth pages otherwise.
 pub fn pages_for(s: &EngineState) -> &'static [u8] {
     if s.is_drum_channel(s.current_channel as usize) {
-        &SAMPLER_PAGES
+        &DRUM_PAGES
     } else {
         engine_pages(current_engine(s))
     }
@@ -275,6 +291,7 @@ pub fn engine_sync_sound_params(s: &EngineState) {
         }
     }
     crate::engine_sampler::engine_sync_sampler_params(s);
+    crate::engine_drumsynth::engine_sync_drum_params(s);
 }
 
 /// Which param a page's chooser edits (None for the preset and fader pages).
@@ -334,7 +351,11 @@ pub fn handle_arrow_sound(s: &mut EngineState, dir: u8, mods: u8) {
         // Right encoder: edit the focused value
         DIR_LEFT | DIR_RIGHT => {
             if s.is_drum_channel(s.current_channel as usize) {
-                crate::engine_sampler::handle_sampler_arrow(s, dir, mods);
+                if crate::engine_drumsynth::is_drum_page(s.sound_page) {
+                    crate::engine_drumsynth::handle_drum_arrow(s, dir, mods);
+                } else {
+                    crate::engine_sampler::handle_sampler_arrow(s, dir, mods);
+                }
                 return;
             }
             // Preset page: step through presets, loading as you go
@@ -367,7 +388,11 @@ pub fn handle_arrow_sound(s: &mut EngineState, dir: u8, mods: u8) {
 pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, mods: u8) {
     let ch = s.current_channel as usize;
     if s.is_drum_channel(ch) {
-        crate::engine_sampler::handle_sampler_press(s, row, col, mods);
+        if crate::engine_drumsynth::is_drum_page(s.sound_page) {
+            crate::engine_drumsynth::handle_drum_press(s, row, col, mods);
+        } else {
+            crate::engine_sampler::handle_sampler_press(s, row, col, mods);
+        }
         return;
     }
     let _ = mods;
@@ -692,7 +717,11 @@ fn render_harm_page(s: &mut EngineState) {
 pub fn render_sound_mode(s: &mut EngineState) -> bool {
     ensure_valid_sound_page(s);
     if s.is_drum_channel(s.current_channel as usize) {
-        crate::engine_sampler::render_sampler_page(s);
+        if crate::engine_drumsynth::is_drum_page(s.sound_page) {
+            crate::engine_drumsynth::render_drum_page(s);
+        } else {
+            crate::engine_sampler::render_sampler_page(s);
+        }
         return true;
     }
 

@@ -12,7 +12,9 @@
 // param ids from arp3_synth::patch), [4, channel, slot, param, value]
 // setSlotParam (sampler, ids from arp3_synth::sampler), [5, channel, note,
 // velocity] drumTrigger, [6, channel, note] drumRelease, [7, channel, slot,
-// Int16Array] loadSample (buffer transferred; empty array clears the slot).
+// Int16Array] loadSample (buffer transferred; empty array clears the slot),
+// [8, channel, param, value] setDrumParam (808 kit, ids from
+// arp3_synth::drums).
 
 export class RustSynth {
   private node: AudioWorkletNode | null = null;
@@ -84,10 +86,14 @@ export class RustSynth {
     this.node?.port.postMessage([3, channel, param, value]);
   }
 
-  // ---- Drum sampler ----
+  // ---- Drums (sampler + 808 kit) ----
 
   setSlotParam(channel: number, slot: number, param: number, value: number): void {
     this.node?.port.postMessage([4, channel, slot, param, value]);
+  }
+
+  setDrumParam(channel: number, param: number, value: number): void {
+    this.node?.port.postMessage([8, channel, param, value]);
   }
 
   drumTrigger(channel: number, note: number, velocity: number): void {

@@ -1,13 +1,15 @@
 // WebAudioSynth — built-in sounds for running without MIDI hardware (e.g. iPad).
 //
 // Two instruments, routed by the caller per engine channel type:
-//   - 808-style drum kit: synthesized from oscillators/noise, mapped by
-//     General MIDI drum note numbers (36 kick, 38 snare, 42 hat, ...) to match
-//     the note numbers the Rust engine uses for drum channels.
-//   - Melodic: the Rust WASM synth (arp3-synth via AudioWorklet — the same
-//     DSP that will run on the Teensy). While the worklet is still loading,
-//     or on browsers without AudioWorklet support, melodic notes fall back to
-//     the JS piano (additive partials + velocity-scaled lowpass).
+//   - Drums: the Rust WASM synth's analog-modeled 808 kit (arp3-synth via
+//     AudioWorklet), addressed by General MIDI drum note numbers (36 kick,
+//     38 snare, 42 hat, ...). Sampler slots holding a take override the kit
+//     note-by-note inside the Rust synth. Until the worklet is ready (or on
+//     browsers without AudioWorklet) drums fall back to the legacy Web Audio
+//     oscillator/noise recipes below.
+//   - Melodic: the same Rust synth (the DSP that will run on the Teensy),
+//     with the JS piano (additive partials + velocity-scaled lowpass) as the
+//     fallback.
 //
 // The AudioContext is created lazily and must be resume()d from a user
 // gesture on iOS — App wires that to pointerdown/keydown.
@@ -15,9 +17,6 @@
 import { RustSynth } from "./RustSynth";
 
 const midiToFreq = (note: number): number => 440 * Math.pow(2, (note - 69) / 12);
-
-/** GM drum note → sampler slot, mirroring arp3_synth::sampler::note_to_slot. */
-const noteToSlot = (note: number): number => (((note - 35) % 16) + 16) % 16;
 
 // TR-808 hi-hat/cymbal oscillator bank ratios (Hz)
 const METAL_FREQS = [263, 400, 421, 474, 587, 845];
@@ -44,9 +43,6 @@ export class WebAudioSynth {
   private rustSynth = new RustSynth();
   /** Fires once the Rust synth is producing audio — App syncs patch params */
   onRustSynthReady: (() => void) | null = null;
-  /** Sampler slots holding a take, keyed channel*16+slot. A drum note whose
-   *  slot is loaded plays the sample instead of the 808 recipe. */
-  private sampledSlots = new Set<number>();
 
   /** Create (or return) the AudioContext. Safe to call any time. */
   private ensure(): AudioContext {
@@ -159,7 +155,8 @@ export class WebAudioSynth {
     }
     const vel = Math.max(0, Math.min(1, velocity / 127));
     if (isDrum) {
-      if (this.rustSynth.isReady() && this.sampledSlots.has(channel * 16 + noteToSlot(note))) {
+      if (this.rustSynth.isReady()) {
+        // Rust plays the analog 808 kit, or the slot's sample if one is loaded
         this.rustSynth.drumTrigger(channel, note, velocity);
       } else {
         this.playDrum(note, vel);
@@ -201,17 +198,20 @@ export class WebAudioSynth {
     this.rustSynth.setSlotParam(channel, slot, param, value);
   }
 
+  /** Forward an 808 kit param edit to the Rust synth. */
+  setDrumParam(channel: number, param: number, value: number): void {
+    this.rustSynth.setDrumParam(channel, param, value);
+  }
+
   /** Load a recorded take into a sampler slot; its drum note now plays it. */
   loadSample(channel: number, slot: number, samples: Int16Array): void {
     if (!this.rustSynth.isReady()) return;
     this.rustSynth.loadSample(channel, slot, samples);
-    this.sampledSlots.add(channel * 16 + slot);
   }
 
-  /** Empty a sampler slot — its drum note falls back to the 808 recipe. */
+  /** Empty a sampler slot — its drum note falls back to the 808 kit. */
   clearSample(channel: number, slot: number): void {
     this.rustSynth.loadSample(channel, slot, new Int16Array(0));
-    this.sampledSlots.delete(channel * 16 + slot);
   }
 
   /** The lazily-created AudioContext (recorder taps mic input through it). */

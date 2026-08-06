@@ -297,7 +297,7 @@ pub fn clamp_param(param: usize, value: i16) -> i16 {
 
 // ============ UI value → DSP unit mappings ============
 
-fn map_log(v: i16, min: f32, ratio: f32) -> f32 {
+pub(crate) fn map_log(v: i16, min: f32, ratio: f32) -> f32 {
     min * libm::powf(ratio, v as f32 / 100.0)
 }
 
