@@ -358,6 +358,10 @@ function App() {
       engine.onSampleParam = (channel: number, slot: number, param: number, value: number) => {
         synth.setSlotParam(channel, slot, param, value);
       };
+      // 808 kit: per-instrument edits stream to the Rust drum synth
+      engine.onDrumParam = (channel: number, param: number, value: number) => {
+        synth.setDrumParam(channel, param, value);
+      };
       recorder.engine = engine;
       engine.onRecControl = (channel: number) => {
         void recorder.toggle(channel);
@@ -375,6 +379,7 @@ function App() {
         engine.onPlayPreviewNote = null;
         engine.onSoundParam = null;
         engine.onSampleParam = null;
+        engine.onDrumParam = null;
         engine.onRecControl = null;
       }
       synth.onRustSynthReady = null;

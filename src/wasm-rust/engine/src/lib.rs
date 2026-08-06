@@ -20,6 +20,7 @@ pub mod engine_strip;
 pub mod engine_drums;
 pub mod engine_sound;
 pub mod engine_sampler;
+pub mod engine_drumsynth;
 
 #[cfg(test)]
 mod test_core;

@@ -76,6 +76,13 @@ export class TeensyEngine implements Engine {
     this.wasm.onSampleParam = cb;
   }
 
+  get onDrumParam() {
+    return this.wasm.onDrumParam;
+  }
+  set onDrumParam(cb: ((channel: number, param: number, value: number) => void) | null) {
+    this.wasm.onDrumParam = cb;
+  }
+
   get onRecControl() {
     return this.wasm.onRecControl;
   }

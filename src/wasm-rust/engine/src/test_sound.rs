@@ -29,12 +29,12 @@ fn ctrl_bottom_row_enters_sound_mode() {
 }
 
 #[test]
-fn sound_mode_on_drum_channel_opens_sampler_pages() {
+fn sound_mode_on_drum_channel_opens_808_pages() {
     let mut s = init_state();
     s.current_channel = drum_ch(&s);
     engine_button_press(&mut s, 7, 2, MOD_CTRL);
     assert_eq!(s.ui_mode, UiMode::Sound as u8);
-    assert_eq!(s.sound_page, PAGE_SSLOT, "drum channel snaps to the sampler page list");
+    assert_eq!(s.sound_page, PAGE_DBD, "drum channel snaps to the 808 kit page list");
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn switching_to_drum_channel_keeps_sound_mode_and_snaps_page() {
     engine_button_press(&mut s, dch, dpat + 1, MOD_CTRL);
     assert_eq!(s.current_channel, dch);
     assert_eq!(s.ui_mode, UiMode::Sound as u8);
-    assert_eq!(s.sound_page, PAGE_SSLOT, "melodic page is foreign to drums; snaps to SLOT");
+    assert_eq!(s.sound_page, PAGE_DBD, "melodic page is foreign to drums; snaps to BD");
     // And back: a melodic channel snaps off the sampler pages
     let pat0 = s.current_patterns[0];
     engine_button_press(&mut s, 0, pat0 + 1, MOD_CTRL);
@@ -476,19 +476,21 @@ mod sampler {
         s.current_channel = drum_ch(&s);
         s.ui_mode = UiMode::Sound as u8;
         crate::engine_sound::ensure_valid_sound_page(&mut s);
+        // Sampler tests start on the sampler pages (the 808 pages come first)
+        s.sound_page = PAGE_SSLOT;
         s
     }
 
     #[test]
-    fn left_encoder_cycles_sampler_pages_and_wraps() {
+    fn left_encoder_cycles_sampler_pages_and_wraps_to_kit() {
         let mut s = drum_state();
         assert_eq!(s.sound_page, PAGE_SSLOT);
-        for expect in [PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD, PAGE_SSLOT] {
+        for expect in [PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD, PAGE_DBD] {
             engine_arrow_press(&mut s, DIR_UP, 0);
             assert_eq!(s.sound_page, expect);
         }
         engine_arrow_press(&mut s, DIR_DOWN, 0);
-        assert_eq!(s.sound_page, PAGE_SMOD, "down from first page wraps to last");
+        assert_eq!(s.sound_page, PAGE_SMOD, "down from the first page wraps to the last");
     }
 
     #[test]
@@ -653,5 +655,117 @@ mod sampler {
             crate::engine_sampler::REC_COLOR,
             "REC cell is red while recording"
         );
+    }
+}
+
+// ============ 808 drum-synth pages ============
+
+mod drumsynth {
+    use super::*;
+    use arp3_synth::drums::*;
+
+    fn kit_state() -> Box<EngineState> {
+        let mut s = init_state();
+        s.current_channel = drum_ch(&s);
+        s.ui_mode = UiMode::Sound as u8;
+        crate::engine_sound::ensure_valid_sound_page(&mut s);
+        s
+    }
+
+    #[test]
+    fn drum_channel_cycles_kit_pages_then_sampler() {
+        let mut s = kit_state();
+        assert_eq!(s.sound_page, PAGE_DBD);
+        for expect in [
+            PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY, PAGE_DHH,
+            PAGE_SSLOT,
+        ] {
+            engine_arrow_press(&mut s, DIR_UP, 0);
+            assert_eq!(s.sound_page, expect);
+        }
+    }
+
+    #[test]
+    fn every_kit_page_has_faders_with_valid_params() {
+        for page in [
+            PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
+            PAGE_DHH,
+        ] {
+            let faders = crate::engine_drumsynth::drum_page_faders(page);
+            assert!(!faders.is_empty(), "page {} must have faders", page);
+            assert!(faders.len() <= 4);
+            for &p in faders {
+                assert!(p < NUM_DRUM_PARAMS);
+            }
+        }
+        // Every kit param is reachable from exactly one page
+        let mut seen = [0u8; NUM_DRUM_PARAMS];
+        for page in PAGE_DBD..=PAGE_DHH {
+            for &p in crate::engine_drumsynth::drum_page_faders(page) {
+                seen[p] += 1;
+            }
+        }
+        assert!(seen.iter().all(|&n| n == 1), "params must map 1:1 onto pages");
+    }
+
+    #[test]
+    fn fader_press_sets_kit_param_and_focus() {
+        let mut s = kit_state();
+        let ch = s.current_channel as usize;
+        // BD page, second fader (TONE), top row → 100
+        engine_button_press(&mut s, 0, 4, 0);
+        assert_eq!(s.drum_patches[ch][DP_BD_TONE], 100);
+        assert_eq!(s.sound_focus[PAGE_DBD as usize], 1);
+        // Bottom row → 0
+        engine_button_press(&mut s, 7, 4, 0);
+        assert_eq!(s.drum_patches[ch][DP_BD_TONE], 0);
+        // Gap column is inert
+        engine_button_press(&mut s, 0, 3, 0);
+        assert_eq!(s.sound_focus[PAGE_DBD as usize], 1);
+    }
+
+    #[test]
+    fn encoder_edits_focused_kit_param_with_shift_fine() {
+        let mut s = kit_state();
+        let ch = s.current_channel as usize;
+        s.sound_page = PAGE_DHH;
+        s.sound_focus[PAGE_DHH as usize] = 2; // OH decay
+        let before = s.drum_patches[ch][DP_HH_OH_DEC];
+        engine_arrow_press(&mut s, DIR_RIGHT, 0);
+        assert_eq!(s.drum_patches[ch][DP_HH_OH_DEC], before + 5);
+        engine_arrow_press(&mut s, DIR_LEFT, MOD_SHIFT);
+        assert_eq!(s.drum_patches[ch][DP_HH_OH_DEC], before + 4);
+    }
+
+    #[test]
+    fn kit_params_clamp_at_range_edges() {
+        let mut s = kit_state();
+        let ch = s.current_channel as usize;
+        crate::engine_drumsynth::engine_set_drum_param(&mut s, ch, DP_BD_TUNE, 130);
+        assert_eq!(s.drum_patches[ch][DP_BD_TUNE], 100);
+        crate::engine_drumsynth::engine_set_drum_param(&mut s, ch, DP_BD_TUNE, -7);
+        assert_eq!(s.drum_patches[ch][DP_BD_TUNE], 0);
+    }
+
+    #[test]
+    fn kit_page_grid_shows_faders_and_audition_pad() {
+        let mut s = kit_state();
+        let ch = s.current_channel as usize;
+        s.drum_patches[ch][DP_BD_TUNE] = 100; // first fader full height
+        engine_compute_grid(&mut s, 0.0);
+        assert_ne!(s.button_values[0][0] & 0xF, BTN_OFF, "full fader reaches the top row");
+        assert_eq!(s.button_values[3][3], BTN_OFF, "gap column stays dark");
+        // Audition pad in the bottom-right corner
+        assert_ne!(s.button_values[7][15] & 0xF, BTN_OFF);
+        assert_eq!(s.color_overrides[7][15], crate::engine_sound::SOUND_ACCENT);
+    }
+
+    #[test]
+    fn melodic_channels_do_not_see_kit_pages() {
+        let mut s = init_state();
+        s.ui_mode = UiMode::Sound as u8;
+        s.sound_page = PAGE_DBD;
+        crate::engine_sound::ensure_valid_sound_page(&mut s);
+        assert_eq!(s.sound_page, PAGE_PRESET, "kit page is foreign to melodic channels");
     }
 }

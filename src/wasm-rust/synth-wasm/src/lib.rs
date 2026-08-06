@@ -181,3 +181,9 @@ pub extern "C" fn synth_set_slot_param(channel: u32, slot: u32, param: u32, valu
         G_SYNTH.get_mut().set_slot_param(channel as u8, slot as u8, param as u8, value as i16);
     }
 }
+
+/// Set one 808 kit param (ids from arp3_synth::drums).
+#[no_mangle]
+pub extern "C" fn synth_set_drum_param(channel: u32, param: u32, value: i32) {
+    G_SYNTH.get_mut().set_drum_param(channel as u8, param as u8, value as i16);
+}

@@ -963,7 +963,11 @@ fn render_sound(s: &EngineState, mods: u8) {
     let ch = s.current_channel as usize;
     let page = s.sound_page;
     if s.is_drum_channel(ch) {
-        render_sound_sampler(s, mods);
+        if crate::engine_drumsynth::is_drum_page(page) {
+            render_sound_drumsynth(s, mods);
+        } else {
+            render_sound_sampler(s, mods);
+        }
         return;
     }
     let patch_vals = &s.sound_patches[ch];
@@ -1042,6 +1046,52 @@ fn render_sound(s: &EngineState, mods: u8) {
                 draw_param(i, param);
             }
         }
+    }
+
+    // ---- Legend ----
+    draw_legend_item(0, 0, "", GFX_DIM);
+    draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
+    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+}
+
+/// Sound mode on a drum channel: an 808 kit instrument page.
+fn render_sound_drumsynth(s: &EngineState, mods: u8) {
+    use crate::engine_drumsynth::{drum_focused_param, drum_page_faders, drum_param_label};
+    use crate::engine_sound::*;
+    let ch = s.current_channel as usize;
+    let page = s.sound_page;
+    let dp = &s.drum_patches[ch];
+    let shift = (mods & MOD_SHIFT) != 0;
+
+    // ---- Row 0: SOUND | CH xx 808 KIT ----
+    let mut hdr = FmtBuf::<16>::new();
+    let _ = write!(hdr, "CH {} 808 KIT", ch + 1);
+    draw_row(ROW_Y5[0], "SOUND", &hdr, GFX_VALUE);
+
+    // ---- Row 1: instrument (page) name ----
+    gfx_aa_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_AA_SMALL);
+    let label = SOUND_PAGE_LABELS[(page as usize).min(SOUND_PAGE_LABELS.len() - 1)];
+    gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], label, GFX_YELLOW, &FONT_AA_SMALL_BOLD);
+
+    // ---- Rows 2-3: the module's knobs, focused one highlighted ----
+    let focused = drum_focused_param(s);
+    for (i, &param) in drum_page_faders(page).iter().enumerate().take(4) {
+        let y = ROW_Y5[2 + i / 2];
+        let (x_label, x_right) = if i % 2 == 0 {
+            (PAD_X, PAD_X + HALF_W - 6)
+        } else {
+            (PAD_X + HALF_W + 4, CONTENT_RIGHT)
+        };
+        let mut val = FmtBuf::<12>::new();
+        if param == arp3_synth::drums::DP_BD_TUNE {
+            // BD tune reads in Hz, same mapping the DSP uses
+            let _ = write!(val, "{}HZ", arp3_synth::drums::bd_freq_hz(dp[param]) as i32);
+        } else {
+            let _ = write!(val, "{}%", dp[param]);
+        }
+        let color = if focused == Some(param) { GFX_YELLOW } else { GFX_VALUE };
+        gfx_aa_text(x_label, y, drum_param_label(param), GFX_LABEL, &FONT_AA_SMALL);
+        gfx_aa_text_right(x_right, y, &val, color, &FONT_AA_SMALL_BOLD);
     }
 
     // ---- Legend ----

@@ -364,12 +364,13 @@ mod sampler_tests {
     }
 
     #[test]
-    fn empty_slot_is_silent() {
+    fn empty_slot_falls_back_to_808_kit() {
         let take = make_take();
         let mut synth = synth_with_sample(&take);
-        synth.drum_trigger(4, 36, 110); // slot 1: nothing loaded
+        synth.drum_trigger(4, 38, 110); // snare slot: nothing loaded
         let stats = render_blocks(&mut synth, 10);
-        assert_eq!(stats.peak, 0.0);
+        assert!(stats.mean_abs() > 0.001, "808 voice should cover the empty slot");
+        assert_eq!(stats.non_finite, 0);
     }
 
     #[test]
@@ -562,4 +563,151 @@ fn mod_slew_glides_between_wheel_steps() {
         early.mean_abs()
     );
     assert_eq!(early.non_finite + late.non_finite, 0);
+}
+
+// ============ 808 drum kit ============
+
+mod drum_tests {
+    use super::*;
+    use crate::drums::*;
+
+    fn drum_synth() -> Synth {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth
+    }
+
+    #[test]
+    fn every_gm_note_renders_bounded_audio() {
+        for note in 35..=82u8 {
+            let mut synth = drum_synth();
+            synth.drum_trigger(4, note, 110);
+            let stats = render_blocks(&mut synth, 20);
+            assert!(stats.mean_abs() > 1e-4, "note {} should be audible", note);
+            assert!(stats.peak <= 1.0, "note {} peaked at {}", note, stats.peak);
+            assert_eq!(stats.non_finite, 0, "note {} produced NaN/inf", note);
+        }
+    }
+
+    #[test]
+    fn hits_decay_to_silence() {
+        let mut synth = drum_synth();
+        synth.drum_trigger(4, 36, 127); // the longest default voice (BD boom)
+        render_blocks(&mut synth, 20);
+        // 4 seconds — far beyond the default ~0.4s decay tau
+        render_blocks(&mut synth, (SR as usize) * 4 / MAX_BLOCK);
+        let tail = render_blocks(&mut synth, 5);
+        assert!(tail.peak < 1e-3, "kick should decay, tail peak {}", tail.peak);
+    }
+
+    #[test]
+    fn closed_hat_chokes_open_hat() {
+        // Open hat ringing alone after 0.2s...
+        let mut open = drum_synth();
+        open.drum_trigger(4, 46, 110);
+        render_blocks(&mut open, 70);
+        let ringing = render_blocks(&mut open, 20);
+        assert!(ringing.mean_abs() > 1e-4, "open hat should still ring");
+
+        // ...but a closed hat right after the open one cuts it off
+        let mut choked = drum_synth();
+        choked.drum_trigger(4, 46, 110);
+        render_blocks(&mut choked, 10);
+        choked.drum_trigger(4, 42, 110);
+        render_blocks(&mut choked, 60);
+        let tail = render_blocks(&mut choked, 20);
+        assert!(
+            tail.mean_abs() < ringing.mean_abs() / 4.0,
+            "closed hat must choke the open hat: {} vs {}",
+            tail.mean_abs(),
+            ringing.mean_abs()
+        );
+    }
+
+    #[test]
+    fn level_zero_silences_an_instrument() {
+        let mut synth = drum_synth();
+        synth.set_drum_param(4, DP_SD_LEVEL as u8, 0);
+        synth.drum_trigger(4, 38, 120);
+        let stats = render_blocks(&mut synth, 20);
+        assert_eq!(stats.peak, 0.0, "level 0 must be silent");
+    }
+
+    #[test]
+    fn decay_param_lengthens_the_kick() {
+        let energy_after = |decay: i16| {
+            let mut synth = drum_synth();
+            synth.set_drum_param(4, DP_BD_DECAY as u8, decay);
+            synth.drum_trigger(4, 36, 110);
+            render_blocks(&mut synth, 100); // skip ~0.29s
+            render_blocks(&mut synth, 30).mean_abs()
+        };
+        let short = energy_after(0);
+        let long = energy_after(100);
+        assert!(long > short * 4.0, "long decay should ring: {} vs {}", long, short);
+    }
+
+    #[test]
+    fn tune_shifts_the_kick_pitch() {
+        // Count zero crossings over the sustained boom portion
+        let crossings = |tune: i16| {
+            let mut synth = drum_synth();
+            synth.set_drum_param(4, DP_BD_TUNE as u8, tune);
+            synth.set_drum_param(4, DP_BD_DECAY as u8, 100);
+            synth.drum_trigger(4, 36, 110);
+            let mut buf = [0.0f32; MAX_BLOCK];
+            render_blocks(&mut synth, 40); // skip the sweep
+            let mut count = 0;
+            let mut last = 0.0f32;
+            for _ in 0..100 {
+                synth.render(&mut buf);
+                for &s in &buf {
+                    if (s > 0.0) != (last > 0.0) {
+                        count += 1;
+                    }
+                    last = s;
+                }
+            }
+            count
+        };
+        let low = crossings(0);
+        let high = crossings(100);
+        assert!(
+            high as f32 > low as f32 * 1.6,
+            "tune 100 should be ~an octave up: {} vs {} crossings",
+            high,
+            low
+        );
+    }
+
+    #[test]
+    fn all_notes_off_kills_ringing_drums() {
+        let mut synth = drum_synth();
+        synth.drum_trigger(4, 36, 120);
+        synth.drum_trigger(4, 46, 120);
+        render_blocks(&mut synth, 10);
+        synth.all_notes_off();
+        render_blocks(&mut synth, 20); // ~58ms >> 3ms kill tau
+        let tail = render_blocks(&mut synth, 5);
+        assert!(tail.peak < 1e-3, "all-off should silence drums, peak {}", tail.peak);
+    }
+
+    #[test]
+    fn instruments_are_mono_retriggered() {
+        // Two BD hits close together must not double the energy (mono voice)
+        let mut once = drum_synth();
+        once.drum_trigger(4, 36, 110);
+        let single = render_blocks(&mut once, 30);
+
+        let mut twice = drum_synth();
+        twice.drum_trigger(4, 36, 110);
+        twice.drum_trigger(4, 36, 110);
+        let double = render_blocks(&mut twice, 30);
+        assert!(
+            double.mean_abs() < single.mean_abs() * 1.5,
+            "retrigger must reuse the voice: {} vs {}",
+            double.mean_abs(),
+            single.mean_abs()
+        );
+    }
 }

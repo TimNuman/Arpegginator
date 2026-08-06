@@ -23,6 +23,7 @@
 
 #![no_std]
 
+pub mod drums;
 pub mod patch;
 pub mod sampler;
 
@@ -616,6 +617,8 @@ const WT_LEN: usize = 256;
 pub struct Synth {
     /// Drum sampler: slot banks + dedicated voices (drum channels)
     pub sampler: sampler::Sampler,
+    /// Analog-modeled 808 kit — plays drum notes whose sampler slot is empty
+    pub drums: drums::Drums,
     voices: [Voice; MAX_VOICES],
     patches: [Patch; NUM_SYNTH_CHANNELS],
     /// Last note-on frequency per channel — glide starting point.
@@ -634,6 +637,7 @@ impl Synth {
     pub const fn new() -> Self {
         Synth {
             sampler: sampler::Sampler::new(),
+            drums: drums::Drums::new(),
             voices: [Voice::new(); MAX_VOICES],
             patches: [DEFAULTS; NUM_SYNTH_CHANNELS],
             last_freq: [0.0; NUM_SYNTH_CHANNELS],
@@ -733,14 +737,31 @@ impl Synth {
             }
         }
         self.sampler.all_off();
+        self.drums.all_off();
     }
 
-    // ============ Drum sampler API ============
+    // ============ Drum API (sampler + 808 kit) ============
 
-    /// Trigger a drum hit (GM note picks the slot). No-op on empty slots —
-    /// the host falls back to its synthesized kit for those.
+    /// Trigger a drum hit (GM note picks the sampler slot). A loaded sample
+    /// replaces the 808 voice note-by-note; empty slots play the analog-
+    /// modeled kit.
     pub fn drum_trigger(&mut self, channel: u8, note: u8, velocity: u8) {
-        self.sampler.trigger(channel, note, velocity);
+        let slot = sampler::note_to_slot(note) as u8;
+        if self.sampler.slot_loaded(channel, slot) {
+            self.sampler.trigger(channel, note, velocity);
+        } else {
+            self.drums.trigger(channel, note, velocity);
+        }
+    }
+
+    /// Set one 808 kit parameter (UI units, ids from `drums`). Audible
+    /// immediately, including on already-ringing hits.
+    pub fn set_drum_param(&mut self, channel: u8, param: u8, value: i16) {
+        self.drums.set_param(channel, param, value);
+    }
+
+    pub fn get_drum_param(&self, channel: u8, param: u8) -> i16 {
+        self.drums.get_param(channel, param)
     }
 
     pub fn drum_release(&mut self, channel: u8, note: u8) {
@@ -792,6 +813,7 @@ impl Synth {
             }
         }
         self.sampler.render(out, self.sample_rate);
+        self.drums.render(out, self.sample_rate);
 
         // Headroom scale + cubic soft clip so stacked chords don't crack
         for sample in out.iter_mut() {

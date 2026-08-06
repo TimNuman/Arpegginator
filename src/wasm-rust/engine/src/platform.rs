@@ -26,6 +26,7 @@ mod wasm {
         fn js_play_preview_note(ch: i32, row: i32, length_ticks: i32);
         fn js_sound_param(ch: i32, param: i32, value: i32);
         fn js_sample_param(ch: i32, slot: i32, param: i32, value: i32);
+        fn js_drum_param(ch: i32, param: i32, value: i32);
         fn js_rec_control(ch: i32, action: i32);
     }
 
@@ -77,6 +78,10 @@ mod wasm {
         unsafe { js_sample_param(channel as i32, slot as i32, param as i32, value as i32); }
     }
 
+    pub fn platform_drum_param(channel: u8, param: u8, value: i16) {
+        unsafe { js_drum_param(channel as i32, param as i32, value as i32); }
+    }
+
     pub fn platform_rec_control(channel: u8, action: u8) {
         unsafe { js_rec_control(channel as i32, action as i32); }
     }
@@ -117,6 +122,8 @@ pub mod arm_platform {
         pub const KIND_REC_CONTROL: u8 = 5;
         /// MIDI control change: `note` = controller number, `velocity` = value.
         pub const KIND_CC: u8 = 6;
+        /// 808 kit param change: `note` = param id, `length_ticks` = value.
+        pub const KIND_DRUM_PARAM: u8 = 7;
 
         const fn zero() -> Self {
             MidiEvent { kind: 0, channel: 0, note: 0, velocity: 0, length_ticks: 0 }
@@ -204,6 +211,13 @@ mod arm {
         });
     }
 
+    pub fn platform_drum_param(channel: u8, param: u8, value: i16) {
+        enqueue_midi(MidiEvent {
+            kind: MidiEvent::KIND_DRUM_PARAM, channel, note: param as i16, velocity: 0,
+            length_ticks: value as i32,
+        });
+    }
+
     pub fn platform_rec_control(channel: u8, action: u8) {
         enqueue_midi(MidiEvent {
             kind: MidiEvent::KIND_REC_CONTROL, channel, note: 0, velocity: action,
@@ -243,6 +257,8 @@ mod noop {
     pub fn platform_sound_param(_channel: u8, _param: u8, _value: i16) {}
 
     pub fn platform_sample_param(_channel: u8, _slot: u8, _param: u8, _value: i16) {}
+
+    pub fn platform_drum_param(_channel: u8, _param: u8, _value: i16) {}
 
     pub fn platform_rec_control(_channel: u8, _action: u8) {}
 }
