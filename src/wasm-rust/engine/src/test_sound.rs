@@ -736,7 +736,8 @@ mod drumsynth {
             }
         }
         for (p, &n) in seen.iter().enumerate() {
-            let expect = if p == DP_KIT { 0 } else { 1 };
+            // The kit selector and kit-wide fold live on the KIT chooser page
+            let expect = if p == DP_KIT || p == DP_FOLD { 0 } else { 1 };
             assert_eq!(n, expect, "param {} appears on {} pages", p, n);
         }
     }
@@ -903,5 +904,55 @@ mod westcoast {
         // ... and the track's fold marker sits at the right edge
         assert_eq!(s.button_values[7][15], BTN_COLOR_100);
         assert_eq!(s.color_overrides[7][15], crate::engine_sound::SOUND_ACCENT);
+    }
+}
+
+// ============ Kit-wide drum FOLD (KIT page) ============
+
+mod drum_fold {
+    use super::*;
+    use arp3_synth::drums::*;
+
+    fn kit_page_state() -> Box<EngineState> {
+        let mut s = init_state();
+        s.current_channel = drum_ch(&s);
+        s.ui_mode = UiMode::Sound as u8;
+        crate::engine_sound::ensure_valid_sound_page(&mut s);
+        assert_eq!(s.sound_page, PAGE_DKIT);
+        s
+    }
+
+    #[test]
+    fn kit_page_fold_fader_sets_and_focuses_fold() {
+        let mut s = kit_page_state();
+        let ch = s.current_channel as usize;
+        // Fader (cols 12-14): top row → 100
+        engine_button_press(&mut s, 0, 13, 0);
+        assert_eq!(s.drum_patches[ch][DP_FOLD], 100);
+        // Encoder now edits FOLD (focus 1), Shift fine
+        engine_arrow_press(&mut s, DIR_LEFT, 0);
+        assert_eq!(s.drum_patches[ch][DP_FOLD], 95);
+        engine_arrow_press(&mut s, DIR_LEFT, MOD_SHIFT);
+        assert_eq!(s.drum_patches[ch][DP_FOLD], 94);
+        // Selecting a kit cell refocuses the selector; encoder steps the kit
+        engine_button_press(&mut s, 7, 0, 0);
+        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_ANALOG);
+        engine_arrow_press(&mut s, DIR_RIGHT, 0);
+        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_FM);
+        assert_eq!(s.drum_patches[ch][DP_FOLD], 94, "kit stepping must not touch fold");
+    }
+
+    #[test]
+    fn kit_page_grid_shows_fold_fader() {
+        let mut s = kit_page_state();
+        let ch = s.current_channel as usize;
+        s.drum_patches[ch][DP_FOLD] = 100;
+        s.sound_focus[PAGE_DKIT as usize] = 1;
+        engine_compute_grid(&mut s, 0.0);
+        // Full fader reaches the top row across cols 12-14
+        assert_ne!(s.button_values[0][13] & 0xF, BTN_OFF);
+        assert_eq!(s.color_overrides[0][13], crate::engine_sound::SOUND_ACCENT);
+        // Trace no longer draws into the fader bank's columns beyond it
+        assert_ne!(s.button_values[7][15] & 0xF, BTN_OFF, "audition pad still present");
     }
 }
