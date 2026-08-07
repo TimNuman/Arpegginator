@@ -294,6 +294,9 @@ struct Voice {
     hold_count: u8,
     /// Additive partial phases (normalized 0..1)
     add_phase: [f32; NUM_ADD_HARMONICS],
+    /// DC-blocker state for the West Coast engine (asymmetric folding
+    /// pushes a DC offset the lowpass would otherwise pass)
+    dc: f32,
     env: Adsr,
     svf: Svf,
 }
@@ -317,6 +320,7 @@ impl Voice {
             held: 0.0,
             hold_count: 0,
             add_phase: [0.0; NUM_ADD_HARMONICS],
+            dc: 0.0,
             env: Adsr::new(),
             svf: Svf::new(),
         }
@@ -354,6 +358,7 @@ impl Voice {
         self.held = 0.0;
         self.hold_count = 0;
         self.add_phase = [0.0; NUM_ADD_HARMONICS];
+        self.dc = 0.0;
         self.svf.reset();
         self.env.trigger(p, sample_rate);
     }
@@ -372,6 +377,18 @@ impl Voice {
         let is_fm = p[P_ENGINE] == ENGINE_FM;
         let is_wt = p[P_ENGINE] == ENGINE_WAVETABLE;
         let is_add = p[P_ENGINE] == ENGINE_ADDITIVE;
+        let is_west = p[P_ENGINE] == ENGINE_WEST;
+
+        // Wavefolder settings. The West Coast engine folds inside its osc
+        // branch (with symmetry + envelope bloom); every other engine gets
+        // the plain folder just before the filter.
+        let fold = p[P_FOLD] as f32 / 100.0;
+        let fold_g = fold_gain(p[P_FOLD]);
+        let wc_shape = p[P_WC_SHAPE] as f32 / 100.0;
+        let wc_sym = (p[P_WC_SYM] as f32 - 50.0) / 100.0;
+        let wc_env = p[P_WC_ENV] as f32 / 100.0;
+        // DC blocker ~8Hz for the folded West Coast core
+        let dc_k = 1.0 - libm::expf(-core::f32::consts::TAU * 8.0 * inv_sr);
 
         // Additive engine settings: per-partial amplitude and (stretched)
         // frequency ratio, computed per block. Partials above ~0.45·fs are
@@ -454,7 +471,26 @@ impl Voice {
             let dt1 = self.freq * inv_sr;
             let dt_sub = dt1 * 0.5;
 
-            let mut osc = if is_add {
+            let mut osc = if is_west {
+                // Sine/triangle core (phase-aligned so the morph adds
+                // instead of cancelling) into the folder; fold depth blooms
+                // with the amp envelope, symmetry offsets into asymmetry
+                let f = crate::fract_pos(self.phase1 + 0.75) - 0.5;
+                let tri = 4.0 * (if f < 0.0 { -f } else { f }) - 1.0;
+                let sine = fast_sin(self.phase1);
+                let core = sine + (tri - sine) * wc_shape;
+                self.phase1 += dt1;
+                if self.phase1 >= 1.0 {
+                    self.phase1 -= 1.0;
+                }
+                let bloom = (1.0 - wc_env) + wc_env * self.env.level;
+                let folded =
+                    wave_fold((core + wc_sym) * (1.0 + (fold_g - 1.0) * bloom));
+                // Asymmetric folding leaves DC — block it (the sub osc is
+                // added after and stays clean under the folded core)
+                self.dc += dc_k * (folded - self.dc);
+                folded - self.dc
+            } else if is_add {
                 let mut sum = 0.0;
                 for k in 0..NUM_ADD_HARMONICS {
                     if add_amp[k] > 0.0 {
@@ -563,6 +599,12 @@ impl Voice {
             self.phase_sub += dt_sub;
             if self.phase_sub >= 1.0 {
                 self.phase_sub -= 1.0;
+            }
+
+            // Shared wavefolder, pre-filter (identity at fold 0; the West
+            // Coast engine already folded inside its branch)
+            if fold > 0.0 && !is_west {
+                osc = wave_fold(osc * fold_g);
             }
 
             let filtered = self.svf.process(osc);

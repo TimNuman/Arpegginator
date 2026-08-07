@@ -16,7 +16,8 @@ use crate::engine_input::{DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, MOD_SHIFT};
 use crate::platform::platform_sound_param;
 use arp3_synth::patch::{
     self, clamp_param, ALGO_CARRIERS, ALGO_ROUTES, ENGINE_ADDITIVE, ENGINE_FM, ENGINE_WAVETABLE,
-    NUM_ADD_HARMONICS, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_PRESETS, NUM_WAVES, PARAM_MAX, PRESETS,
+    ENGINE_WEST, NUM_ADD_HARMONICS, NUM_ENGINE_TYPES, NUM_PARAMS, NUM_PRESETS, NUM_WAVES,
+    PARAM_MAX, PRESETS,
 };
 
 // ============ Pages ============
@@ -59,14 +60,17 @@ pub const PAGE_DCB: u8 = 26;
 pub const PAGE_DCY: u8 = 27;
 pub const PAGE_DHH: u8 = 28;
 pub const PAGE_DKIT: u8 = 29;
-pub const NUM_SOUND_PAGES: usize = 30;
+// West-Coast-engine pages
+pub const PAGE_WFOLD: u8 = 30;
+pub const PAGE_WEST: u8 = 31;
+pub const NUM_SOUND_PAGES: usize = 32;
 
 // The drum instrument labels here are the analog spellings — the OLED asks
 // engine_drumsynth::drum_page_label for the kit-aware name.
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
     "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
     "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD", "WHEEL", "BD 808", "SD 808", "TOMS",
-    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT", "KIT",
+    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT", "KIT", "FOLD", "WEST",
 ];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
@@ -79,6 +83,8 @@ static WT_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_WT, PAGE_DIGI, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
 static ADD_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_HARM, PAGE_ADD, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
+static WEST_PAGES: [u8; 8] =
+    [PAGE_PRESET, PAGE_WFOLD, PAGE_WEST, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
 /// Drum channels cycle the kit chooser, the instrument pages, then the
 /// sampler.
 static DRUM_PAGES: [u8; 15] = [
@@ -91,6 +97,7 @@ pub fn engine_pages(engine: i16) -> &'static [u8] {
         ENGINE_FM => &FM_PAGES,
         ENGINE_WAVETABLE => &WT_PAGES,
         ENGINE_ADDITIVE => &ADD_PAGES,
+        ENGINE_WEST => &WEST_PAGES,
         _ => &SUBTR_PAGES,
     }
 }
@@ -118,7 +125,7 @@ fn current_engine(s: &EngineState) -> i16 {
     s.sound_patches[s.current_channel as usize][patch::P_ENGINE]
 }
 
-pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "FM", "WAVE", "ADD"];
+pub static ENGINE_TYPE_LABELS: [&str; NUM_ENGINE_TYPES] = ["SUBTR", "FM", "WAVE", "ADD", "WEST"];
 pub static WAVE_LABELS: [&str; NUM_WAVES] = ["SAW", "SQR", "TRI", "SIN", "PLS", "NSE"];
 
 /// Fader-bank pages: the params behind each fader, left to right. AMP swaps
@@ -132,7 +139,11 @@ pub fn page_faders(engine: i16, page: u8) -> &'static [usize] {
         PAGE_AMP => &[patch::P_VOLUME, patch::P_OSC_MIX, patch::P_SUB_LEVEL, patch::P_GLIDE],
         PAGE_ENV => &[patch::P_ATTACK, patch::P_DECAY, patch::P_SUSTAIN, patch::P_RELEASE],
         PAGE_FILT => &[patch::P_CUTOFF, patch::P_RESO, patch::P_FENV, patch::P_KEYTRACK],
-        PAGE_FX => &[patch::P_DRIVE, patch::P_MOD_SLEW],
+        // The West Coast engine owns FOLD on its own pages; everyone else
+        // reaches the shared folder from FX
+        PAGE_FX if engine == ENGINE_WEST => &[patch::P_DRIVE, patch::P_MOD_SLEW],
+        PAGE_FX => &[patch::P_DRIVE, patch::P_FOLD, patch::P_MOD_SLEW],
+        PAGE_WEST => &[patch::P_FOLD, patch::P_WC_SHAPE, patch::P_WC_SYM, patch::P_WC_ENV],
         PAGE_MOD => &[
             patch::P_MOD1_TARGET, patch::P_MOD1_DEPTH,
             patch::P_MOD2_TARGET, patch::P_MOD2_DEPTH,
@@ -176,6 +187,10 @@ pub fn param_label(param: usize) -> &'static str {
         patch::P_WT_WARP => "WARP",
         patch::P_CRUSH => "CRUSH",
         patch::P_ADD_STRETCH => "STRCH",
+        patch::P_FOLD => "FOLD",
+        patch::P_WC_SHAPE => "SHAPE",
+        patch::P_WC_SYM => "SYM",
+        patch::P_WC_ENV => "BLOOM",
         patch::P_MOD1_TARGET => "TGT1",
         patch::P_MOD1_DEPTH => "AMT1",
         patch::P_MOD2_TARGET => "TGT2",
@@ -305,6 +320,7 @@ fn chooser_param(page: u8) -> Option<usize> {
         PAGE_OSC2 => Some(patch::P_WAVE2),
         PAGE_ALGO => Some(patch::P_ALGO),
         PAGE_WT => Some(patch::P_WT_POS),
+        PAGE_WFOLD => Some(patch::P_FOLD),
         _ => None,
     }
 }
@@ -427,6 +443,14 @@ pub fn handle_sound_press(s: &mut EngineState, row: u8, col: u8, mods: u8) {
         }
         return;
     }
+    // Fold page: the bottom row is a 16-step fold amount track
+    if page == PAGE_WFOLD {
+        if row == VISIBLE_ROWS - 1 {
+            let value = (col as i16 * 100) / (VISIBLE_COLS as i16 - 1);
+            engine_set_sound_param(s, ch, patch::P_FOLD, value);
+        }
+        return;
+    }
     if let Some(chooser) = chooser_param(page) {
         // Bottom row is the option selector strip (waves or algorithms)
         let options = (PARAM_MAX[chooser] as usize + 1).min(VISIBLE_COLS);
@@ -475,8 +499,10 @@ static WAVE_ROWS: [[u8; 8]; NUM_WAVES] = [
 ];
 
 /// Preset cell colors by engine, so the bank reads as a color-coded map:
-/// subtractive blue, FM violet, wavetable green (additive rose, reserved).
-pub const ENGINE_COLORS: [u32; NUM_ENGINE_TYPES] = [0x44AAFF, 0xAA66FF, 0x33CC88, 0xFF6688];
+/// subtractive blue, FM violet, wavetable green, additive rose, West Coast
+/// gold.
+pub const ENGINE_COLORS: [u32; NUM_ENGINE_TYPES] =
+    [0x44AAFF, 0xAA66FF, 0x33CC88, 0xFF6688, 0xFFA033];
 
 /// The engine color a preset cell shows.
 pub fn preset_color(preset: usize) -> u32 {
@@ -687,6 +713,43 @@ fn render_wt_page(s: &mut EngineState) {
     s.color_overrides[VISIBLE_ROWS - 1][pos_cell] = SOUND_ACCENT;
 }
 
+/// Wavefolder page: draw one cycle of the folded West Coast core on rows
+/// 0-6 (same math the DSP runs, at full envelope bloom — what you see is
+/// what you hear at the strike), with a fold amount track on the bottom row.
+fn render_wfold_page(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    let fold = s.sound_patches[ch][patch::P_FOLD];
+    let shape = s.sound_patches[ch][patch::P_WC_SHAPE];
+    let sym = s.sound_patches[ch][patch::P_WC_SYM];
+
+    let mut rows = [0usize; VISIBLE_COLS];
+    for (c, r) in rows.iter_mut().enumerate() {
+        let v = patch::wc_preview(fold, shape, sym, c as f32 / VISIBLE_COLS as f32);
+        // -1..1 → rows 6..0
+        *r = (3.0 - v.clamp(-1.0, 1.0) * 3.0 + 0.5) as usize;
+    }
+    for c in 0..VISIBLE_COLS {
+        s.button_values[rows[c].min(6)][c] = BTN_COLOR_100;
+        if c + 1 < VISIBLE_COLS {
+            let (lo, hi) =
+                if rows[c] < rows[c + 1] { (rows[c], rows[c + 1]) } else { (rows[c + 1], rows[c]) };
+            for rr in (lo + 1)..hi {
+                if s.button_values[rr.min(6)][c + 1] == BTN_OFF {
+                    s.button_values[rr.min(6)][c + 1] = BTN_COLOR_25;
+                }
+            }
+        }
+    }
+
+    // Bottom row: fold amount track (press to jump)
+    let fold_cell = (fold as usize * (VISIBLE_COLS - 1) + 50) / 100;
+    for c in 0..VISIBLE_COLS {
+        s.button_values[VISIBLE_ROWS - 1][c] =
+            if c == fold_cell { BTN_COLOR_100 } else { BTN_WHITE_25 };
+    }
+    s.color_overrides[VISIBLE_ROWS - 1][fold_cell] = SOUND_ACCENT;
+}
+
 /// Additive harmonic editor: 16 one-column faders, one per partial — the
 /// grid literally shows the spectrum. The focused column (last touched /
 /// encoder target) renders brighter.
@@ -735,6 +798,7 @@ pub fn render_sound_mode(s: &mut EngineState) -> bool {
         PAGE_OSC2 => render_osc_page(s, patch::P_WAVE2),
         PAGE_ALGO => render_algo_page(s),
         PAGE_WT => render_wt_page(s),
+        PAGE_WFOLD => render_wfold_page(s),
         PAGE_HARM => render_harm_page(s),
         _ => render_fader_page(s),
     }

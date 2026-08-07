@@ -1034,6 +1034,12 @@ fn render_sound(s: &EngineState, mods: u8) {
             draw_param(0, arp3_synth::patch::P_WT_POS);
             draw_param(1, arp3_synth::patch::P_WT_WARP);
         }
+        PAGE_WFOLD => {
+            draw_param(0, arp3_synth::patch::P_FOLD);
+            draw_param(1, arp3_synth::patch::P_WC_SHAPE);
+            draw_param(2, arp3_synth::patch::P_WC_SYM);
+            draw_param(3, arp3_synth::patch::P_WC_ENV);
+        }
         PAGE_HARM => {
             if let Some(param) = focused_param(s) {
                 draw_param(0, param);
