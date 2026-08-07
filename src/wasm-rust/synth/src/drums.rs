@@ -396,6 +396,7 @@ impl DrumVoice {
                 }
                 let klp = onepole(250.0 * libm::exp2f(3.5 * tone));
                 let level = p[DP_BD_LEVEL] as f32 / 100.0 * 1.5 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.penv *= pcoef;
                     let freq = base * (1.0 + 2.5 * self.penv);
@@ -567,6 +568,7 @@ impl DrumVoice {
                     acoef = kill_coef;
                 }
                 let level = p[DP_MA_LEVEL] as f32 / 100.0 * 0.7 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     let n = crate::xorshift(&mut self.noise);
                     self.lp1 += khp * (n - self.lp1);
@@ -672,6 +674,7 @@ impl DrumVoice {
                 let k_hp = onepole(6800.0);
                 let k_lp = onepole(13000.0);
                 let level = p[DP_HH_LEVEL] as f32 / 100.0 * 0.55 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     let mut bank = 0.0;
                     for (ph, f) in self.phases.iter_mut().zip(METAL_FREQS.iter()) {
@@ -722,6 +725,7 @@ impl DrumVoice {
                     acoef = kill_coef;
                 }
                 let level = p[DPF_BD_LEVEL] as f32 / 100.0 * 1.5 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.penv *= pcoef;
                     menv *= mcoef;
@@ -803,6 +807,7 @@ impl DrumVoice {
                 let mut menv = menv_at(0.080);
                 let mcoef = decay_coef(0.080, sample_rate);
                 let level = p[DPF_TOM_LEVEL] as f32 / 100.0 * 1.0 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.penv *= pcoef;
                     menv *= mcoef;
@@ -837,6 +842,7 @@ impl DrumVoice {
                 let mut menv = menv_at(0.030);
                 let mcoef = decay_coef(0.030, sample_rate);
                 let level = p[DPF_RS_LEVEL] as f32 / 100.0 * 0.8 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.phases[0] += fc * inv_sr;
                     self.phases[1] += fc * ratio * inv_sr;
@@ -903,6 +909,7 @@ impl DrumVoice {
                     acoef = kill_coef;
                 }
                 let level = p[DPF_MA_LEVEL] as f32 / 100.0 * 0.7 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.phases[0] += fc * inv_sr;
                     self.phases[1] += fc * 1.41 * inv_sr;
@@ -978,6 +985,7 @@ impl DrumVoice {
                 let mcoef = decay_coef(tau * 0.35, sample_rate);
                 let k_hp = onepole(3800.0);
                 let level = p[DPF_CY_LEVEL] as f32 / 100.0 * 0.9 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.phases[0] += fc * inv_sr;
                     self.phases[1] += fc * 3.52 * inv_sr;
@@ -1014,6 +1022,7 @@ impl DrumVoice {
                 let k_hp = onepole(6800.0);
                 let k_lp = onepole(13000.0);
                 let level = p[DPF_HH_LEVEL] as f32 / 100.0 * 0.55 * gain;
+                self.env2 = 0.0; // unused here — clear so the done-check sees only env
                 for s in out.iter_mut() {
                     self.phases[0] += fc * inv_sr;
                     self.phases[1] += fc * 3.52 * inv_sr;
@@ -1097,6 +1106,12 @@ impl Drums {
                 oldest
             });
         self.voices[idx].start(ch, inst, variant, fm, pitch, vel, age);
+    }
+
+    /// Number of voices still rendering — decayed hits must free their slot
+    /// (regression guard: a stuck `active` flag wastes CPU forever).
+    pub fn active_voices(&self) -> usize {
+        self.voices.iter().filter(|v| v.active).count()
     }
 
     /// Fast-fade every ringing voice (transport stop / all-notes-off).

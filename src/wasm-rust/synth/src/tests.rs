@@ -846,3 +846,53 @@ mod fm_drum_tests {
         assert!(tail.peak < 1e-3, "all-off should silence the FM kit, peak {}", tail.peak);
     }
 }
+
+// ============ Voice lifecycle (PR #32 review) ============
+
+mod drum_voice_lifecycle {
+    use super::*;
+    use crate::drums::*;
+
+    /// Every instrument's voice must free itself once its sound has decayed
+    /// — including the ones that never touch the secondary envelope (BD, MA,
+    /// HH and most FM voices), which used to keep `active` set forever.
+    #[test]
+    fn every_voice_deactivates_after_decay_on_both_kits() {
+        for kit in [KIT_ANALOG, KIT_FM] {
+            for note in [36u8, 38, 41, 37, 39, 42, 46, 49, 56, 70, 75] {
+                let mut synth = Synth::new();
+                synth.set_sample_rate(SR);
+                synth.set_drum_param(4, DP_KIT as u8, kit);
+                synth.drum_trigger(4, note, 110);
+                assert_eq!(synth.drums.active_voices(), 1);
+                // Up to 15 seconds — the crash cymbal's ~1s tau needs ~9
+                // time constants to reach the envelope floor
+                for _ in 0..15 {
+                    render_blocks(&mut synth, (SR as usize) / MAX_BLOCK);
+                    if synth.drums.active_voices() == 0 {
+                        break;
+                    }
+                }
+                assert_eq!(
+                    synth.drums.active_voices(),
+                    0,
+                    "kit {} note {} voice must free itself",
+                    kit,
+                    note
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn all_off_frees_the_voices() {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.drum_trigger(4, 36, 120);
+        synth.drum_trigger(4, 46, 120);
+        render_blocks(&mut synth, 10);
+        synth.all_notes_off();
+        render_blocks(&mut synth, 40); // ~116ms >> 3ms kill tau
+        assert_eq!(synth.drums.active_voices(), 0, "killed voices must free their slots");
+    }
+}
