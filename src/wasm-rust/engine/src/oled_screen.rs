@@ -1091,15 +1091,15 @@ fn render_sound_drumsynth(s: &EngineState, mods: u8) {
 
     // ---- Rows 2-3 ----
     if page == PAGE_DKIT {
-        use arp3_synth::drums::{DP_FOLD, DP_KIT};
-        let focused = drum_focused_param(s);
         let name = KIT_LABELS[(kit as usize).min(NUM_KITS - 1)];
-        let kit_color = if focused == Some(DP_KIT) { GFX_YELLOW } else { GFX_VALUE };
-        draw_row(ROW_Y5[2], "KIT", name, kit_color);
-        let mut fbuf = FmtBuf::<12>::new();
-        let _ = write!(fbuf, "{}%", dp[DP_FOLD]);
-        let fold_color = if focused == Some(DP_FOLD) { GFX_YELLOW } else { GFX_VALUE };
-        draw_row(ROW_Y5[3], "FOLD", &fbuf, fold_color);
+        draw_row(ROW_Y5[2], "KIT", name, GFX_YELLOW);
+    } else if page == PAGE_DFOLD {
+        // Focused instrument's fold amount
+        if let Some(param) = drum_focused_param(s) {
+            let mut fbuf = FmtBuf::<12>::new();
+            let _ = write!(fbuf, "{}%", dp[param]);
+            draw_row(ROW_Y5[2], drum_param_label(param), &fbuf, GFX_YELLOW);
+        }
     } else {
         let focused = drum_focused_param(s);
         for (i, &param) in drum_page_faders(page, kit).iter().enumerate().take(4) {

@@ -124,12 +124,37 @@ pub const DPF_HH_CH_DEC: usize = 63;
 pub const DPF_HH_OH_DEC: usize = 64;
 pub const DPF_HH_LEVEL: usize = 65;
 
-/// Kit-wide wavefolder amount, shared by both kit engines: every voice on
-/// the channel runs through the triangle folder (patch::wave_fold)
-/// individually, so each hit folds against its own envelope — loud attacks
-/// bloom, decayed tails pass clean.
-pub const DP_FOLD: usize = 66;
-pub const NUM_DRUM_PARAMS: usize = 67;
+/// Per-instrument wavefolder amounts, shared by both kit engines: each
+/// voice runs through the triangle folder (patch::wave_fold) individually,
+/// so a hit folds against its own envelope — loud attacks bloom, decayed
+/// tails pass clean. One amount per instrument group, in page order.
+pub const DP_FOLD_BD: usize = 66;
+pub const DP_FOLD_SD: usize = 67;
+pub const DP_FOLD_TOM: usize = 68;
+pub const DP_FOLD_RS: usize = 69;
+pub const DP_FOLD_CP: usize = 70;
+pub const DP_FOLD_MA: usize = 71;
+pub const DP_FOLD_CB: usize = 72;
+pub const DP_FOLD_CY: usize = 73;
+pub const DP_FOLD_HH: usize = 74;
+pub const NUM_DRUM_FOLDS: usize = 9;
+pub const NUM_DRUM_PARAMS: usize = 75;
+
+/// Fold-group offset (0..NUM_DRUM_FOLDS) for an instrument — voices that
+/// share an edit page share a fold amount (toms/congas, rimshot/claves).
+pub fn fold_group(inst: u8) -> usize {
+    match inst {
+        INST_SD => 1,
+        INST_LT | INST_MT | INST_HT => 2,
+        INST_RS | INST_CL => 3,
+        INST_CP => 4,
+        INST_MA => 5,
+        INST_CB => 6,
+        INST_CY => 7,
+        INST_HH => 8,
+        _ => 0, // INST_BD
+    }
+}
 
 /// One drum channel's kit settings (both banks + the kit selector).
 pub type DrumPatch = [i16; NUM_DRUM_PARAMS];
@@ -161,7 +186,7 @@ pub const DRUM_PARAM_DEFAULTS: DrumPatch = [
     50, 55, 40, 70, // FM CB  tune/fm/decay/level
     50, 60, 60, 65, // FM CY  tune/fm/decay/level
     55, 35, 55, 70, // FM HH  fm/ch dec/oh dec/level
-    0, //              kit fold off
+    0, 0, 0, 0, 0, 0, 0, 0, 0, // per-instrument folds off
 ];
 
 pub fn clamp_drum_param(param: usize, value: i16) -> i16 {
@@ -1138,7 +1163,7 @@ impl Drums {
                 continue;
             }
             let p = &params[v.channel as usize % crate::NUM_SYNTH_CHANNELS];
-            let fold = p[DP_FOLD];
+            let fold = p[DP_FOLD_BD + fold_group(v.inst)];
             if fold > 0 {
                 // Fold each voice individually: render into a scratch block,
                 // then push it through the shared triangle folder. Identity

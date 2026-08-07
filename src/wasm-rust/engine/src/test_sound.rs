@@ -681,8 +681,8 @@ mod drumsynth {
         crate::engine_sound::ensure_valid_sound_page(&mut s);
         assert_eq!(s.sound_page, PAGE_DKIT);
         for expect in [
-            PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
-            PAGE_DHH, PAGE_SSLOT,
+            PAGE_DFOLD, PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB,
+            PAGE_DCY, PAGE_DHH, PAGE_SSLOT,
         ] {
             engine_arrow_press(&mut s, DIR_UP, 0);
             assert_eq!(s.sound_page, expect);
@@ -736,8 +736,10 @@ mod drumsynth {
             }
         }
         for (p, &n) in seen.iter().enumerate() {
-            // The kit selector and kit-wide fold live on the KIT chooser page
-            let expect = if p == DP_KIT || p == DP_FOLD { 0 } else { 1 };
+            // The kit selector and the per-instrument folds live on the KIT
+            // and FOLD chooser pages
+            let expect =
+                if p == DP_KIT || (DP_FOLD_BD..=DP_FOLD_HH).contains(&p) { 0 } else { 1 };
             assert_eq!(n, expect, "param {} appears on {} pages", p, n);
         }
     }
@@ -907,52 +909,65 @@ mod westcoast {
     }
 }
 
-// ============ Kit-wide drum FOLD (KIT page) ============
+// ============ Per-instrument drum FOLD page ============
 
 mod drum_fold {
     use super::*;
     use arp3_synth::drums::*;
 
-    fn kit_page_state() -> Box<EngineState> {
+    fn fold_page_state() -> Box<EngineState> {
         let mut s = init_state();
         s.current_channel = drum_ch(&s);
         s.ui_mode = UiMode::Sound as u8;
         crate::engine_sound::ensure_valid_sound_page(&mut s);
-        assert_eq!(s.sound_page, PAGE_DKIT);
+        assert_eq!(s.sound_page, PAGE_DKIT, "KIT chooser first");
+        engine_arrow_press(&mut s, DIR_UP, 0);
+        assert_eq!(s.sound_page, PAGE_DFOLD, "FOLD page follows the kit chooser");
         s
     }
 
     #[test]
-    fn kit_page_fold_fader_sets_and_focuses_fold() {
-        let mut s = kit_page_state();
+    fn fold_columns_set_focus_and_edit_per_instrument() {
+        let mut s = fold_page_state();
         let ch = s.current_channel as usize;
-        // Fader (cols 12-14): top row → 100
-        engine_button_press(&mut s, 0, 13, 0);
-        assert_eq!(s.drum_patches[ch][DP_FOLD], 100);
-        // Encoder now edits FOLD (focus 1), Shift fine
+        // Column 8 (HH), top row -> 100; only the hats' fold moves
+        engine_button_press(&mut s, 0, 8, 0);
+        assert_eq!(s.drum_patches[ch][DP_FOLD_HH], 100);
+        assert_eq!(s.drum_patches[ch][DP_FOLD_BD], 0);
+        assert_eq!(s.sound_focus[PAGE_DFOLD as usize], 8);
+        // Encoder edits the focused column, Shift fine
         engine_arrow_press(&mut s, DIR_LEFT, 0);
-        assert_eq!(s.drum_patches[ch][DP_FOLD], 95);
+        assert_eq!(s.drum_patches[ch][DP_FOLD_HH], 95);
         engine_arrow_press(&mut s, DIR_LEFT, MOD_SHIFT);
-        assert_eq!(s.drum_patches[ch][DP_FOLD], 94);
-        // Selecting a kit cell refocuses the selector; encoder steps the kit
-        engine_button_press(&mut s, 7, 0, 0);
-        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_ANALOG);
-        engine_arrow_press(&mut s, DIR_RIGHT, 0);
-        assert_eq!(s.drum_patches[ch][DP_KIT], KIT_FM);
-        assert_eq!(s.drum_patches[ch][DP_FOLD], 94, "kit stepping must not touch fold");
+        assert_eq!(s.drum_patches[ch][DP_FOLD_HH], 94);
+        // Columns beyond the nine folds are inert
+        let before = s.drum_patches[ch];
+        engine_button_press(&mut s, 0, 9, 0);
+        assert_eq!(s.drum_patches[ch], before);
     }
 
     #[test]
-    fn kit_page_grid_shows_fold_fader() {
-        let mut s = kit_page_state();
+    fn fold_page_grid_shows_column_faders() {
+        let mut s = fold_page_state();
         let ch = s.current_channel as usize;
-        s.drum_patches[ch][DP_FOLD] = 100;
-        s.sound_focus[PAGE_DKIT as usize] = 1;
+        s.drum_patches[ch][DP_FOLD_BD] = 100; // column 0 full
+        s.sound_focus[PAGE_DFOLD as usize] = 0;
         engine_compute_grid(&mut s, 0.0);
-        // Full fader reaches the top row across cols 12-14
-        assert_ne!(s.button_values[0][13] & 0xF, BTN_OFF);
-        assert_eq!(s.color_overrides[0][13], crate::engine_sound::SOUND_ACCENT);
-        // Trace no longer draws into the fader bank's columns beyond it
-        assert_ne!(s.button_values[7][15] & 0xF, BTN_OFF, "audition pad still present");
+        assert_ne!(s.button_values[0][0] & 0xF, BTN_OFF, "full fold column reaches the top");
+        assert_eq!(s.color_overrides[0][0], crate::engine_sound::SOUND_ACCENT);
+        // A clean instrument keeps its dim base marker
+        assert_eq!(s.button_values[7][4], BTN_COLOR_25);
+        // Audition pad still present
+        assert_ne!(s.button_values[7][15] & 0xF, BTN_OFF);
+    }
+
+    #[test]
+    fn kit_page_no_longer_carries_a_fader() {
+        let mut s = fold_page_state();
+        s.sound_page = PAGE_DKIT;
+        let ch = s.current_channel as usize;
+        let before = s.drum_patches[ch];
+        engine_button_press(&mut s, 0, 13, 0);
+        assert_eq!(s.drum_patches[ch], before, "KIT page right bank is inert again");
     }
 }

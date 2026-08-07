@@ -63,14 +63,16 @@ pub const PAGE_DKIT: u8 = 29;
 // West-Coast-engine pages
 pub const PAGE_WFOLD: u8 = 30;
 pub const PAGE_WEST: u8 = 31;
-pub const NUM_SOUND_PAGES: usize = 32;
+// Drum-synth wavefolder page (drum channels only): per-instrument folds
+pub const PAGE_DFOLD: u8 = 32;
+pub const NUM_SOUND_PAGES: usize = 33;
 
 // The drum instrument labels here are the analog spellings — the OLED asks
 // engine_drumsynth::drum_page_label for the kit-aware name.
 pub static SOUND_PAGE_LABELS: [&str; NUM_SOUND_PAGES] = [
     "PRESET", "OSC 1", "OSC 2", "AMP", "ENV", "FILT", "FX", "ALGO", "OP", "FM", "WAVE", "DIGI",
     "HARM", "ADD", "SLOT", "REC", "TRIM", "PLAY", "MOD", "WHEEL", "BD 808", "SD 808", "TOMS",
-    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT", "KIT", "FOLD", "WEST",
+    "RIM/CLAVE", "CLAP", "MARACAS", "COWBELL", "CYMBAL", "HI-HAT", "KIT", "FOLD", "WEST", "FOLD",
 ];
 
 /// Page cycle per engine — the left encoder walks this list. The synthesis
@@ -87,9 +89,9 @@ static WEST_PAGES: [u8; 8] =
     [PAGE_PRESET, PAGE_WFOLD, PAGE_WEST, PAGE_AMP, PAGE_ENV, PAGE_FILT, PAGE_FX, PAGE_MOD];
 /// Drum channels cycle the kit chooser, the instrument pages, then the
 /// sampler.
-static DRUM_PAGES: [u8; 15] = [
-    PAGE_DKIT, PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA, PAGE_DCB, PAGE_DCY,
-    PAGE_DHH, PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD,
+static DRUM_PAGES: [u8; 16] = [
+    PAGE_DKIT, PAGE_DFOLD, PAGE_DBD, PAGE_DSD, PAGE_DTOM, PAGE_DRS, PAGE_DCP, PAGE_DMA,
+    PAGE_DCB, PAGE_DCY, PAGE_DHH, PAGE_SSLOT, PAGE_SREC, PAGE_STRIM, PAGE_SPLAY, PAGE_SMOD,
 ];
 
 pub fn engine_pages(engine: i16) -> &'static [u8] {
