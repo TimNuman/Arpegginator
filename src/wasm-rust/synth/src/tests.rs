@@ -1069,3 +1069,69 @@ mod drum_voice_lifecycle {
         assert_eq!(synth.drums.active_voices(), 0, "killed voices must free their slots");
     }
 }
+
+// ============ Kit-wide drum fold ============
+
+mod drum_fold_tests {
+    use super::*;
+    use crate::drums::*;
+
+    fn capture(kit: i16, fold: i16, note: u8) -> [f32; MAX_BLOCK * 15] {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_drum_param(4, DP_KIT as u8, kit);
+        synth.set_drum_param(4, DP_FOLD as u8, fold);
+        synth.drum_trigger(4, note, 120);
+        let mut out = [0.0f32; MAX_BLOCK * 15];
+        for chunk in out.chunks_mut(MAX_BLOCK) {
+            synth.render(chunk);
+        }
+        out
+    }
+
+    #[test]
+    fn fold_reshapes_drums_on_both_kits_and_stays_bounded() {
+        for kit in [KIT_ANALOG, KIT_FM] {
+            let clean = capture(kit, 0, 36);
+            let folded = capture(kit, 100, 36);
+            let diff: f64 = clean
+                .iter()
+                .zip(folded.iter())
+                .map(|(a, b)| ((a - b) as f64).abs())
+                .sum::<f64>()
+                / clean.len() as f64;
+            assert!(diff > 1e-3, "kit {} fold must reshape the kick, diff {}", kit, diff);
+            let mut stats = stats::Stats::default();
+            for &v in folded.iter() {
+                stats.observe(v);
+            }
+            assert!(stats.peak <= 1.0, "kit {} folded kick peaked {}", kit, stats.peak);
+            assert_eq!(stats.non_finite, 0);
+        }
+    }
+
+    #[test]
+    fn folded_hits_still_decay_and_free_their_voices() {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_drum_param(4, DP_FOLD as u8, 100);
+        synth.drum_trigger(4, 36, 120);
+        render_blocks(&mut synth, (SR as usize) * 4 / MAX_BLOCK);
+        let tail = render_blocks(&mut synth, 5);
+        assert!(tail.peak < 1e-3, "folded kick must still decay, peak {}", tail.peak);
+        assert_eq!(synth.drums.active_voices(), 0);
+    }
+
+    #[test]
+    fn fold_is_per_channel() {
+        // Channel 5's fold must not touch channel 4's clean kit
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_drum_param(5, DP_FOLD as u8, 100);
+        assert_eq!(synth.get_drum_param(4, DP_FOLD as u8), 0);
+        synth.drum_trigger(4, 36, 120);
+        let stats = render_blocks(&mut synth, 20);
+        assert!(stats.mean_abs() > 1e-3);
+        assert_eq!(stats.non_finite, 0);
+    }
+}

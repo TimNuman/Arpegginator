@@ -123,7 +123,13 @@ pub const DPF_HH_FM: usize = 62;
 pub const DPF_HH_CH_DEC: usize = 63;
 pub const DPF_HH_OH_DEC: usize = 64;
 pub const DPF_HH_LEVEL: usize = 65;
-pub const NUM_DRUM_PARAMS: usize = 66;
+
+/// Kit-wide wavefolder amount, shared by both kit engines: every voice on
+/// the channel runs through the triangle folder (patch::wave_fold)
+/// individually, so each hit folds against its own envelope — loud attacks
+/// bloom, decayed tails pass clean.
+pub const DP_FOLD: usize = 66;
+pub const NUM_DRUM_PARAMS: usize = 67;
 
 /// One drum channel's kit settings (both banks + the kit selector).
 pub type DrumPatch = [i16; NUM_DRUM_PARAMS];
@@ -155,6 +161,7 @@ pub const DRUM_PARAM_DEFAULTS: DrumPatch = [
     50, 55, 40, 70, // FM CB  tune/fm/decay/level
     50, 60, 60, 65, // FM CY  tune/fm/decay/level
     55, 35, 55, 70, // FM HH  fm/ch dec/oh dec/level
+    0, //              kit fold off
 ];
 
 pub fn clamp_drum_param(param: usize, value: i16) -> i16 {
@@ -1125,9 +1132,27 @@ impl Drums {
 
     pub fn render(&mut self, out: &mut [f32], sample_rate: f32) {
         let Drums { params, voices, .. } = self;
+        let mut scratch = [0.0f32; crate::MAX_BLOCK];
         for v in voices.iter_mut() {
-            if v.active {
-                v.render(out, &params[v.channel as usize % crate::NUM_SYNTH_CHANNELS], sample_rate);
+            if !v.active {
+                continue;
+            }
+            let p = &params[v.channel as usize % crate::NUM_SYNTH_CHANNELS];
+            let fold = p[DP_FOLD];
+            if fold > 0 {
+                // Fold each voice individually: render into a scratch block,
+                // then push it through the shared triangle folder. Identity
+                // near zero, so tails decay through the folder cleanly.
+                let n = out.len().min(crate::MAX_BLOCK);
+                let scratch = &mut scratch[..n];
+                scratch.fill(0.0);
+                v.render(scratch, p, sample_rate);
+                let g = crate::patch::fold_gain(fold);
+                for (o, &s) in out.iter_mut().zip(scratch.iter()) {
+                    *o += crate::patch::wave_fold(s * g);
+                }
+            } else {
+                v.render(out, p, sample_rate);
             }
         }
     }

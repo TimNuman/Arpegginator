@@ -31,7 +31,7 @@ use arp3_synth::drums::{
     DPF_TOM_DECAY, DPF_TOM_FM, DPF_TOM_LEVEL, DPF_TOM_TUNE, DP_BD_DECAY, DP_BD_LEVEL,
     DP_BD_TONE, DP_BD_TUNE, DP_CB_DECAY, DP_CB_LEVEL, DP_CB_TUNE, DP_CP_DECAY, DP_CP_LEVEL,
     DP_CP_TONE, DP_CY_DECAY, DP_CY_LEVEL, DP_CY_TONE, DP_CY_TUNE, DP_HH_CH_DEC, DP_HH_LEVEL,
-    DP_HH_OH_DEC, DP_HH_TUNE, DP_KIT, DP_MA_DECAY, DP_MA_LEVEL, DP_MA_TONE, DP_RS_DECAY,
+    DP_FOLD, DP_HH_OH_DEC, DP_HH_TUNE, DP_KIT, DP_MA_DECAY, DP_MA_LEVEL, DP_MA_TONE, DP_RS_DECAY,
     DP_RS_LEVEL, DP_RS_TUNE, DP_SD_LEVEL, DP_SD_SNAP, DP_SD_TONE, DP_SD_TUNE, DP_TOM_DECAY,
     DP_TOM_LEVEL, DP_TOM_TUNE, INST_BD, INST_CB, INST_CP, INST_CY, INST_HH, INST_MA, INST_MT,
     INST_RS, INST_SD, KIT_FM, NUM_KITS,
@@ -129,6 +129,7 @@ pub fn drum_page_label(page: u8, kit: i16) -> &'static str {
 pub fn drum_param_label(param: usize) -> &'static str {
     match param {
         DP_KIT => "KIT",
+        DP_FOLD => "FOLD",
         DP_BD_TUNE | DP_SD_TUNE | DP_TOM_TUNE | DP_RS_TUNE | DP_CB_TUNE | DP_CY_TUNE
         | DP_HH_TUNE | DPF_BD_TUNE | DPF_SD_TUNE | DPF_TOM_TUNE | DPF_RS_TUNE | DPF_CB_TUNE
         | DPF_CY_TUNE => "TUNE",
@@ -175,7 +176,8 @@ pub fn engine_sync_drum_params(s: &EngineState) {
 pub fn drum_focused_param(s: &EngineState) -> Option<usize> {
     let ch = s.current_channel as usize;
     if s.sound_page == PAGE_DKIT {
-        return Some(DP_KIT);
+        // Focus 0 = the kit selector, 1 = the kit-wide FOLD fader
+        return Some(if s.sound_focus[PAGE_DKIT as usize] == 1 { DP_FOLD } else { DP_KIT });
     }
     let faders = drum_page_faders(s.sound_page, drum_kit(s, ch));
     if faders.is_empty() {
@@ -210,9 +212,16 @@ pub fn handle_drum_press(s: &mut EngineState, row: u8, col: u8, mods: u8) {
         return;
     }
 
-    // KIT page: bottom row holds one selector cell per engine
+    // KIT page: bottom row holds one selector cell per engine; the right
+    // bank (cols 12-14) is the kit-wide FOLD fader
     if s.sound_page == PAGE_DKIT {
-        if row == VISIBLE_ROWS - 1 && col < NUM_KITS {
+        if (12..15).contains(&col) {
+            s.sound_focus[PAGE_DKIT as usize] = 1;
+            let value = ((VISIBLE_ROWS - 1 - row) as i32 * 100) / (VISIBLE_ROWS as i32 - 1);
+            engine_set_drum_param(s, ch, DP_FOLD, value as i16);
+            audition(s, ch, 0);
+        } else if row == VISIBLE_ROWS - 1 && col < NUM_KITS {
+            s.sound_focus[PAGE_DKIT as usize] = 0;
             engine_set_drum_param(s, ch, DP_KIT, col as i16);
             audition(s, ch, 0);
         }
@@ -263,13 +272,14 @@ fn render_kit_page(s: &mut EngineState) {
     let ch = s.current_channel as usize;
     let kit = (drum_kit(s, ch) as usize).min(NUM_KITS - 1);
     let rows = &KIT_WAVE_ROWS[kit];
+    const TRACE_COLS: usize = 12; // the FOLD fader takes the right bank
 
     // Waveform trace with dim vertical connectors on jumps (same drawing
     // grammar as the osc pages)
-    for c in 0..VISIBLE_COLS {
+    for c in 0..TRACE_COLS {
         let r = rows[c % 8] as usize;
         s.button_values[r][c] = BTN_COLOR_100;
-        if c + 1 < VISIBLE_COLS {
+        if c + 1 < TRACE_COLS {
             let r2 = rows[(c + 1) % 8] as usize;
             let (lo, hi) = if r < r2 { (r, r2) } else { (r2, r) };
             for rr in (lo + 1)..hi {
@@ -286,6 +296,30 @@ fn render_kit_page(s: &mut EngineState) {
             if c == kit { BTN_COLOR_100 } else { BTN_WHITE_25 };
         if c == kit {
             s.color_overrides[VISIBLE_ROWS - 1][c] = SOUND_ACCENT;
+        }
+    }
+
+    // Kit-wide FOLD fader (cols 12-14), standard fader grammar
+    let value = s.drum_patches[ch][DP_FOLD] as i32;
+    let lit = ((value * VISIBLE_ROWS as i32 + 50) / 100) as usize;
+    let focused = s.sound_focus[PAGE_DKIT as usize] == 1;
+    for step in 0..lit.max(1) {
+        let vr = VISIBLE_ROWS - 1 - step;
+        let is_cap = step + 1 == lit.max(1);
+        let val = if lit == 0 {
+            BTN_COLOR_25
+        } else if is_cap {
+            BTN_COLOR_100
+        } else if focused {
+            BTN_COLOR_75
+        } else {
+            BTN_COLOR_50
+        };
+        for c in 12..15 {
+            s.button_values[vr][c] = val;
+            if focused && is_cap && lit > 0 {
+                s.color_overrides[vr][c] = SOUND_ACCENT;
+            }
         }
     }
 }
