@@ -802,3 +802,106 @@ mod drumsynth {
         assert_eq!(s.sound_page, PAGE_PRESET, "kit page is foreign to melodic channels");
     }
 }
+
+// ============ Wavefolder + West Coast engine pages ============
+
+mod westcoast {
+    use super::*;
+
+    /// Index of the first West Coast factory preset.
+    fn west_preset() -> usize {
+        (0..patch::NUM_PRESETS)
+            .find(|&i| patch::PRESETS[i].values[patch::P_ENGINE] == patch::ENGINE_WEST)
+            .expect("no west preset")
+    }
+
+    #[test]
+    fn loading_a_west_preset_swaps_to_fold_pages() {
+        let mut s = init_state();
+        s.ui_mode = UiMode::Sound as u8;
+        let ch = s.current_channel as usize;
+        engine_load_sound_preset(&mut s, ch, west_preset());
+        assert_eq!(s.sound_patches[ch][patch::P_ENGINE], patch::ENGINE_WEST);
+        let pages = crate::engine_sound::pages_for(&s);
+        assert!(pages.contains(&PAGE_WFOLD));
+        assert!(pages.contains(&PAGE_WEST));
+        // FOLD lives on the WEST page for this engine, not on FX
+        assert!(!page_faders(patch::ENGINE_WEST, PAGE_FX).contains(&patch::P_FOLD));
+        assert!(page_faders(patch::ENGINE_WEST, PAGE_WEST).contains(&patch::P_FOLD));
+    }
+
+    #[test]
+    fn fx_page_has_fold_fader_on_other_engines() {
+        for engine in [
+            patch::ENGINE_SUBTRACTIVE,
+            patch::ENGINE_FM,
+            patch::ENGINE_WAVETABLE,
+            patch::ENGINE_ADDITIVE,
+        ] {
+            assert!(
+                page_faders(engine, PAGE_FX).contains(&patch::P_FOLD),
+                "engine {} FX page must expose FOLD",
+                engine
+            );
+        }
+    }
+
+    #[test]
+    fn fold_track_press_and_encoder_edit_fold() {
+        let mut s = init_state();
+        s.ui_mode = UiMode::Sound as u8;
+        let ch = s.current_channel as usize;
+        engine_load_sound_preset(&mut s, ch, west_preset());
+        s.sound_page = PAGE_WFOLD;
+        // Bottom-row track: col 15 → 100
+        engine_button_press(&mut s, 7, 15, 0);
+        assert_eq!(s.sound_patches[ch][patch::P_FOLD], 100);
+        // Encoder edits the fold too (chooser param), Shift fine
+        engine_arrow_press(&mut s, DIR_LEFT, 0);
+        assert_eq!(s.sound_patches[ch][patch::P_FOLD], 95);
+        engine_arrow_press(&mut s, DIR_LEFT, MOD_SHIFT);
+        assert_eq!(s.sound_patches[ch][patch::P_FOLD], 94);
+        // Non-bottom rows are inert on the fold page
+        let before = s.sound_patches[ch];
+        engine_button_press(&mut s, 3, 5, 0);
+        assert_eq!(s.sound_patches[ch], before);
+    }
+
+    #[test]
+    fn west_page_faders_edit_the_folder() {
+        let mut s = init_state();
+        s.ui_mode = UiMode::Sound as u8;
+        let ch = s.current_channel as usize;
+        engine_load_sound_preset(&mut s, ch, west_preset());
+        s.sound_page = PAGE_WEST;
+        // Fader 2 (SHAPE, cols 4-6) to the top
+        engine_button_press(&mut s, 0, 5, 0);
+        assert_eq!(s.sound_patches[ch][patch::P_WC_SHAPE], 100);
+        // Fader 4 (BLOOM, cols 12-14) to the bottom
+        engine_button_press(&mut s, 7, 13, 0);
+        assert_eq!(s.sound_patches[ch][patch::P_WC_ENV], 0);
+    }
+
+    #[test]
+    fn mod_matrix_reaches_fold() {
+        assert_eq!(patch::PARAM_MAX[patch::P_MOD1_TARGET] as usize, patch::P_FOLD);
+        assert_eq!(param_label(patch::P_FOLD), "FOLD");
+    }
+
+    #[test]
+    fn fold_page_grid_draws_trace_and_track() {
+        let mut s = init_state();
+        s.ui_mode = UiMode::Sound as u8;
+        let ch = s.current_channel as usize;
+        engine_load_sound_preset(&mut s, ch, west_preset());
+        s.sound_page = PAGE_WFOLD;
+        s.sound_patches[ch][patch::P_FOLD] = 100;
+        engine_compute_grid(&mut s, 0.0);
+        // Some cell in rows 0-6 is lit (the trace) ...
+        let lit = (0..7).any(|r| (0..16).any(|c| s.button_values[r][c] != BTN_OFF));
+        assert!(lit, "fold trace must draw");
+        // ... and the track's fold marker sits at the right edge
+        assert_eq!(s.button_values[7][15], BTN_COLOR_100);
+        assert_eq!(s.color_overrides[7][15], crate::engine_sound::SOUND_ACCENT);
+    }
+}

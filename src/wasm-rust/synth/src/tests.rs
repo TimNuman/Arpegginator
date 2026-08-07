@@ -847,6 +847,179 @@ mod fm_drum_tests {
     }
 }
 
+// ============ Wavefolder + West Coast engine ============
+
+mod fold_tests {
+    use super::*;
+
+    #[test]
+    fn wave_fold_is_identity_inside_unit_range() {
+        for i in -10..=10 {
+            let x = i as f32 / 10.0;
+            assert!((patch::wave_fold(x) - x).abs() < 1e-5, "fold({}) must be identity", x);
+        }
+        // ...and reflects beyond it
+        assert!((patch::wave_fold(1.5) - 0.5).abs() < 1e-5);
+        assert!((patch::wave_fold(2.0) - 0.0).abs() < 1e-5);
+        assert!((patch::wave_fold(3.0) + 1.0).abs() < 1e-5);
+        assert!((patch::wave_fold(-1.5) + 0.5).abs() < 1e-5);
+        // Bounded no matter how hard it's driven
+        for i in -100..=100 {
+            let y = patch::wave_fold(i as f32 * 0.37);
+            assert!((-1.0..=1.0).contains(&y));
+        }
+    }
+
+    #[test]
+    fn fold_param_reshapes_subtractive_output() {
+        fn capture(fold: i16) -> [f32; MAX_BLOCK * 20] {
+            let mut synth = Synth::new();
+            synth.set_sample_rate(SR);
+            synth.set_param(0, patch::P_WAVE1 as u8, patch::WAVE_SINE);
+            synth.set_param(0, patch::P_WAVE2 as u8, patch::WAVE_SINE);
+            synth.set_param(0, patch::P_CUTOFF as u8, 100); // filter open
+            synth.set_param(0, patch::P_FOLD as u8, fold);
+            synth.note_on(0, 60, 110);
+            let mut out = [0.0f32; MAX_BLOCK * 20];
+            for chunk in out.chunks_mut(MAX_BLOCK) {
+                synth.render(chunk);
+            }
+            out
+        }
+        let clean = capture(0);
+        let folded = capture(100);
+        let diff: f64 = clean
+            .iter()
+            .zip(folded.iter())
+            .map(|(a, b)| ((a - b) as f64).abs())
+            .sum::<f64>()
+            / clean.len() as f64;
+        assert!(diff > 1e-3, "fold must reshape the wave, mean diff {}", diff);
+        let stats_check = {
+            let mut s = stats::Stats::default();
+            for &v in folded.iter() {
+                s.observe(v);
+            }
+            s
+        };
+        assert!(stats_check.peak <= 1.0);
+        assert_eq!(stats_check.non_finite, 0);
+    }
+
+    #[test]
+    fn mod_matrix_can_sweep_fold() {
+        // Slot 1 targets FOLD at full positive depth; wheel at 100 must
+        // audibly change a sounding sine note
+        let capture = |wheel: i16| {
+            let mut synth = Synth::new();
+            synth.set_sample_rate(SR);
+            synth.set_param(0, patch::P_WAVE1 as u8, patch::WAVE_SINE);
+            synth.set_param(0, patch::P_OSC_MIX as u8, 0);
+            synth.set_param(0, patch::P_MOD1_TARGET as u8, patch::P_FOLD as i16);
+            synth.set_param(0, patch::P_MOD1_DEPTH as u8, 200);
+            synth.set_param(0, patch::P_MOD_VALUE as u8, wheel);
+            synth.note_on(0, 60, 110);
+            render_blocks(&mut synth, 30).sum_abs
+        };
+        let dry = capture(0);
+        let swept = capture(100);
+        assert!(
+            (dry - swept).abs() / dry > 0.01,
+            "wheel->FOLD must be audible: {} vs {}",
+            dry,
+            swept
+        );
+    }
+
+    #[test]
+    fn west_engine_renders_bounded_audio() {
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_WEST);
+        synth.set_param(0, patch::P_FOLD as u8, 70);
+        synth.note_on(0, 60, 110);
+        let stats = render_blocks(&mut synth, 30);
+        assert!(stats.mean_abs() > 0.003, "west voice should be audible");
+        assert!(stats.peak <= 1.0);
+        assert_eq!(stats.non_finite, 0);
+    }
+
+    #[test]
+    fn west_bloom_changes_timbre_over_the_envelope() {
+        // With full env->fold and a decaying envelope, the waveform early in
+        // the note must differ from late (the fold collapses as it decays)
+        let mut synth = Synth::new();
+        synth.set_sample_rate(SR);
+        synth.set_param(0, patch::P_ENGINE as u8, patch::ENGINE_WEST);
+        synth.set_param(0, patch::P_FOLD as u8, 100);
+        synth.set_param(0, patch::P_WC_ENV as u8, 100);
+        synth.set_param(0, patch::P_CUTOFF as u8, 100);
+        synth.set_param(0, patch::P_SUSTAIN as u8, 10);
+        synth.set_param(0, patch::P_DECAY as u8, 50);
+        synth.note_on(0, 48, 127);
+
+        // Zero-crossing density is a cheap brightness proxy: folded-open
+        // early portion must be busier than the decayed tail
+        let crossings = |synth: &mut Synth, blocks: usize| {
+            let mut buf = [0.0f32; MAX_BLOCK];
+            let mut count = 0u32;
+            let mut last = 0.0f32;
+            for _ in 0..blocks {
+                synth.render(&mut buf);
+                for &s in &buf {
+                    if (s > 0.0) != (last > 0.0) {
+                        count += 1;
+                    }
+                    last = s;
+                }
+            }
+            count
+        };
+        let early = crossings(&mut synth, 20);
+        render_blocks(&mut synth, 200); // let the envelope decay
+        let late = crossings(&mut synth, 20);
+        assert!(
+            early > late + late / 2,
+            "fold should bloom then collapse: early {} vs late {}",
+            early,
+            late
+        );
+    }
+
+    #[test]
+    fn all_west_presets_are_bounded_and_audible() {
+        for (i, preset) in patch::PRESETS.iter().enumerate() {
+            if preset.values[patch::P_ENGINE] != patch::ENGINE_WEST {
+                continue;
+            }
+            let mut synth = Synth::new();
+            synth.set_sample_rate(SR);
+            for (param, &value) in preset.values.iter().enumerate() {
+                synth.set_param(0, param as u8, value);
+            }
+            synth.note_on(0, 60, 110);
+            let stats = render_blocks(&mut synth, 40);
+            assert!(stats.mean_abs() > 0.002, "preset {} ({}) silent", i, preset.name);
+            assert!(stats.peak <= 1.0, "preset {} ({}) clipped", i, preset.name);
+            assert_eq!(stats.non_finite, 0, "preset {} ({}) NaN", i, preset.name);
+        }
+    }
+
+    #[test]
+    fn wc_preview_matches_range_and_folds() {
+        let mut max_v = -2.0f32;
+        for i in 0..64 {
+            let t = i as f32 / 64.0;
+            let v = patch::wc_preview(100, 0, 50, t);
+            assert!((-1.0..=1.0).contains(&v));
+            max_v = max_v.max(v);
+        }
+        assert!(max_v > 0.5, "driven preview should still reach high amplitudes");
+        // At fold 0 the preview is just the core wave
+        assert!((patch::wc_preview(0, 0, 50, 0.25) - 1.0).abs() < 1e-3, "sine peak at t=0.25");
+    }
+}
+
 // ============ Voice lifecycle (PR #32 review) ============
 
 mod drum_voice_lifecycle {
