@@ -17,8 +17,8 @@
 use crate::engine_core::*;
 use crate::engine_input::{DIR_LEFT, DIR_RIGHT, MOD_SHIFT};
 use crate::engine_sound::{
-    PAGE_DBD, PAGE_DCB, PAGE_DCP, PAGE_DCY, PAGE_DHH, PAGE_DKIT, PAGE_DMA, PAGE_DRS, PAGE_DSD,
-    PAGE_DTOM, SOUND_ACCENT,
+    PAGE_DBD, PAGE_DCB, PAGE_DCP, PAGE_DCY, PAGE_DFOLD, PAGE_DHH, PAGE_DKIT, PAGE_DMA, PAGE_DRS,
+    PAGE_DSD, PAGE_DTOM, SOUND_ACCENT,
 };
 use crate::platform::{platform_drum_param, platform_play_preview_note};
 pub use arp3_synth::drums::NUM_DRUM_PARAMS;
@@ -31,15 +31,24 @@ use arp3_synth::drums::{
     DPF_TOM_DECAY, DPF_TOM_FM, DPF_TOM_LEVEL, DPF_TOM_TUNE, DP_BD_DECAY, DP_BD_LEVEL,
     DP_BD_TONE, DP_BD_TUNE, DP_CB_DECAY, DP_CB_LEVEL, DP_CB_TUNE, DP_CP_DECAY, DP_CP_LEVEL,
     DP_CP_TONE, DP_CY_DECAY, DP_CY_LEVEL, DP_CY_TONE, DP_CY_TUNE, DP_HH_CH_DEC, DP_HH_LEVEL,
-    DP_FOLD, DP_HH_OH_DEC, DP_HH_TUNE, DP_KIT, DP_MA_DECAY, DP_MA_LEVEL, DP_MA_TONE, DP_RS_DECAY,
+    DP_FOLD_BD, DP_FOLD_HH, DP_HH_OH_DEC, DP_HH_TUNE, DP_KIT, DP_MA_DECAY, DP_MA_LEVEL,
+    DP_MA_TONE, DP_RS_DECAY, NUM_DRUM_FOLDS,
     DP_RS_LEVEL, DP_RS_TUNE, DP_SD_LEVEL, DP_SD_SNAP, DP_SD_TONE, DP_SD_TUNE, DP_TOM_DECAY,
     DP_TOM_LEVEL, DP_TOM_TUNE, INST_BD, INST_CB, INST_CP, INST_CY, INST_HH, INST_MA, INST_MT,
     INST_RS, INST_SD, KIT_FM, NUM_KITS,
 };
 
 pub fn is_drum_page(page: u8) -> bool {
-    (PAGE_DBD..=PAGE_DKIT).contains(&page)
+    (PAGE_DBD..=PAGE_DKIT).contains(&page) || page == PAGE_DFOLD
 }
+
+/// Instrument short names on the drum FOLD page, one column per fold group
+/// (same order as the DP_FOLD_* params and the page cycle).
+pub static FOLD_COL_LABELS: [&str; NUM_DRUM_FOLDS] =
+    ["BD", "SD", "TOM", "RS", "CP", "MA", "CB", "CY", "HH"];
+
+/// GM note each FOLD column auditions with.
+static FOLD_COL_NOTES: [i16; NUM_DRUM_FOLDS] = [36, 38, 45, 37, 39, 70, 56, 49, 42];
 
 /// The channel's kit engine (KIT_ANALOG / KIT_FM).
 pub fn drum_kit(s: &EngineState, ch: usize) -> i16 {
@@ -100,6 +109,7 @@ pub fn drum_page_label(page: u8, kit: i16) -> &'static str {
     if kit == KIT_FM {
         return match page {
             PAGE_DKIT => "KIT",
+            PAGE_DFOLD => "FOLD",
             PAGE_DBD => "FM BD",
             PAGE_DSD => "FM SD",
             PAGE_DTOM => "FM TOMS",
@@ -113,6 +123,7 @@ pub fn drum_page_label(page: u8, kit: i16) -> &'static str {
     }
     match page {
         PAGE_DKIT => "KIT",
+        PAGE_DFOLD => "FOLD",
         PAGE_DBD => "BD 808",
         PAGE_DSD => "SD 808",
         PAGE_DTOM => "TOMS",
@@ -129,7 +140,7 @@ pub fn drum_page_label(page: u8, kit: i16) -> &'static str {
 pub fn drum_param_label(param: usize) -> &'static str {
     match param {
         DP_KIT => "KIT",
-        DP_FOLD => "FOLD",
+        DP_FOLD_BD..=DP_FOLD_HH => FOLD_COL_LABELS[param - DP_FOLD_BD],
         DP_BD_TUNE | DP_SD_TUNE | DP_TOM_TUNE | DP_RS_TUNE | DP_CB_TUNE | DP_CY_TUNE
         | DP_HH_TUNE | DPF_BD_TUNE | DPF_SD_TUNE | DPF_TOM_TUNE | DPF_RS_TUNE | DPF_CB_TUNE
         | DPF_CY_TUNE => "TUNE",
@@ -176,8 +187,11 @@ pub fn engine_sync_drum_params(s: &EngineState) {
 pub fn drum_focused_param(s: &EngineState) -> Option<usize> {
     let ch = s.current_channel as usize;
     if s.sound_page == PAGE_DKIT {
-        // Focus 0 = the kit selector, 1 = the kit-wide FOLD fader
-        return Some(if s.sound_focus[PAGE_DKIT as usize] == 1 { DP_FOLD } else { DP_KIT });
+        return Some(DP_KIT);
+    }
+    if s.sound_page == PAGE_DFOLD {
+        let col = (s.sound_focus[PAGE_DFOLD as usize] as usize).min(NUM_DRUM_FOLDS - 1);
+        return Some(DP_FOLD_BD + col);
     }
     let faders = drum_page_faders(s.sound_page, drum_kit(s, ch));
     if faders.is_empty() {
@@ -190,10 +204,13 @@ pub fn drum_focused_param(s: &EngineState) -> Option<usize> {
 // ============ Input ============
 
 /// Audition the page's instrument. Shift on the hi-hat page fires the open
-/// hat so both decays are reachable from the pad.
+/// hat so both decays are reachable from the pad; the FOLD page fires the
+/// focused column's instrument.
 fn audition(s: &EngineState, ch: usize, mods: u8) {
     let note = if s.sound_page == PAGE_DHH && mods & MOD_SHIFT != 0 {
         46
+    } else if s.sound_page == PAGE_DFOLD {
+        FOLD_COL_NOTES[(s.sound_focus[PAGE_DFOLD as usize] as usize).min(NUM_DRUM_FOLDS - 1)]
     } else {
         inst_preview_note(page_inst(s.sound_page)) as i16
     };
@@ -212,17 +229,22 @@ pub fn handle_drum_press(s: &mut EngineState, row: u8, col: u8, mods: u8) {
         return;
     }
 
-    // KIT page: bottom row holds one selector cell per engine; the right
-    // bank (cols 12-14) is the kit-wide FOLD fader
+    // KIT page: bottom row holds one selector cell per engine
     if s.sound_page == PAGE_DKIT {
-        if (12..15).contains(&col) {
-            s.sound_focus[PAGE_DKIT as usize] = 1;
-            let value = ((VISIBLE_ROWS - 1 - row) as i32 * 100) / (VISIBLE_ROWS as i32 - 1);
-            engine_set_drum_param(s, ch, DP_FOLD, value as i16);
-            audition(s, ch, 0);
-        } else if row == VISIBLE_ROWS - 1 && col < NUM_KITS {
-            s.sound_focus[PAGE_DKIT as usize] = 0;
+        if row == VISIBLE_ROWS - 1 && col < NUM_KITS {
             engine_set_drum_param(s, ch, DP_KIT, col as i16);
+            audition(s, ch, 0);
+        }
+        return;
+    }
+
+    // FOLD page: one one-column fader per instrument group; a press sets the
+    // fold, focuses the column, and auditions that instrument
+    if s.sound_page == PAGE_DFOLD {
+        if col < NUM_DRUM_FOLDS {
+            s.sound_focus[PAGE_DFOLD as usize] = col as u8;
+            let value = ((VISIBLE_ROWS - 1 - row) as i32 * 100) / (VISIBLE_ROWS as i32 - 1);
+            engine_set_drum_param(s, ch, DP_FOLD_BD + col, value as i16);
             audition(s, ch, 0);
         }
         return;
@@ -272,14 +294,13 @@ fn render_kit_page(s: &mut EngineState) {
     let ch = s.current_channel as usize;
     let kit = (drum_kit(s, ch) as usize).min(NUM_KITS - 1);
     let rows = &KIT_WAVE_ROWS[kit];
-    const TRACE_COLS: usize = 12; // the FOLD fader takes the right bank
 
     // Waveform trace with dim vertical connectors on jumps (same drawing
     // grammar as the osc pages)
-    for c in 0..TRACE_COLS {
+    for c in 0..VISIBLE_COLS {
         let r = rows[c % 8] as usize;
         s.button_values[r][c] = BTN_COLOR_100;
-        if c + 1 < TRACE_COLS {
+        if c + 1 < VISIBLE_COLS {
             let r2 = rows[(c + 1) % 8] as usize;
             let (lo, hi) = if r < r2 { (r, r2) } else { (r2, r) };
             for rr in (lo + 1)..hi {
@@ -298,27 +319,32 @@ fn render_kit_page(s: &mut EngineState) {
             s.color_overrides[VISIBLE_ROWS - 1][c] = SOUND_ACCENT;
         }
     }
+}
 
-    // Kit-wide FOLD fader (cols 12-14), standard fader grammar
-    let value = s.drum_patches[ch][DP_FOLD] as i32;
-    let lit = ((value * VISIBLE_ROWS as i32 + 50) / 100) as usize;
-    let focused = s.sound_focus[PAGE_DKIT as usize] == 1;
-    for step in 0..lit.max(1) {
-        let vr = VISIBLE_ROWS - 1 - step;
-        let is_cap = step + 1 == lit.max(1);
-        let val = if lit == 0 {
-            BTN_COLOR_25
-        } else if is_cap {
-            BTN_COLOR_100
-        } else if focused {
-            BTN_COLOR_75
-        } else {
-            BTN_COLOR_50
-        };
-        for c in 12..15 {
-            s.button_values[vr][c] = val;
+/// Drum FOLD page: one one-column fader per instrument group (HARM-page
+/// grammar) — the grid shows the kit's fold spectrum at a glance.
+fn render_dfold_page(s: &mut EngineState) {
+    let ch = s.current_channel as usize;
+    let focus = (s.sound_focus[PAGE_DFOLD as usize] as usize).min(NUM_DRUM_FOLDS - 1);
+
+    for k in 0..NUM_DRUM_FOLDS {
+        let value = s.drum_patches[ch][DP_FOLD_BD + k] as i32;
+        let lit = ((value * VISIBLE_ROWS as i32 + 50) / 100) as usize;
+        let focused = k == focus;
+        for step in 0..lit.max(1) {
+            let vr = VISIBLE_ROWS - 1 - step;
+            let is_cap = step + 1 == lit.max(1);
+            s.button_values[vr][k] = if lit == 0 {
+                BTN_COLOR_25 // clean instrument: dim base marker
+            } else if is_cap {
+                BTN_COLOR_100
+            } else if focused {
+                BTN_COLOR_75
+            } else {
+                BTN_COLOR_50
+            };
             if focused && is_cap && lit > 0 {
-                s.color_overrides[vr][c] = SOUND_ACCENT;
+                s.color_overrides[vr][k] = SOUND_ACCENT;
             }
         }
     }
@@ -329,6 +355,8 @@ pub fn render_drum_page(s: &mut EngineState) {
     let page = s.sound_page;
     if page == PAGE_DKIT {
         render_kit_page(s);
+    } else if page == PAGE_DFOLD {
+        render_dfold_page(s);
     } else {
         let faders = drum_page_faders(page, drum_kit(s, ch));
         let focus = (s.sound_focus[page as usize] as usize).min(faders.len().saturating_sub(1));

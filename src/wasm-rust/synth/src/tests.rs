@@ -1070,17 +1070,17 @@ mod drum_voice_lifecycle {
     }
 }
 
-// ============ Kit-wide drum fold ============
+// ============ Per-instrument drum fold ============
 
 mod drum_fold_tests {
     use super::*;
     use crate::drums::*;
 
-    fn capture(kit: i16, fold: i16, note: u8) -> [f32; MAX_BLOCK * 15] {
+    fn capture(kit: i16, fold_param: usize, fold: i16, note: u8) -> [f32; MAX_BLOCK * 15] {
         let mut synth = Synth::new();
         synth.set_sample_rate(SR);
         synth.set_drum_param(4, DP_KIT as u8, kit);
-        synth.set_drum_param(4, DP_FOLD as u8, fold);
+        synth.set_drum_param(4, fold_param as u8, fold);
         synth.drum_trigger(4, note, 120);
         let mut out = [0.0f32; MAX_BLOCK * 15];
         for chunk in out.chunks_mut(MAX_BLOCK) {
@@ -1089,17 +1089,16 @@ mod drum_fold_tests {
         out
     }
 
+    fn mean_diff(a: &[f32], b: &[f32]) -> f64 {
+        a.iter().zip(b.iter()).map(|(x, y)| ((x - y) as f64).abs()).sum::<f64>() / a.len() as f64
+    }
+
     #[test]
     fn fold_reshapes_drums_on_both_kits_and_stays_bounded() {
         for kit in [KIT_ANALOG, KIT_FM] {
-            let clean = capture(kit, 0, 36);
-            let folded = capture(kit, 100, 36);
-            let diff: f64 = clean
-                .iter()
-                .zip(folded.iter())
-                .map(|(a, b)| ((a - b) as f64).abs())
-                .sum::<f64>()
-                / clean.len() as f64;
+            let clean = capture(kit, DP_FOLD_BD, 0, 36);
+            let folded = capture(kit, DP_FOLD_BD, 100, 36);
+            let diff = mean_diff(&clean, &folded);
             assert!(diff > 1e-3, "kit {} fold must reshape the kick, diff {}", kit, diff);
             let mut stats = stats::Stats::default();
             for &v in folded.iter() {
@@ -1111,10 +1110,22 @@ mod drum_fold_tests {
     }
 
     #[test]
+    fn folds_are_per_instrument() {
+        // Folding the hats must leave the kick untouched...
+        let clean = capture(KIT_ANALOG, DP_FOLD_BD, 0, 36);
+        let hh_folded = capture(KIT_ANALOG, DP_FOLD_HH, 100, 36);
+        assert!(mean_diff(&clean, &hh_folded) < 1e-9, "HH fold must not touch the kick");
+        // ...and voices that share a page share the fold (43 = second LT note)
+        let tom_clean = capture(KIT_ANALOG, DP_FOLD_BD, 0, 43);
+        let tom_folded = capture(KIT_ANALOG, DP_FOLD_TOM, 100, 43);
+        assert!(mean_diff(&tom_clean, &tom_folded) > 1e-3, "TOM fold must cover both tom notes");
+    }
+
+    #[test]
     fn folded_hits_still_decay_and_free_their_voices() {
         let mut synth = Synth::new();
         synth.set_sample_rate(SR);
-        synth.set_drum_param(4, DP_FOLD as u8, 100);
+        synth.set_drum_param(4, DP_FOLD_BD as u8, 100);
         synth.drum_trigger(4, 36, 120);
         render_blocks(&mut synth, (SR as usize) * 4 / MAX_BLOCK);
         let tail = render_blocks(&mut synth, 5);
@@ -1127,8 +1138,8 @@ mod drum_fold_tests {
         // Channel 5's fold must not touch channel 4's clean kit
         let mut synth = Synth::new();
         synth.set_sample_rate(SR);
-        synth.set_drum_param(5, DP_FOLD as u8, 100);
-        assert_eq!(synth.get_drum_param(4, DP_FOLD as u8), 0);
+        synth.set_drum_param(5, DP_FOLD_BD as u8, 100);
+        assert_eq!(synth.get_drum_param(4, DP_FOLD_BD as u8), 0);
         synth.drum_trigger(4, 36, 120);
         let stats = render_blocks(&mut synth, 20);
         assert!(stats.mean_abs() > 1e-3);
