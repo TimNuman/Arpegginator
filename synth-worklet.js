@@ -35,6 +35,7 @@ class RustSynthProcessor extends AudioWorkletProcessor {
       else if (type === 5) this.exports.synth_drum_trigger(a, b, c);
       else if (type === 6) this.exports.synth_drum_release(a, b);
       else if (type === 7) this.loadSample(a, b, c);
+      else if (type === 8) this.exports.synth_set_drum_param(a, b, c);
     };
   }
 
