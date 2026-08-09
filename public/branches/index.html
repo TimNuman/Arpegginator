@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>arpegginator — branches</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: #1a0a1a;
+      }
+
+      body {
+        margin: 0;
+        padding: 40px 20px;
+        min-height: 100vh;
+        background: linear-gradient(180deg, #0a0a0a 0%, #1a0a1a 100%);
+        color: #ccc;
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      h1 {
+        font-size: 32px;
+        font-weight: 300;
+        letter-spacing: 8px;
+        text-transform: uppercase;
+        margin: 0 0 4px;
+        background: linear-gradient(90deg, #ff3366, #66ffcc, #3366ff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        color: transparent;
+      }
+
+      .subtitle {
+        color: #666;
+        font-size: 11px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        margin-bottom: 36px;
+      }
+
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        max-width: 560px;
+      }
+
+      li {
+        margin-bottom: 10px;
+      }
+
+      li > a {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 14px 18px;
+        background: rgba(20, 20, 25, 0.85);
+        border: 1px solid #333;
+        border-radius: 8px;
+        color: #ccc;
+        text-decoration: none;
+        transition:
+          border-color 0.15s,
+          color 0.15s;
+      }
+
+      li > a:hover {
+        border-color: #66ffcc;
+        color: #fff;
+      }
+
+      .badge {
+        font-size: 10px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #66ffcc;
+        white-space: nowrap;
+      }
+
+      .badge.pr {
+        color: #ff3366;
+      }
+
+      .name {
+        font-size: 14px;
+        overflow-wrap: anywhere;
+      }
+
+      .meta {
+        margin-left: auto;
+        font-size: 11px;
+        color: #666;
+        white-space: nowrap;
+      }
+
+      .status {
+        color: #555;
+        font-size: 12px;
+        letter-spacing: 1px;
+        margin-top: 8px;
+      }
+
+      footer {
+        margin-top: auto;
+        padding-top: 40px;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+
+      footer a {
+        color: #666;
+      }
+
+      footer a:hover {
+        color: #ccc;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Arpegginator</h1>
+    <div class="subtitle">deployed branches</div>
+
+    <ul id="list"></ul>
+    <div class="status" id="status">loading open PRs…</div>
+
+    <footer>
+      <a id="repo-link" href="https://github.com/TimNuman/Arpegginator">github.com/TimNuman/Arpegginator</a>
+    </footer>
+
+    <script>
+      // Works both at /<repo>/branches/ (project site) and at the root of a
+      // <owner>.github.io repo: owner comes from the hostname, repo is fixed.
+      const OWNER = location.hostname.endsWith(".github.io")
+        ? location.hostname.split(".")[0]
+        : "timnuman";
+      const REPO = "Arpegginator";
+      const SITE_ROOT = `https://${OWNER}.github.io/${REPO}/`;
+
+      // Must match the sed sanitization in .github/workflows/ci.yml
+      const sanitizeBranch = (branch) => branch.replace(/[^a-zA-Z0-9._-]/g, "-");
+
+      const list = document.getElementById("list");
+      const status = document.getElementById("status");
+      document.getElementById("repo-link").href = `https://github.com/${OWNER}/${REPO}`;
+
+      function addEntry({ href, badge, badgeClass, name, meta }) {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = href;
+        const badgeEl = document.createElement("span");
+        badgeEl.className = badgeClass ? `badge ${badgeClass}` : "badge";
+        badgeEl.textContent = badge;
+        const nameEl = document.createElement("span");
+        nameEl.className = "name";
+        nameEl.textContent = name;
+        a.append(badgeEl, nameEl);
+        if (meta) {
+          const metaEl = document.createElement("span");
+          metaEl.className = "meta";
+          metaEl.textContent = meta;
+          a.append(metaEl);
+        }
+        li.append(a);
+        list.append(li);
+      }
+
+      addEntry({ href: SITE_ROOT, badge: "main", name: "stable — latest release" });
+
+      fetch(`https://api.github.com/repos/${OWNER}/${REPO}/pulls?state=open&per_page=100`)
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then((prs) => {
+          for (const pr of prs) {
+            addEntry({
+              href: `${SITE_ROOT}branch/${sanitizeBranch(pr.head.ref)}/`,
+              badge: `PR #${pr.number}`,
+              badgeClass: "pr",
+              name: pr.title,
+              meta: pr.head.ref,
+            });
+          }
+          status.textContent = prs.length
+            ? ""
+            : "no open PRs — previews appear here while a PR is open";
+        })
+        .catch((err) => {
+          status.textContent = `could not list open PRs (${err.message})`;
+        });
+    </script>
+  </body>
+</html>
