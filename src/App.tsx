@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Output } from "webmidi";
 import { css, Global } from "@emotion/react";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
+import { BranchSwitcher } from "./components/BranchSwitcher";
 import { Grid } from "./components/Grid";
 import { Transport } from "./components/Transport";
 import { WasmEngine } from "./engine/WasmEngine";
@@ -507,6 +508,7 @@ function App() {
       <ThemeProvider theme={darkTheme}>
         <CssBaseline />
         <Global styles={globalStyles} />
+        <BranchSwitcher />
         <Box css={appContainerStyles}>
           <Box component="h1" css={titleStyles}>
             ARPEGGINATOR
@@ -529,6 +531,7 @@ function App() {
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
       <Global styles={globalStyles} />
+      <BranchSwitcher />
       <Box css={rotateHintStyles}>Rotate to landscape</Box>
       <Box ref={fitContainerRef} css={appContainerStyles}>
         {/* Outer div reserves the scaled footprint so flex centering works;
