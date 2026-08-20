@@ -132,6 +132,52 @@ pub fn gfx_frame(x: i16, y: i16, w: i16, h: i16, color: u16) {
     gfx_vline(x + w - 1, y, h, color);
 }
 
+/// Bresenham, 1px, no anti-aliasing — there is nothing to anti-alias with.
+pub fn gfx_line(x0: i16, y0: i16, x1: i16, y1: i16, color: u16) {
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let (mut x, mut y) = (x0, y0);
+    let mut err = dx + dy;
+    loop {
+        gfx_pixel(x, y, color);
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = err * 2;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+/// Midpoint circle, 1px outline.
+pub fn gfx_circle(cx: i16, cy: i16, r: i16, color: u16) {
+    let (mut x, mut y) = (r, 0i16);
+    let mut err = 1 - r;
+    while x >= y {
+        [
+            (cx + x, cy + y), (cx - x, cy + y), (cx + x, cy - y), (cx - x, cy - y),
+            (cx + y, cy + x), (cx - y, cy + x), (cx + y, cy - x), (cx - y, cy - x),
+        ]
+        .iter()
+        .for_each(|&(px, py)| gfx_pixel(px, py, color));
+        y += 1;
+        if err < 0 {
+            err += 2 * y + 1;
+        } else {
+            x -= 1;
+            err += 2 * (y - x) + 1;
+        }
+    }
+}
+
 // ============ Ordered dither ============
 
 /// 4x4 Bayer matrix — the only "grey" this panel has.

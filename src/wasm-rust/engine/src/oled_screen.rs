@@ -21,29 +21,34 @@ const CONTENT_RIGHT: i16 = 246; // ~60% of display — right 40% is the dial pan
 const CONTENT_W: i16 = CONTENT_RIGHT - PAD_X;
 const HALF_W: i16 = CONTENT_W / 2;
 
-// Title bar
-const TITLE_H: i16 = 24;
+// Title bar (pinstriped, with a close box and a transport readout)
+const TITLE_H: i16 = 22;
 
 // Sunken value wells: the label sits in a fixed gutter, the value in the well.
 const LABEL_GUTTER: i16 = 46;
-const WELL_H: i16 = 20;
+const WELL_H: i16 = 18;
 
 // Row Y positions (top of the text line; 4 data rows + ruler + button bar)
-const ROW_Y: [i16; 4] = [40, 76, 112, 148];
+const ROW_Y: [i16; 4] = [32, 59, 86, 113];
 // 5-row layout for the selected-note view
-const ROW_Y5: [i16; 5] = [38, 72, 106, 140, 174];
+const ROW_Y5: [i16; 5] = [31, 64, 94, 124, 154];
 
 // Scale-degree ruler
-const DOT_Y: i16 = 180;
-const DOT_SIZE: i16 = 15;
-const DOT_GAP: i16 = 5;
+const DOT_Y: i16 = 140;
+const DOT_SIZE: i16 = 13;
+const DOT_GAP: i16 = 3;
+
+// Transport scrollbar under the ruler
+const TRANSPORT_Y: i16 = 163;
+const TRANSPORT_H: i16 = 15;
 
 // Bottom button bar — the only place structure is allowed color
-const LEGEND_Y: i16 = 204;
-const BTN_H: i16 = 30;
-const BTN_MARGIN: i16 = 6;
-const BTN_GAP: i16 = 5;
-const BTN_W: i16 = (DISPLAY_W - 2 * BTN_MARGIN - 2 * BTN_GAP) / 3;
+const LEGEND_Y: i16 = 200;
+const BTN_H: i16 = 26;
+const BTN_MARGIN: i16 = 8;
+const BTN_GAP: i16 = 10;
+const BTN_SHADOW: i16 = 3;
+const BTN_W: i16 = (DISPLAY_W - 2 * BTN_MARGIN - 2 * BTN_GAP - BTN_SHADOW) / 3;
 const ICON_SIZE: i16 = 10;
 const ICON_LABEL_GAP: i16 = 6;
 
@@ -359,28 +364,95 @@ fn draw_field(x: i16, w: i16, y: i16, label: &str, value: &str, val_color: u16) 
     let wx = x + LABEL_GUTTER;
     let ww = w - LABEL_GUTTER;
     if fill != GFX_GROUND {
-        gfx_fill_rect(wx + 1, y - 1, ww - 2, WELL_H - 2, fill);
+        gfx_fill_rect(wx + 1, y, ww - 2, WELL_H - 2, fill);
     }
-    gfx_frame(wx, y - 2, ww, WELL_H, GFX_INK);
+    gfx_frame(wx, y - 1, ww, WELL_H, GFX_INK);
     gfx_text_right(x + w - 5, y, value, gfx_ink_on(fill), &FONT_VALUE);
 }
 
 /// Full-width headline slab. Selection is inversion; when the up/down axis
 /// edits what it names, the slab takes that axis color instead.
-fn draw_banner(y: i16, text: &str, color: u16, ticker_slot: usize) {
-    let fill = if fill_for(color) != GFX_GROUND { color } else { GFX_INK };
-    gfx_fill_rect(PAD_X, y - 3, CONTENT_W, WELL_H + 2, fill);
-    draw_marquee(ticker_slot, PAD_X + 5, CONTENT_RIGHT - 5, y, text,
-                 gfx_ink_on(fill), &FONT_VALUE, TICKER_PAUSE_FRAMES);
+fn draw_banner(text: &str, ticker_slot: usize, hint: &str, hint_color: u16) {
+    draw_selection_bar(text, ticker_slot, hint, hint_color);
 }
 
-/// Inverted title bar: mode on the left, channel on the right.
+/// Pinstriped title bar with a close box and a transport readout — the
+/// System 6 window frame, which exists because that display was 1-bit too.
 fn draw_titlebar(s: &EngineState, mode: &str) {
-    gfx_fill_rect(0, 0, DISPLAY_W, TITLE_H, GFX_INK);
-    gfx_text(PAD_X, 4, mode, GFX_GROUND, &FONT_MEDIUM);
-    let mut ch_str = FmtBuf::<12>::new();
-    let _ = write!(ch_str, "CH {}", s.current_channel + 1);
-    gfx_text_right(DISPLAY_W - PAD_X, 4, &ch_str, GFX_GROUND, &FONT_MEDIUM);
+    gfx_frame(0, 0, DISPLAY_W, GFX_HEIGHT as i16, GFX_INK);
+
+    let mut y = 5;
+    while y <= 17 {
+        gfx_hline(3, y, DISPLAY_W - 6, GFX_INK);
+        y += 2;
+    }
+    gfx_hline(1, TITLE_H, DISPLAY_W - 2, GFX_INK);
+
+    // Close box
+    gfx_fill_rect(5, 4, 16, 15, GFX_GROUND);
+    gfx_frame(7, 6, 12, 12, GFX_INK);
+    gfx_frame(9, 8, 8, 8, GFX_INK);
+
+    // Title, knocked out of the stripes
+    let tw = gfx_text_width(mode, &FONT_MEDIUM);
+    let cx = DISPLAY_W / 2 - tw / 2;
+    gfx_fill_rect(cx - 9, 3, tw + 18, 17, GFX_GROUND);
+    gfx_text(cx, 3, mode, GFX_INK, &FONT_MEDIUM);
+
+    // Transport readout: play caret + tempo
+    let mut bpm = FmtBuf::<12>::new();
+    let _ = write!(bpm, "{:.1}", s.bpm);
+    let bw = gfx_text_width(&bpm, &FONT_MEDIUM) + 26;
+    gfx_fill_rect(DISPLAY_W - bw - 9, 4, bw + 5, 15, GFX_GROUND);
+    gfx_frame(DISPLAY_W - bw - 6, 5, bw, 13, GFX_INK);
+    gfx_text_right(DISPLAY_W - 11, 3, &bpm, GFX_INK, &FONT_MEDIUM);
+    let px = DISPLAY_W - bw - 1;
+    gfx_vline(px, 8, 7, GFX_INK);
+    gfx_vline(px + 1, 9, 5, GFX_INK);
+    gfx_vline(px + 2, 10, 3, GFX_INK);
+    gfx_pixel(px + 3, 11, GFX_INK);
+}
+
+/// Full-width inverted bar — a list selection, the gesture this panel is
+/// best at. An axis color rides as a chip on the right rather than recoloring
+/// the text.
+fn draw_selection_bar(text: &str, ticker_slot: usize, hint: &str, hint_color: u16) {
+    let bar_y = TITLE_H + 5;
+    gfx_fill_rect(1, bar_y, DISPLAY_W - 2, 23, GFX_INK);
+
+    let mut clip_right = DISPLAY_W - 8;
+    let fill = fill_for(hint_color);
+    if fill != GFX_GROUND && !hint.is_empty() {
+        let hw = gfx_text_width(hint, &FONT_SMALL) + 12;
+        gfx_fill_rect(DISPLAY_W - hw - 7, bar_y + 5, hw, 14, fill);
+        gfx_text(DISPLAY_W - hw - 1, bar_y + 6, hint, gfx_ink_on(fill), &FONT_SMALL);
+        clip_right = DISPLAY_W - hw - 14;
+    }
+    draw_marquee(ticker_slot, PAD_X, clip_right, bar_y + 1, text, GFX_GROUND,
+                 &FONT_LARGE, TICKER_PAUSE_FRAMES);
+}
+
+/// Loop progress as a scrollbar track: dithered ground, a darker filled
+/// region, and a hard playhead.
+fn draw_transport(s: &EngineState) {
+    let ch = s.current_channel as usize;
+    let pat = s.current_patterns[ch] as usize;
+    let loop_data = &s.loops[ch][pat];
+    let len = loop_data.length.max(1);
+    let raw = if s.resume_tick >= 0 { s.resume_tick } else { s.current_tick };
+    let pos = if raw >= 0 { ((raw - loop_data.start) % len + len) % len } else { 0 };
+
+    let x = PAD_X;
+    let w = CONTENT_RIGHT - PAD_X;
+    gfx_dither_rect(x, TRANSPORT_Y, w, TRANSPORT_H, 4, GFX_INK, GFX_GROUND);
+    gfx_frame(x, TRANSPORT_Y, w, TRANSPORT_H, GFX_INK);
+
+    let played = ((pos as i64 * (w - 2) as i64) / len as i64) as i16;
+    gfx_dither_rect(x + 1, TRANSPORT_Y + 1, played, TRANSPORT_H - 2, 8, GFX_INK, GFX_GROUND);
+
+    let px = x + 1 + played;
+    gfx_fill_rect(px - 3, TRANSPORT_Y - 2, 8, TRANSPORT_H + 4, GFX_INK);
+    gfx_fill_rect(px, TRANSPORT_Y + 2, 2, TRANSPORT_H - 4, GFX_GROUND);
 }
 
 /// Draw label + value on a full-width row
@@ -450,22 +522,20 @@ fn draw_mode_row(y: i16, sub_mode: usize, highlight: bool, handles: Option<&[u16
 /// Draw scale interval visualization (12 squares for chromatic notes)
 fn draw_scale_dots(s: &EngineState, highlight: bool) {
     let n: i16 = 12;
-    let total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
-    let start_x = CONTENT_RIGHT - total_w;
+    let _total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
+    let start_x = PAD_X;
     let idx = (s.scale_id_idx as usize).min(NUM_SCALES - 1);
     let pattern = &SCALE_PATTERNS[idx];
 
-    // In scale = solid block, out of scale = 25% dither. Both keep their
-    // outline so the ruler still reads as twelve slots either way.
+    // Twelve checkboxes: the frame is always there, the tick is the degree.
     (0..12).for_each(|i| {
         let x = start_x + i as i16 * (DOT_SIZE + DOT_GAP);
+        gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, GFX_GROUND);
+        gfx_frame(x, DOT_Y, DOT_SIZE, DOT_SIZE, GFX_INK);
         if pattern[i] != 0 {
             let fill = if highlight { GFX_AXIS_UD } else { GFX_INK };
-            gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, fill);
-        } else {
-            gfx_dither_rect(x + 1, DOT_Y + 1, DOT_SIZE - 2, DOT_SIZE - 2, 4, GFX_INK, GFX_GROUND);
+            gfx_fill_rect(x + 3, DOT_Y + 3, DOT_SIZE - 6, DOT_SIZE - 6, fill);
         }
-        gfx_frame(x, DOT_Y, DOT_SIZE, DOT_SIZE, GFX_INK);
     });
 }
 
@@ -474,37 +544,48 @@ fn draw_scale_dots(s: &EngineState, highlight: bool) {
 /// Circle of fifths: maps semitone index (0=C) to position on circle (0=top/C, clockwise)
 static COF_ORDER: [u8; 12] = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 
-/// Circle of fifths as twelve blocks — one filled. Two anti-aliased rings and
-/// a 3px tick have no 1-bit equivalent worth having, and at 172 ppi the block
-/// ring is quicker to read than the rings ever were.
+/// Circle of fifths as a 1px ring with twelve ticks and the root inverted.
+/// An anti-aliased ring has no 1-bit equivalent, but a hairline circle with
+/// hard ticks is exactly what this panel draws well.
 fn draw_circle_of_fifths(s: &EngineState, active: bool) {
     let cx: i16 = (CONTENT_RIGHT + DISPLAY_W) / 2 + 2;
-    let cy: i16 = TITLE_H + 88;
-    let radius: f32 = 56.0;
-    let block: i16 = 17;
+    let cy: i16 = TITLE_H + 72;
+    let r: i16 = 58;
+
+    gfx_circle(cx, cy, r, GFX_INK);
 
     let root = (s.scale_root % 12) as usize;
     let cof_pos = COF_ORDER[root] as usize;
 
     (0..12).for_each(|i| {
         let angle = (i as f32 * 30.0 - 90.0) * core::f32::consts::PI / 180.0;
-        let bx = cx + (cosf(angle) * radius) as i16 - block / 2;
-        let by = cy + (sinf(angle) * radius) as i16 - block / 2;
-        if i == cof_pos {
-            let fill = if active { GFX_AXIS_LR } else { GFX_INK };
-            gfx_fill_rect(bx - 2, by - 2, block + 4, block + 4, fill);
-            gfx_frame(bx - 2, by - 2, block + 4, block + 4, GFX_INK);
+        let (cos_a, sin_a) = (cosf(angle), sinf(angle));
+        let is_root = i == cof_pos;
+        let inner = (r - if is_root { 14 } else { 7 }) as f32;
+        let x0 = cx + (cos_a * inner) as i16;
+        let y0 = cy + (sin_a * inner) as i16;
+        let x1 = cx + (cos_a * r as f32) as i16;
+        let y1 = cy + (sin_a * r as f32) as i16;
+        if is_root {
+            // 3px wide: step along the perpendicular, not the axes
+            let (px, py) = (-sin_a, cos_a);
+            (-1i16..=1).for_each(|k| {
+                let ox = (px * k as f32) as i16;
+                let oy = (py * k as f32) as i16;
+                gfx_line(x0 + ox, y0 + oy, x1 + ox, y1 + oy, GFX_INK);
+            });
         } else {
-            gfx_dither_rect(bx + 1, by + 1, block - 2, block - 2, 6, GFX_INK, GFX_GROUND);
-            gfx_frame(bx, by, block, block, GFX_INK);
+            gfx_line(x0, y0, x1, y1, GFX_INK);
         }
     });
 
-    // Key letter, centered in the ring
+    // Root name in an inverted chip at the center
     let root_name = NOTE_NAMES[root];
     let font = &FONT_COF;
-    let text_y = cy - gfx_font_height(font) / 2;
-    gfx_text_center(cx, text_y, root_name, GFX_INK, font);
+    let kw = gfx_text_width(root_name, font);
+    let fill = if active { GFX_AXIS_LR } else { GFX_INK };
+    gfx_fill_rect(cx - kw / 2 - 8, cy - 18, kw + 16, 36, fill);
+    gfx_text_center(cx, cy - 15, root_name, gfx_ink_on(fill), font);
 }
 
 // ============ Bottom bar icons (10x10px) ============
@@ -559,10 +640,18 @@ fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
     let x = BTN_MARGIN + col * (BTN_W + BTN_GAP);
     let fill = fill_for(color);
     let ink = gfx_ink_on(fill);
+
+    // Hard offset shadow, 1px outline, and a second ring on the grid button —
+    // System 6 depth, none of which needs a tone to work.
+    gfx_fill_rect(x + BTN_SHADOW, LEGEND_Y + BTN_SHADOW, BTN_W, BTN_H, GFX_INK);
     gfx_fill_rect(x, LEGEND_Y, BTN_W, BTN_H, fill);
     gfx_frame(x, LEGEND_Y, BTN_W, BTN_H, GFX_INK);
+    let is_default = icon_type == 0;
+    if is_default {
+        gfx_frame(x + 3, LEGEND_Y + 3, BTN_W - 6, BTN_H - 6, ink);
+    }
 
-    let icon_x = x + 8;
+    let icon_x = x + if is_default { 9 } else { 7 };
     let icon_y = LEGEND_Y + (BTN_H - ICON_SIZE) / 2;
     match icon_type {
         0 => draw_icon_grid_button(icon_x, icon_y, ink),
@@ -572,7 +661,7 @@ fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
     }
 
     let text_x = icon_x + ICON_SIZE + ICON_LABEL_GAP;
-    let text_y = LEGEND_Y + (BTN_H - gfx_font_height(&FONT_MEDIUM)) / 2 + 1;
+    let text_y = LEGEND_Y + (BTN_H - gfx_font_height(&FONT_MEDIUM)) / 2;
     // No initial pause: button text only appears while modifiers are held.
     draw_marquee(4 + col as usize, text_x, x + BTN_W - 5, text_y, label, ink, &FONT_MEDIUM, 0);
 }
@@ -665,6 +754,9 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
 
     // ---- Scale interval visualization ----
     draw_scale_dots(s, cmd_only);
+
+    // ---- Loop progress ----
+    draw_transport(s);
 
     // ---- Circle of fifths (right panel) ----
     if !is_drum {
@@ -772,7 +864,8 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
         }
         // Shift up/down = inversion, Alt+Shift up/down = voicing — both affect row 0
         let row0_color = if em.ud_rows & 1 != 0 { GFX_AXIS_UD } else { GFX_VALUE };
-        draw_banner(ROW_Y5[0], &display_str, row0_color, 0);
+        let hint = if em.ud_rows & 1 != 0 { em.ud_label } else { "" };
+        draw_banner(&display_str, 0, hint, row0_color);
     }
 
     // Color rules: yellow = up/down edits this, red = left/right edits this

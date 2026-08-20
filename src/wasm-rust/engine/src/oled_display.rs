@@ -23,13 +23,6 @@ pub const OLED_DIM: u8 = 4;
 pub const OLED_PINK: u8 = 5;
 pub const OLED_BLUE: u8 = 6;
 
-// ============ AA Font indices ============
-
-pub const OLED_AA_SMALL: u8 = 0;
-pub const OLED_AA_MEDIUM: u8 = 1;
-pub const OLED_AA_LARGE: u8 = 2;
-pub const OLED_AA_XLARGE: u8 = 3;
-
 // ============ Color lookup ============
 
 // Everything structural is ink on paper; the indices that used to carry hue
@@ -47,17 +40,6 @@ static COLOR_TABLE: [u16; 7] = [
 
 pub fn color_lookup(idx: u8) -> u16 {
     COLOR_TABLE.get(idx as usize).copied().unwrap_or(GFX_INK)
-}
-
-// ============ Font lookup ============
-
-pub fn aa_font_lookup(idx: u8) -> &'static BitFont {
-    match idx {
-        OLED_AA_MEDIUM => &FONT_MEDIUM,
-        OLED_AA_LARGE => &FONT_LARGE,
-        OLED_AA_XLARGE => &FONT_XLARGE,
-        _ => &FONT_SMALL,
-    }
 }
 
 // ============ Init ============
