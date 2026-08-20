@@ -1,6 +1,6 @@
 # Arpegginator
 
-Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a **Teensy 4.1** (ARM Cortex-M7, 600MHz, 1MB RAM) driving a physical grid with RGB LEDs and an OLED display. This browser version serves as the development environment for the Rust engine -- the same code that runs here as WebAssembly will compile natively for the Teensy.
+Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a **Teensy 4.1** (ARM Cortex-M7, 600MHz, 1MB RAM) driving a physical grid with RGB LEDs and a reflective memory LCD. This browser version serves as the development environment for the Rust engine -- the same code that runs here as WebAssembly will compile natively for the Teensy.
 
 Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware interface (button grid, display, transport controls) while the Rust engine underneath handles all sequencer state and logic, keeping the path to hardware short.
 
@@ -60,7 +60,10 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 
 ### Display
 
-- Simulated 160x128 OLED screen showing note parameters, chord names, voicings, and playback state -- rendered entirely in Rust and blitted to a canvas via an RGB565 framebuffer
+- Simulated **400x240 memory LCD** showing note parameters, chord names, voicings, and playback state -- rendered entirely in Rust and blitted to a canvas via an RGB565 framebuffer. The target panel is a **JDI LPM027M128C**: 2.7", reflective, no backlight, and 1 bit per channel, so the UI is designed for what that panel can actually show rather than ported onto it.
+- **Paper UI** -- white ground, black ink, and no tone in between. There is no grey to dim a label with, so hierarchy comes from size (Spleen 6x12 labels against 8x16 values) and emphasis comes from inversion or a filled slab. Shading is a 4x4 ordered dither, used for areas only -- fader tracks and inactive slots -- never for glyphs or hairlines.
+- **Color means live state, never structure.** The only colored pixels on screen are the three modifier buttons along the bottom edge -- blue for the grid, yellow for up/down, magenta for left/right -- plus whichever field the held modifier is currently pointing at, which takes that same color as its well fill. Everything else is black and white. Because color is redundant with the icons and inversion already there, the UI stays complete on a monochrome panel.
+- **Bitmap fonts** -- Spleen (BSD-2), parsed straight from BDF at build time into packed 1-bit glyphs. A vector face rasterized at 11px puts stems on fractional coordinates at ~50% coverage, and a 1-bit threshold rounds them away, so `CH` renders as `CII`. Spleen is drawn on the pixel grid, so there is nothing to threshold. The four-size ladder is roughly 13 kB of glyph data against ~175 kB of anti-aliased coverage bytes.
 - Color-coded channels on the grid with visual flags for playhead, beat markers, loop boundaries, and selected notes
 
 ## Architecture
@@ -176,7 +179,7 @@ src/
 │   ├── engine_sampler Drum sampler pages (SLOT/REC/TRIM/PLAY/MOD)
 │   ├── engine_strip   Touch strip handling
 │   ├── platform       Platform callbacks (WASM / Teensy / test)
-│   ├── oled_*         OLED display rendering, fonts, graphics primitives
+│   ├── oled_*         Display rendering, bitmap fonts, 1-bit graphics primitives
 │   └── test_*         Rust unit tests
 ├── engine/            TypeScript wrappers for WASM module (WasmEngine, OledRenderer)
 ├── components/        React components (Grid, Transport, ButtonGrid, TouchStrip)

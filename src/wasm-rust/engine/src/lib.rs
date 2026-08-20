@@ -13,7 +13,7 @@ pub mod engine_ui;
 pub mod engine_input;
 pub mod platform;
 pub mod oled_gfx;
-pub mod oled_fonts_aa;
+pub mod oled_fonts;
 pub mod oled_display;
 pub mod oled_screen;
 pub mod engine_strip;

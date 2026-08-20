@@ -18,5 +18,3 @@ lookahead = []
 libm = "0.2" # f32 math (sqrt, sin, cos, atan2) for no_std
 arp3-synth = { path = "../synth" } # shared sound-parameter definitions (patch module)
 
-[build-dependencies]
-fontdue = "0.9"

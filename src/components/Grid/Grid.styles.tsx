@@ -109,9 +109,9 @@ export const oledColumnStyles = css`
 `;
 
 export const oledScreenStyles = css`
-  width: 256px;
-  height: 128px;
-  background: #000;
+  width: 400px;
+  height: 240px;
+  background: #cfd6cb;
   border-radius: 4px;
   border: 2px solid #1a1a1a;
   box-shadow:

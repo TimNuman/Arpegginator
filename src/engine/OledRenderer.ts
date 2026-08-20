@@ -3,8 +3,8 @@
 import type { WasmModule } from "./WasmEngine";
 
 // Display dimensions (must match oled_gfx.rs)
-export const OLED_WIDTH = 256;
-export const OLED_HEIGHT = 128;
+export const OLED_WIDTH = 400;
+export const OLED_HEIGHT = 240;
 
 export class OledRenderer {
   private module: WasmModule;
