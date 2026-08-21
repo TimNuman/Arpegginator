@@ -1,4 +1,5 @@
 import type { Output, Input } from "webmidi";
+import type { CapStyle } from "./ButtonGrid/ButtonGrid";
 
 /**
  * HostControls — the browser's controls, not the instrument's.
@@ -28,6 +29,8 @@ interface HostControlsProps {
   onSelectBuiltinSound: () => void;
   teensyConnected: boolean;
   onConnectTeensy: () => void;
+  capStyle: CapStyle;
+  onCapStyleChange: (style: CapStyle) => void;
 }
 
 export const HostControls = ({
@@ -47,6 +50,8 @@ export const HostControls = ({
   onSelectBuiltinSound,
   teensyConnected,
   onConnectTeensy,
+  capStyle,
+  onCapStyleChange,
 }: HostControlsProps) => (
   <div
     style={{
@@ -66,6 +71,15 @@ export const HostControls = ({
     <button type="button" onClick={onConnectTeensy}>
       {teensyConnected ? "Teensy" : "WASM"}
     </button>
+
+    <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      Caps
+      <select value={capStyle} onChange={(e) => onCapStyleChange(e.target.value as CapStyle)}>
+        <option value="clear">Clear over Choc</option>
+        <option value="diffuser">Milky disc, centred LED</option>
+        <option value="diffuserNorth">Milky disc over the real LED</option>
+      </select>
+    </label>
 
     <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
       BPM

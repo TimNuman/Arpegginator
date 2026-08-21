@@ -5,6 +5,7 @@ import PauseIcon from "@mui/icons-material/Pause";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import { ButtonGrid } from "../ButtonGrid";
+import type { CapStyle } from "../ButtonGrid/ButtonGrid";
 import { TouchStrip } from "../TouchStrip";
 import { RotaryEncoder } from "../RotaryEncoder";
 import { useKeyboard, type KeyboardState } from "../../hooks/useKeyboard";
@@ -134,6 +135,7 @@ const TransportKey = ({ onPress, disabled, children }: TransportKeyProps) => (
 
 interface GridProps {
   wasmEngine: Engine;
+  capStyle: CapStyle;
   isPlaying: boolean;
   isExternalPlayback: boolean;
   onPlay: () => void;
@@ -143,7 +145,16 @@ interface GridProps {
 }
 
 export const Grid = memo(
-  ({ wasmEngine, isPlaying, isExternalPlayback, onPlay, onStop, onReset, onClear }: GridProps) => {
+  ({
+    wasmEngine,
+    capStyle,
+    isPlaying,
+    isExternalPlayback,
+    onPlay,
+    onStop,
+    onReset,
+    onClear,
+  }: GridProps) => {
     // Subscribe to render version — triggers re-render when markDirty() is called
     const renderVersion = useRenderVersion();
 
@@ -414,6 +425,7 @@ export const Grid = memo(
             <ButtonGrid
               gridColors={gridColors}
               cols={wasmEngine.getVisibleCols()}
+              capStyle={capStyle}
               onPress={handleButtonPressFromInput}
               onDragEnter={handleButtonDragEnter}
               onRelease={noop}

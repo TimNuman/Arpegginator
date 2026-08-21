@@ -31,6 +31,28 @@ export const mm = {
   /** The module sits 3 mm to the right of the grid */
   displayGap: 3.0,
 
+  /**
+   * Kailh Choc v1 (PG1350) seen from above, for rendering a transparent cap.
+   * The housing is 15 mm square under a cap that overhangs it; the keycap
+   * mounts on two rails 5.7 mm apart rather than a cross stem; and the
+   * SK6812MINI-E sits in the switch's north LED window, 4.70 mm above centre
+   * — LED_OFFSET in hardware/generate_pcb.py. That offset is why a clear cap
+   * lights brightest along its top edge instead of in the middle.
+   */
+  switchBody: 15.0,
+  switchCorner: 0.6,
+  stemSpacing: 5.7,
+  stemW: 1.2,
+  stemH: 3.0,
+  ledOffsetY: -4.7,
+  ledW: 3.5,
+  ledH: 3.0,
+  /** Cap wall thickness — the part that pipes light out to the edges */
+  capWall: 1.0,
+
+  /** OP-1-style cap: a milky diffuser disc over a centred emitter */
+  diffuser: 7.5,
+
   /** Knob for a panel-mount encoder (6 mm shaft). The panel's buttons are
       29.1 mm apart on the 4.4", so a standard 20 mm knob clears its
       neighbour with room to spare. */
@@ -76,6 +98,17 @@ export const dims = {
   bezelY: px((mm.displayModuleH - mm.displayActiveH) / 2),
 
   encoder: px(mm.encoder),
+
+  switchBody: px(mm.switchBody),
+  switchCorner: px(mm.switchCorner),
+  stemSpacing: px(mm.stemSpacing),
+  stemW: px(mm.stemW),
+  stemH: px(mm.stemH),
+  ledOffsetY: px(mm.ledOffsetY),
+  ledW: px(mm.ledW),
+  ledH: px(mm.ledH),
+  capWall: px(mm.capWall),
+  diffuser: px(mm.diffuser),
 } as const;
 
 /**

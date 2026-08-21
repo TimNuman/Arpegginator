@@ -6,6 +6,7 @@ import { px } from "./theme/dimensions";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
 import { HostControls } from "./components/HostControls";
+import type { CapStyle } from "./components/ButtonGrid/ButtonGrid";
 import { WasmEngine } from "./engine/WasmEngine";
 import { TeensyEngine } from "./engine/TeensyEngine";
 import type { Engine } from "./engine/types";
@@ -378,6 +379,9 @@ function App() {
   const isExternalPlayback = wasmEngine?.getIsExternalPlayback() ?? false;
   const bpm = wasmEngine?.getBpm() ?? 120;
   const [swing, setSwingLocal] = useState(50);
+  // Which keycap the simulation wears — a preview choice, so it lives with
+  // the host controls rather than on the instrument.
+  const [capStyle, setCapStyle] = useState<CapStyle>("clear");
 
   // Keep bpmRef in sync with actual BPM
   useEffect(() => {
@@ -609,6 +613,8 @@ function App() {
         onSelectBuiltinSound={handleSelectBuiltinSound}
         teensyConnected={teensyConnected}
         onConnectTeensy={handleConnectTeensy}
+        capStyle={capStyle}
+        onCapStyleChange={setCapStyle}
       />
       <Box ref={fitContainerRef} css={appContainerStyles}>
         {/* Outer div reserves the scaled footprint so flex centering works;
@@ -640,6 +646,7 @@ function App() {
             </Box>
             <Grid
               wasmEngine={wasmEngine}
+              capStyle={capStyle}
               isPlaying={isPlaying}
               isExternalPlayback={isExternalPlayback}
               onPlay={handlePlay}
