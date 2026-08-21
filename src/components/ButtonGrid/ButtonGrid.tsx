@@ -18,9 +18,9 @@ const HOUSING_INSET_Y = (dims.capH - dims.switchBody) / 2;
 
 const layer: React.CSSProperties = { position: "absolute", pointerEvents: "none" };
 
-/** The two caps that are actually in the parts box: white transparent, and
-    the opaque white PBT. */
-export type CapStyle = "clear" | "white";
+/** The caps in play: white transparent, plain opaque white PBT, and the
+    white PBT with the dot set into its top face. */
+export type CapStyle = "clear" | "white" | "dot";
 
 interface GridButtonCellProps {
   row: number;
@@ -45,6 +45,12 @@ interface GridButtonCellProps {
  * so all that comes through is a soft glow where the wall is thinnest, still
  * sitting north of centre because that is where the emitter is, plus what
  * escapes around the cap into the keywell.
+ *
+ * The dotted cap is the same PBT with a milky disc set into the middle of the
+ * top face. It is drawn as a light pipe — the disc carries the colour and the
+ * surrounding plastic stays close to white — which is the OP-1 read. If the
+ * dot turns out to be a printed index mark with nothing behind it, this is
+ * the wrong way round: the cap would bloom and the dot would stay dark.
  */
 const GridButtonCell = memo(
   ({ row, col, color, capStyle, onPress, onDragEnter }: GridButtonCellProps) => {
@@ -95,7 +101,7 @@ const GridButtonCell = memo(
             .join(", "),
         }}
       >
-        {capStyle === "white" ? (
+        {capStyle !== "clear" ? (
           <>
             {/* Opaque white PBT: the switch disappears behind it. Dished top
               face, lit lip, shade closing under the far edge. */}
@@ -113,7 +119,9 @@ const GridButtonCell = memo(
 
             {/* What little the plastic passes. PBT is a poor diffuser, so this
               is a soft bloom rather than a lit pad, and it keeps the emitter's
-              northward offset instead of pretending to be centred. */}
+              northward offset instead of pretending to be centred. A cap that
+              pipes its light to the dot spends most of it there, so the body
+              barely glows. */}
             {lit && (
               <div
                 style={{
@@ -121,10 +129,45 @@ const GridButtonCell = memo(
                   inset: 0,
                   background: `radial-gradient(ellipse 62% 54% at 50% ${LED_CENTER_PCT.toFixed(
                     1,
-                  )}%, ${argbAt(color, 0.5 * a)} 0%, ${argbAt(color, 0.28 * a)} 40%, ${argbAt(
+                  )}%, ${argbAt(color, (capStyle === "dot" ? 0.16 : 0.5) * a)} 0%, ${argbAt(
                     color,
-                    0.1 * a,
-                  )} 72%, transparent 100%)`,
+                    (capStyle === "dot" ? 0.09 : 0.28) * a,
+                  )} 40%, ${argbAt(color, (capStyle === "dot" ? 0.03 : 0.1) * a)} 72%, transparent 100%)`,
+                }}
+              />
+            )}
+
+            {/* The dot itself, centred on the cap the way the OP-1 marks its
+              keys — 4 mm of milky plastic that reads mid grey unlit and takes
+              the channel's colour when the LED is driven. */}
+            {capStyle === "dot" && (
+              <div
+                style={{
+                  ...layer,
+                  left: dims.capW / 2 - dims.dot / 2,
+                  top: dims.capH / 2 - dims.dot / 2,
+                  width: dims.dot,
+                  height: dims.dot,
+                  borderRadius: "50%",
+                  // Layered over the grey rather than replacing it, so a dot
+                  // at idle brightness still reads as the plastic it is made
+                  // of instead of washing out to white.
+                  background: lit
+                    ? `radial-gradient(circle at 50% 42%, ${argbAt(
+                        color,
+                        Math.min(1, 0.25 + 0.7 * a),
+                      )} 0%, ${argbAt(color, Math.min(1, 0.18 + 0.62 * a))} 60%, ${argbAt(
+                        color,
+                        Math.min(1, 0.1 + 0.45 * a),
+                      )} 100%), linear-gradient(180deg, #97958e, #6f6d68)`
+                    : "linear-gradient(180deg, #97958e, #6f6d68)",
+                  boxShadow: [
+                    "inset 0 1px 1px rgba(255,255,255,0.28)",
+                    "inset 0 -1px 1px rgba(0,0,0,0.35)",
+                    lit ? `0 0 ${Math.round(7 * a)}px ${argbAt(color, 0.75 * a)}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(", "),
                 }}
               />
             )}
@@ -218,9 +261,9 @@ const GridButtonCell = memo(
             ...layer,
             inset: 0,
             background:
-              capStyle === "white"
-                ? "linear-gradient(150deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0) 58%)"
-                : "linear-gradient(150deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 26%, rgba(255,255,255,0) 52%)",
+              capStyle === "clear"
+                ? "linear-gradient(150deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 26%, rgba(255,255,255,0) 52%)"
+                : "linear-gradient(150deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0) 58%)",
           }}
         />
       </div>

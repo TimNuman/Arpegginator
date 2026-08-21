@@ -50,6 +50,11 @@ export const mm = {
   /** Cap wall thickness — the part that pipes light out to the edges */
   capWall: 1.0,
 
+  /** The dot on the white caps: a small milky disc set into the top face,
+      about a fifth of the cap across. Whether it is a light pipe down to the
+      LED or only a printed index mark decides what it does when lit. */
+  dot: 4.0,
+
   /** Knob for a panel-mount encoder (6 mm shaft). The panel's buttons are
       29.1 mm apart on the 4.4", so a standard 20 mm knob clears its
       neighbour with room to spare. */
@@ -105,6 +110,7 @@ export const dims = {
   ledW: px(mm.ledW),
   ledH: px(mm.ledH),
   capWall: px(mm.capWall),
+  dot: px(mm.dot),
 } as const;
 
 /**

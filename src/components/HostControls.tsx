@@ -77,6 +77,7 @@ export const HostControls = ({
       <select value={capStyle} onChange={(e) => onCapStyleChange(e.target.value as CapStyle)}>
         <option value="clear">Clear</option>
         <option value="white">White</option>
+        <option value="dot">White + dot</option>
       </select>
     </label>
 
