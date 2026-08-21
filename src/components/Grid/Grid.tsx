@@ -8,6 +8,7 @@ import { useRenderVersion, markDirty, setAnimatingCheck } from "../../store/rend
 import * as actions from "../../actions";
 import type { Engine } from "../../engine/types";
 import { OledRenderer } from "../../engine/OledRenderer";
+import { chrome } from "../../theme/chrome";
 import {
   gridOuterContainerStyles,
   gridInnerContainerStyles,
@@ -443,8 +444,18 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             />
           </Box>
           <Box css={encoderRowStyles}>
-            <RotaryEncoder onStep={handleEncoderUD} label="&#x25B2; &#x25BC;" />
-            <RotaryEncoder onStep={handleEncoderLR} label="&#x25C0; &#x25B6;" />
+            {/* Cap colors are the panel's own axis colors: up/down is the
+                yellow the display fills a field with, left/right the red. */}
+            <RotaryEncoder
+              onStep={handleEncoderUD}
+              label="&#x25B2; &#x25BC;"
+              tint={chrome.panel.yellow}
+            />
+            <RotaryEncoder
+              onStep={handleEncoderLR}
+              label="&#x25C0; &#x25B6;"
+              tint={chrome.panel.magenta}
+            />
           </Box>
           <Box css={arrowButtonContainerStyles}>
             <Box css={arrowButtonRowStyles}>

@@ -1,20 +1,27 @@
 // OledRenderer.ts — Canvas-based OLED display renderer using WASM framebuffer
 
 import type { WasmModule } from "./WasmEngine";
+import { chrome } from "../theme/chrome";
 
 // Reflective memory-LCD simulation. The engine writes one of eight colors
 // (1 bit per channel); a JDI LPM027M128C shows those as muted, paper-like
 // reflections rather than pure RGB, so the sim maps them the same way. Keyed
 // by RGB565 value; anything else falls through to a plain 565 expansion.
+const rgb = (hex: string): [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+
 const PANEL_LUT = new Map<number, [number, number, number]>([
-  [0x0000, [52, 56, 58]], // black -> ink
-  [0xffff, [207, 214, 203]], // white -> paper
-  [0xf800, [168, 68, 63]], // red
-  [0x07e0, [116, 152, 104]], // green
-  [0x001f, [74, 90, 148]], // blue
-  [0xffe0, [196, 190, 110]], // yellow
-  [0xf81f, [154, 96, 142]], // magenta
-  [0x07ff, [126, 177, 178]], // cyan
+  [0x0000, rgb(chrome.panel.ink)],
+  [0xffff, rgb(chrome.panel.paper)],
+  [0xf800, rgb(chrome.panel.red)],
+  [0x07e0, rgb(chrome.panel.green)],
+  [0x001f, rgb(chrome.panel.blue)],
+  [0xffe0, rgb(chrome.panel.yellow)],
+  [0xf81f, rgb(chrome.panel.magenta)],
+  [0x07ff, rgb(chrome.panel.cyan)],
 ]);
 
 // Display dimensions (must match oled_gfx.rs)

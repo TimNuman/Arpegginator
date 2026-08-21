@@ -38,34 +38,47 @@ const encoderStyles = css`
   }
 `;
 
-const knobStyles = css`
+/** Milled grip around a moulded centre cap. The cap carries the axis color
+    this encoder drives, matching the button it lights up on the panel — so
+    the yellow knob and the yellow button on screen are the same yellow.
+    Everything in the cap is radially symmetric, because the knob spins. */
+const knobStyles = (tint: string) => css`
   width: 75%;
   height: 75%;
   border-radius: 50%;
-  /* Milled grip: alternating facets round the rim, lit from the top-left */
   background:
-    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 58%),
+    radial-gradient(
+      circle closest-side,
+      rgba(255, 255, 255, 0.3) 0 24%,
+      rgba(255, 255, 255, 0) 54%
+    ),
+    radial-gradient(
+      circle closest-side,
+      ${tint} 0 64%,
+      rgba(0, 0, 0, 0.34) 64% 68%,
+      rgba(0, 0, 0, 0) 68%
+    ),
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0) 54%),
     repeating-conic-gradient(${chrome.capMid} 0deg 6deg, ${chrome.capTop} 6deg 12deg);
   border: 1px solid ${chrome.caseDark};
   box-shadow:
-    inset 0 0 0 6px ${chrome.capTop},
-    inset 0 0 0 7px ${chrome.caseMid},
+    inset 0 0 0 2px ${chrome.capTop},
+    inset 0 0 4px rgba(0, 0, 0, 0.28),
     0 2px 3px rgba(0, 0, 0, 0.4);
   position: relative;
   will-change: transform;
 
-  /* Position indicator */
+  /* Position indicator, sitting in the grip band outside the cap */
   &::after {
     content: "";
     position: absolute;
     left: 50%;
-    top: 8%;
-    width: 4px;
-    height: 26%;
-    margin-left: -2px;
-    background: ${chrome.led};
+    top: 7%;
+    width: 3px;
+    height: 17%;
+    margin-left: -1.5px;
+    background: ${chrome.caseDark};
     border-radius: 2px;
-    box-shadow: 0 0 6px rgba(102, 255, 204, 0.5);
   }
 `;
 
@@ -87,6 +100,8 @@ interface RotaryEncoderProps {
   onStep: (direction: 1 | -1) => void;
   /** Small caption under the knob (e.g. arrow glyphs) */
   label?: string;
+  /** Centre-cap color; use a chrome.panel value so it matches the display */
+  tint?: string;
 }
 
 interface DragState {
@@ -104,7 +119,7 @@ interface DragState {
  * - touch/pen: drag in circles around the knob — clockwise = +1 steps
  * - mouse: drag vertically — up = +1 steps, down = -1
  */
-export const RotaryEncoder = memo(({ onStep, label }: RotaryEncoderProps) => {
+export const RotaryEncoder = memo(({ onStep, label, tint = chrome.capTop }: RotaryEncoderProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
@@ -200,7 +215,7 @@ export const RotaryEncoder = memo(({ onStep, label }: RotaryEncoderProps) => {
         onPointerCancel={handlePointerEnd}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <div ref={knobRef} css={knobStyles} />
+        <div ref={knobRef} css={knobStyles(tint)} />
       </div>
       {label && <div css={labelStyles}>{label}</div>}
     </div>

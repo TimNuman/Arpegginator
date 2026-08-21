@@ -42,6 +42,24 @@ export const chrome = {
   ledGreen: "#3f9c4a",
 
   font: '"MS Sans Serif", Tahoma, Geneva, Verdana, sans-serif',
+
+  /**
+   * How the reflective panel renders each of its eight colors. The display
+   * blit maps the engine's RGB565 through exactly these, so anything on the
+   * case that has to agree with what is on screen — the encoder caps, which
+   * carry the same axis colors as the buttons along the bottom of the panel —
+   * reads them from here rather than eyeballing a match.
+   */
+  panel: {
+    ink: "#34383a",
+    paper: "#cfd6cb",
+    red: "#a8443f",
+    green: "#749868",
+    blue: "#4a5a94",
+    yellow: "#c4be6e",
+    magenta: "#9a608e",
+    cyan: "#7eb1b2",
+  },
 } as const;
 
 /** A moulded key or button: rounded, lit along the top lip, shaded beneath. */
