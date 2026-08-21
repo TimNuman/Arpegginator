@@ -5,7 +5,7 @@ import { chrome, moulded } from "./theme/chrome";
 import { px } from "./theme/dimensions";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
-import { Transport } from "./components/Transport";
+import { HostControls } from "./components/HostControls";
 import { WasmEngine } from "./engine/WasmEngine";
 import { TeensyEngine } from "./engine/TeensyEngine";
 import type { Engine } from "./engine/types";
@@ -592,6 +592,24 @@ function App() {
       <CssBaseline />
       <Global styles={globalStyles} />
       <Box css={rotateHintStyles}>Rotate to landscape</Box>
+      <HostControls
+        bpm={bpm}
+        swing={swing}
+        isExternalPlayback={isExternalPlayback}
+        onBpmChange={handleSetBpm}
+        onSwingChange={handleSetSwing}
+        midiOutputs={outputs}
+        midiInputs={inputs}
+        selectedOutput={selectedOutput}
+        selectedInput={selectedInput}
+        onOutputChange={handleOutputChange}
+        onInputChange={setSelectedInput}
+        midiEnabled={isEnabled}
+        builtinSoundSelected={builtinSound}
+        onSelectBuiltinSound={handleSelectBuiltinSound}
+        teensyConnected={teensyConnected}
+        onConnectTeensy={handleConnectTeensy}
+      />
       <Box ref={fitContainerRef} css={appContainerStyles}>
         {/* Outer div reserves the scaled footprint so flex centering works;
             inner stage keeps its natural layout size and is scaled visually */}
@@ -619,61 +637,6 @@ function App() {
           >
             <Box component="h1" css={titleStyles}>
               <span>Arpegginator</span>
-            </Box>
-            <Transport
-              isExternalPlayback={isExternalPlayback}
-              bpm={bpm}
-              swing={swing}
-              onBpmChange={handleSetBpm}
-              onSwingChange={handleSetSwing}
-              midiOutputs={outputs}
-              midiInputs={inputs}
-              selectedOutput={selectedOutput}
-              selectedInput={selectedInput}
-              onOutputChange={handleOutputChange}
-              onInputChange={setSelectedInput}
-              midiEnabled={isEnabled}
-              builtinSoundSelected={builtinSound}
-              onSelectBuiltinSound={handleSelectBuiltinSound}
-            />
-            <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
-              <Box
-                component="button"
-                onClick={handleConnectTeensy}
-                sx={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: chrome.font,
-                  fontSize: "8px",
-                  fontWeight: 700,
-                  letterSpacing: "0.16em",
-                  textTransform: "uppercase",
-                  color: chrome.caseShadow,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "2px 8px",
-                  "&:hover": { color: chrome.caseDark },
-                }}
-              >
-                <Box
-                  component="span"
-                  // Pinpoint status LED behind its little window in the shell
-                  sx={{
-                    width: "7px",
-                    height: "7px",
-                    borderRadius: "50%",
-                    background: teensyConnected ? chrome.ledGreen : chrome.ledDim,
-                    boxShadow: teensyConnected
-                      ? `0 0 5px ${chrome.ledGreen}, inset 0 1px 1px rgba(255,255,255,0.5)`
-                      : "inset 0 1px 1px rgba(255,255,255,0.25), inset 0 0 2px rgba(0,0,0,0.6)",
-                    outline: `1px solid rgba(0,0,0,0.35)`,
-                    outlineOffset: "1px",
-                  }}
-                />
-                {teensyConnected ? "TEENSY" : "WASM"}
-              </Box>
             </Box>
             <Grid
               wasmEngine={wasmEngine}

@@ -2,7 +2,7 @@
 
 Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a **Teensy 4.1** (ARM Cortex-M7, 600MHz, 1MB RAM) driving a physical grid with RGB LEDs and a reflective memory LCD. This browser version serves as the development environment for the Rust engine -- the same code that runs here as WebAssembly will compile natively for the Teensy.
 
-Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware interface (button grid, display, transport controls) while the Rust engine underneath handles all sequencer state and logic, keeping the path to hardware short.
+Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware itself -- an enclosure at true scale carrying the button grid, the panel, the encoders and the transport keys, with host-only controls (tempo, MIDI ports) kept off the case as plain HTML while the Rust engine underneath handles all sequencer state and logic, keeping the path to hardware short.
 
 ## Features
 
@@ -71,7 +71,7 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 ```
 ┌─────────────────────────────────────────────────┐
 │  React UI (TypeScript)                          │
-│  Grid, Transport, TouchStrip, OLED canvas       │
+│  Grid, ButtonGrid, TouchStrip, panel canvas     │
 ├──────────────┬──────────────────────────────────┤
 │  WasmEngine  │  Actions / Playback loop         │
 │  (JS<>Rust)  │  (tick scheduling, BPM)          │
@@ -147,7 +147,7 @@ npm run build:wasm
 npm run dev
 ```
 
-Open the app and press play -- built-in 808 + piano sounds work out of the box. To drive external gear instead, pick a MIDI output device in the Sound Output selector in the transport bar (Chrome will prompt for MIDI access).
+Open the app and press play -- built-in 808 + piano sounds work out of the box. To drive external gear instead, pick a MIDI output device in the Out selector in the page's top-right corner (Chrome will prompt for MIDI access).
 
 ## Build
 
@@ -182,7 +182,7 @@ src/
 │   ├── oled_*         Display rendering, bitmap fonts, 1-bit graphics primitives
 │   └── test_*         Rust unit tests
 ├── engine/            TypeScript wrappers for WASM module (WasmEngine, OledRenderer)
-├── components/        React components (Grid, Transport, ButtonGrid, TouchStrip)
+├── components/        React components (Grid, ButtonGrid, TouchStrip, HostControls)
 ├── actions/           Playback and pattern actions (transport loop, MIDI scheduling)
 ├── hooks/             useMidi (Web MIDI I/O + sync), useKeyboard
 └── store/             Zustand render store for React<>WASM sync
