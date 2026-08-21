@@ -102,7 +102,8 @@ export const TouchStrip = memo(
           height: isHorizontal ? thickness : length,
           // A capacitive slot milled into the case: dark trough, lit lower lip
           background: `linear-gradient(180deg, ${chrome.cavityDeep}, ${chrome.cavity})`,
-          borderRadius: thickness / 2,
+          // Same corner as the caps and the keywell it sits beside
+          borderRadius: 4,
           cursor: "grab",
           touchAction: "none",
           userSelect: "none",

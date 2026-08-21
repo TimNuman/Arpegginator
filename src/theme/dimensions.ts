@@ -31,9 +31,10 @@ export const mm = {
   /** The module sits 3 mm to the right of the grid */
   displayGap: 3.0,
 
-  /** A panel-mount rotary encoder that clears its neighbour under the
-      panel's buttons */
-  encoder: 16.0,
+  /** Knob for a panel-mount encoder (6 mm shaft). The panel's buttons are
+      29.1 mm apart on the 4.4", so a standard 20 mm knob clears its
+      neighbour with room to spare. */
+  encoder: 20.0,
 } as const;
 
 /**

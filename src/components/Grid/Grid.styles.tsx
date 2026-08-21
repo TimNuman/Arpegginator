@@ -160,3 +160,16 @@ export const encoderRowStyles = css`
   margin-top: ${px(4)}px;
   align-items: flex-start;
 `;
+
+/** Transport keys sit on the case below the knobs, spaced like the grid and
+    centred on the pair above them. */
+const keyRowWidth = 3 * dims.capW + 2 * (dims.pitch - dims.capW);
+const knobGroupCenter = dims.bezelX + (panelButtonCenter(1) + panelButtonCenter(2)) / 2;
+
+export const transportKeysContainerStyles = css`
+  display: flex;
+  align-self: flex-start;
+  gap: ${dims.pitch - dims.capW}px;
+  margin-top: ${px(4)}px;
+  margin-left: ${knobGroupCenter - keyRowWidth / 2}px;
+`;

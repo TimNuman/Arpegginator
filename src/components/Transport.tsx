@@ -1,26 +1,10 @@
-import {
-  Box,
-  IconButton,
-  Slider,
-  Typography,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-} from "@mui/material";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import PauseIcon from "@mui/icons-material/Pause";
-import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
+import { Box, Slider, Typography, Select, MenuItem, FormControl, InputLabel } from "@mui/material";
 import { Output, Input } from "webmidi";
 import { chrome } from "../theme/chrome";
 import {
   transportStyles,
   controlGroupStyles,
   bpmSliderStyles,
-  playButtonStyles,
-  stopButtonStyles,
-  clearButtonStyles,
   labelStyles,
   bpmValueStyles,
   midiSelectStyles,
@@ -28,14 +12,9 @@ import {
 } from "./Transport.styles";
 
 interface TransportProps {
-  isPlaying: boolean;
   isExternalPlayback: boolean;
   bpm: number;
   swing: number;
-  onPlay: () => void;
-  onStop: () => void;
-  onReset: () => void;
-  onClear: () => void;
   onBpmChange: (bpm: number) => void;
   onSwingChange: (swing: number) => void;
   midiOutputs: Output[];
@@ -53,14 +32,9 @@ interface TransportProps {
 const BUILTIN_SOUND_ID = "builtin";
 
 export const Transport = ({
-  isPlaying,
   isExternalPlayback,
   bpm,
   swing,
-  onPlay,
-  onStop,
-  onReset,
-  onClear,
   onBpmChange,
   onSwingChange,
   midiOutputs,
@@ -73,39 +47,8 @@ export const Transport = ({
   builtinSoundSelected,
   onSelectBuiltinSound,
 }: TransportProps) => {
-  // In slave mode (external playback from MIDI), show disabled play button
-  const showDisabledPlayButton = isPlaying && isExternalPlayback;
-
   return (
     <Box css={transportStyles}>
-      <Box css={controlGroupStyles}>
-        <IconButton
-          css={
-            showDisabledPlayButton
-              ? playButtonStyles
-              : isPlaying
-                ? stopButtonStyles
-                : playButtonStyles
-          }
-          onClick={showDisabledPlayButton ? undefined : isPlaying ? onStop : onPlay}
-          disabled={showDisabledPlayButton}
-        >
-          {showDisabledPlayButton ? (
-            <PlayArrowIcon />
-          ) : isPlaying ? (
-            <PauseIcon />
-          ) : (
-            <PlayArrowIcon />
-          )}
-        </IconButton>
-        <IconButton css={clearButtonStyles} onClick={onReset}>
-          <SkipPreviousIcon />
-        </IconButton>
-        <IconButton css={clearButtonStyles} onClick={onClear}>
-          <DeleteOutlineIcon />
-        </IconButton>
-      </Box>
-
       <Box css={controlGroupStyles}>
         <Typography css={labelStyles}>BPM</Typography>
         <Slider

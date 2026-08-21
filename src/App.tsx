@@ -621,14 +621,9 @@ function App() {
               <span>Arpegginator</span>
             </Box>
             <Transport
-              isPlaying={isPlaying}
               isExternalPlayback={isExternalPlayback}
               bpm={bpm}
               swing={swing}
-              onPlay={handlePlay}
-              onStop={handleStop}
-              onReset={handleReset}
-              onClear={handleClear}
               onBpmChange={handleSetBpm}
               onSwingChange={handleSetSwing}
               midiOutputs={outputs}
@@ -680,7 +675,15 @@ function App() {
                 {teensyConnected ? "TEENSY" : "WASM"}
               </Box>
             </Box>
-            <Grid wasmEngine={wasmEngine} />
+            <Grid
+              wasmEngine={wasmEngine}
+              isPlaying={isPlaying}
+              isExternalPlayback={isExternalPlayback}
+              onPlay={handlePlay}
+              onStop={handleStop}
+              onReset={handleReset}
+              onClear={handleClear}
+            />
           </div>
         </div>
       </Box>
