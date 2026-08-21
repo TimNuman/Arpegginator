@@ -19,7 +19,7 @@ const HOUSING_INSET_Y = (dims.capH - dims.switchBody) / 2;
 const layer: React.CSSProperties = { position: "absolute", pointerEvents: "none" };
 
 /** The caps in play: white transparent, plain opaque white PBT, and the
-    white PBT with the dot set into its top face. */
+    white PBT with the dot set over the LED hole. */
 export type CapStyle = "clear" | "white" | "dot";
 
 interface GridButtonCellProps {
@@ -46,11 +46,10 @@ interface GridButtonCellProps {
  * sitting north of centre because that is where the emitter is, plus what
  * escapes around the cap into the keywell.
  *
- * The dotted cap is the same PBT with a milky disc set into the middle of the
- * top face. It is drawn as a light pipe — the disc carries the colour and the
- * surrounding plastic stays close to white — which is the OP-1 read. If the
- * dot turns out to be a printed index mark with nothing behind it, this is
- * the wrong way round: the cap would bloom and the dot would stay dark.
+ * The dotted cap is the same PBT with a milky disc set into the top face,
+ * directly over the LED hole — slightly above the cap's centre, because that
+ * is where the emitter is. The disc carries the colour and the surrounding
+ * plastic stays close to white, so the whole readout is that one circle.
  */
 const GridButtonCell = memo(
   ({ row, col, color, capStyle, onPress, onDragEnter }: GridButtonCellProps) => {
@@ -137,15 +136,16 @@ const GridButtonCell = memo(
               />
             )}
 
-            {/* The dot itself, centred on the cap the way the OP-1 marks its
-              keys — 4 mm of milky plastic that reads mid grey unlit and takes
-              the channel's colour when the LED is driven. */}
+            {/* The dot sits over the LED hole, not the cap centre — 4.7 mm
+              north of it, the same offset the emitter has always had. 4 mm of
+              milky plastic reading mid grey unlit, taking the channel's
+              colour when the LED behind it is driven. */}
             {capStyle === "dot" && (
               <div
                 style={{
                   ...layer,
                   left: dims.capW / 2 - dims.dot / 2,
-                  top: dims.capH / 2 - dims.dot / 2,
+                  top: dims.capH / 2 + dims.ledOffsetY - dims.dot / 2,
                   width: dims.dot,
                   height: dims.dot,
                   borderRadius: "50%",

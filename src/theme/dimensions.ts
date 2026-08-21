@@ -50,9 +50,9 @@ export const mm = {
   /** Cap wall thickness — the part that pipes light out to the edges */
   capWall: 1.0,
 
-  /** The dot on the white caps: a small milky disc set into the top face,
-      about a fifth of the cap across. Whether it is a light pipe down to the
-      LED or only a printed index mark decides what it does when lit. */
+  /** The dot on the white caps: a milky disc about a fifth of the cap across,
+      set into the top face over the LED hole rather than at the cap's centre
+      — so it lands on ledOffsetY, slightly above the middle. */
   dot: 4.0,
 
   /** Knob for a panel-mount encoder (6 mm shaft). The panel's buttons are
