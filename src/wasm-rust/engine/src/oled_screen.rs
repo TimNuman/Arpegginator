@@ -527,8 +527,10 @@ fn draw_mode_row(y: i16, sub_mode: usize, highlight: bool, handles: Option<&[u16
 /// Draw scale interval visualization (12 squares for chromatic notes)
 fn draw_scale_dots(s: &EngineState, highlight: bool) {
     let n: i16 = 12;
-    let _total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
-    let start_x = PAD_X;
+    // Right-aligned on the wells above it: every value on this screen hangs off
+    // the same edge, and the degree row is a value like any other.
+    let total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
+    let start_x = CONTENT_RIGHT - total_w;
     let idx = (s.scale_id_idx as usize).min(NUM_SCALES - 1);
     let pattern = &SCALE_PATTERNS[idx];
 
