@@ -25,7 +25,7 @@ const PANEL_LUT = new Map<number, [number, number, number]>([
 ]);
 
 // Display dimensions (must match oled_gfx.rs)
-export const OLED_WIDTH = 400;
+export const OLED_WIDTH = 320;
 export const OLED_HEIGHT = 240;
 
 export class OledRenderer {

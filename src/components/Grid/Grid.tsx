@@ -436,7 +436,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           <Box css={oledScreenStyles}>
             <canvas
               ref={oledCanvasRef}
-              width={400}
+              width={320}
               height={240}
               style={{
                 width: "100%",

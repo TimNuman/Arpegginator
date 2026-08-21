@@ -13,11 +13,16 @@ use crate::engine_ui;
 
 const CH_DRUM: u8 = ChannelType::Drum as u8;
 
-// ============ Layout constants (400×240) ============
+// ============ Layout constants (320×240) ============
+//
+// The panel is a JDI LPM044M141A: 4.4", 320x240 over 89.66 x 67.25 mm, so a
+// pixel is 0.28 mm — nearly twice the 2.7" part's. Everything is physically
+// larger at the same pixel size, which is why labels can drop to a 5x8 face
+// and still read: 5x8 here is bigger on the glass than 6x12 was there.
 
 const DISPLAY_W: i16 = GFX_WIDTH as i16;
-const PAD_X: i16 = 10;
-const CONTENT_RIGHT: i16 = 246; // ~60% of display — right 40% is the dial panel
+const PAD_X: i16 = 8;
+const CONTENT_RIGHT: i16 = 196; // ~61% of display — right 39% is the dial panel
 const CONTENT_W: i16 = CONTENT_RIGHT - PAD_X;
 const HALF_W: i16 = CONTENT_W / 2;
 
@@ -25,28 +30,28 @@ const HALF_W: i16 = CONTENT_W / 2;
 const TITLE_H: i16 = 22;
 
 // Sunken value wells: the label sits in a fixed gutter, the value in the well.
-const LABEL_GUTTER: i16 = 46;
+const LABEL_GUTTER: i16 = 32;
 const WELL_H: i16 = 18;
 
 // Row Y positions (top of the text line; 4 data rows + ruler + button bar)
 const ROW_Y: [i16; 4] = [32, 59, 86, 113];
 // 5-row layout for the selected-note view
-const ROW_Y5: [i16; 5] = [31, 64, 94, 124, 154];
+const ROW_Y5: [i16; 5] = [31, 62, 90, 118, 146];
 
 // Scale-degree ruler
 const DOT_Y: i16 = 140;
-const DOT_SIZE: i16 = 13;
-const DOT_GAP: i16 = 3;
+const DOT_SIZE: i16 = 12;
+const DOT_GAP: i16 = 2;
 
 // Transport scrollbar under the ruler
 const TRANSPORT_Y: i16 = 163;
-const TRANSPORT_H: i16 = 15;
+const TRANSPORT_H: i16 = 14;
 
 // Bottom button bar — the only place structure is allowed color
 const LEGEND_Y: i16 = 200;
 const BTN_H: i16 = 26;
-const BTN_MARGIN: i16 = 8;
-const BTN_GAP: i16 = 10;
+const BTN_MARGIN: i16 = 6;
+const BTN_GAP: i16 = 8;
 const BTN_SHADOW: i16 = 3;
 const BTN_W: i16 = (DISPLAY_W - 2 * BTN_MARGIN - 2 * BTN_GAP - BTN_SHADOW) / 3;
 const ICON_SIZE: i16 = 10;
@@ -549,8 +554,8 @@ static COF_ORDER: [u8; 12] = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 /// hard ticks is exactly what this panel draws well.
 fn draw_circle_of_fifths(s: &EngineState, active: bool) {
     let cx: i16 = (CONTENT_RIGHT + DISPLAY_W) / 2 + 2;
-    let cy: i16 = TITLE_H + 72;
-    let r: i16 = 58;
+    let cy: i16 = TITLE_H + 66;
+    let r: i16 = 46;
 
     gfx_circle(cx, cy, r, GFX_INK);
 
@@ -561,7 +566,7 @@ fn draw_circle_of_fifths(s: &EngineState, active: bool) {
         let angle = (i as f32 * 30.0 - 90.0) * core::f32::consts::PI / 180.0;
         let (cos_a, sin_a) = (cosf(angle), sinf(angle));
         let is_root = i == cof_pos;
-        let inner = (r - if is_root { 14 } else { 7 }) as f32;
+        let inner = (r - if is_root { 12 } else { 6 }) as f32;
         let x0 = cx + (cos_a * inner) as i16;
         let y0 = cy + (sin_a * inner) as i16;
         let x1 = cx + (cos_a * r as f32) as i16;
@@ -584,7 +589,7 @@ fn draw_circle_of_fifths(s: &EngineState, active: bool) {
     let font = &FONT_COF;
     let kw = gfx_text_width(root_name, font);
     let fill = if active { GFX_AXIS_LR } else { GFX_INK };
-    gfx_fill_rect(cx - kw / 2 - 8, cy - 18, kw + 16, 36, fill);
+    gfx_fill_rect(cx - kw / 2 - 6, cy - 18, kw + 12, 36, fill);
     gfx_text_center(cx, cy - 15, root_name, gfx_ink_on(fill), font);
 }
 

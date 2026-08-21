@@ -8,63 +8,66 @@
  */
 
 export const mm = {
-  /** hardware/generate_pcb.py PITCH — standard 1U keyboard spacing */
-  pitch: 19.05,
-  /** Kailh Choc v1 (PG1350) keycap — not square, and shorter than it is wide */
+  /** Kailh Choc native spacing — 18 x 17 mm, not the MX 1U the board started
+      on. Caps are 17.5 x 16.5 mm, so this leaves 0.5 mm between them: tight,
+      but it is the spacing the switch was designed around. */
+  pitchX: 18,
+  pitchY: 17,
   capW: 17.5,
   capH: 16.5,
 
   cols: 16,
   rows: 8,
 
-  /** SLIDER_W — the touch strips are exactly one button wide */
-  sliderW: 19.05,
+  /** The touch strips are one button wide */
+  sliderW: 18,
 
-  /** DISP_MOD_W / DISP_MOD_H — the module outline the board allots */
-  displayModuleW: 63.0,
-  displayModuleH: 43.0,
-  /** LPM027M128C active area: 400 x 240 at a 0.1476 mm pixel pitch */
-  displayActiveW: 59.04,
-  displayActiveH: 35.42,
-  /** DISP_X — the module sits 3 mm to the right of the grid */
+  /** JDI LPM044M141A — 4.4" colour memory LCD, 320 x 240 */
+  displayModuleW: 92.664,
+  displayModuleH: 72.748,
+  /** Active area: 320 x 240 at a 0.2802 mm pixel pitch */
+  displayActiveW: 89.664,
+  displayActiveH: 67.248,
+  /** The module sits 3 mm to the right of the grid */
   displayGap: 3.0,
 
-  /** A panel-mount rotary encoder small enough to sit under the panel's
-      buttons, which are only 19.2 mm apart on a 2.7" screen */
+  /** A panel-mount rotary encoder that clears its neighbour under the
+      panel's buttons */
   encoder: 16.0,
 } as const;
 
 /**
- * The scale is anchored on the panel: 400 device pixels across 59.04 mm of
+ * The scale is anchored on the panel: 320 device pixels across 89.664 mm of
  * active area, so the 1-bit UI lands 1:1 and its hairlines stay hairlines.
- * Everything else follows from that, which makes the machine large — a real
- * 128-key instrument is nearly 400 mm across — so the stage's fit-scale takes
- * over on smaller viewports. Lower this to trade panel sharpness for a
- * smaller device; the proportions hold either way.
+ * At 0.28 mm per pixel the panel is coarse enough that the whole instrument
+ * comes to about 1450 px — it fits a normal window at 1:1, which the 2.7"
+ * part never managed. Lower this to shrink the device further; the
+ * proportions hold either way.
  */
-export const PX_PER_MM = 400 / mm.displayActiveW;
+export const PX_PER_MM = 320 / mm.displayActiveW;
 
 /** Millimetres to CSS pixels. */
 export const px = (v: number) => v * PX_PER_MM;
 
 export const dims = {
-  pitch: px(mm.pitch),
+  pitch: px(mm.pitchX),
+  pitchY: px(mm.pitchY),
   capW: px(mm.capW),
   capH: px(mm.capH),
   /** Half the gap between caps — the margin each cap carries in its cell */
-  capMarginX: px((mm.pitch - mm.capW) / 2),
-  capMarginY: px((mm.pitch - mm.capH) / 2),
+  capMarginX: px((mm.pitchX - mm.capW) / 2),
+  capMarginY: px((mm.pitchY - mm.capH) / 2),
 
-  gridW: px(mm.cols * mm.pitch),
-  gridH: px(mm.rows * mm.pitch),
+  gridW: px(mm.cols * mm.pitchX),
+  gridH: px(mm.rows * mm.pitchY),
   /** First cap's edge to the last cap's edge, which is what things align to */
-  capsW: px((mm.cols - 1) * mm.pitch + mm.capW),
-  capsH: px((mm.rows - 1) * mm.pitch + mm.capH),
+  capsW: px((mm.cols - 1) * mm.pitchX + mm.capW),
+  capsH: px((mm.rows - 1) * mm.pitchY + mm.capH),
 
   sliderThickness: px(mm.capW),
   /** A strip spanning eight buttons, edge to edge like the caps */
-  slider8: px(7 * mm.pitch + mm.capW),
-  slider8V: px(7 * mm.pitch + mm.capH),
+  slider8: px(7 * mm.pitchX + mm.capW),
+  slider8V: px(7 * mm.pitchY + mm.capH),
 
   displayGap: px(mm.displayGap),
   /** Bezel is the module outline minus the active area, split either side */
@@ -79,6 +82,6 @@ export const dims = {
  * mirror BTN_MARGIN / BTN_W / BTN_GAP in engine/src/oled_screen.rs. The knobs
  * on the case line up with them, so the two have to agree.
  */
-export const panelButton = { margin: 8, width: 120, gap: 10 } as const;
+export const panelButton = { margin: 6, width: 96, gap: 8 } as const;
 export const panelButtonCenter = (i: number) =>
   panelButton.margin + i * (panelButton.width + panelButton.gap) + panelButton.width / 2;

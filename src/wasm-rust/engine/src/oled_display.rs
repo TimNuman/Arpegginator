@@ -6,7 +6,7 @@ use crate::oled_gfx::*;
 // stem weights and letterforms. There is no bold: at this scale a 2px stem
 // against a 1px stem reads as blurry rather than heavy, so emphasis comes from
 // size or inversion instead.
-pub use crate::oled_fonts::SPLEEN_6X12 as FONT_SMALL; // field labels
+pub use crate::oled_fonts::SPLEEN_5X8 as FONT_SMALL; // field labels
 pub use crate::oled_fonts::SPLEEN_8X16 as FONT_MEDIUM; // buttons, title bar
 pub use crate::oled_fonts::SPLEEN_8X16 as FONT_VALUE; // parameter values
 pub use crate::oled_fonts::SPLEEN_12X24 as FONT_LARGE; // emphasized values

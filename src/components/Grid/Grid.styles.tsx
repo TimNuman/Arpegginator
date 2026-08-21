@@ -15,7 +15,7 @@ export const gridInnerContainerStyles = css`
   display: flex;
   flex-direction: column;
   /* Row 9 on the board — modifier keys, space, horizontal slider */
-  gap: ${dims.pitch - dims.capH}px;
+  gap: ${dims.pitchY - dims.capH}px;
 `;
 
 /** The keywell: a tray moulded into the top shell, its floor a darker shot of
@@ -130,7 +130,7 @@ export const oledScreenStyles = css`
   /* Border-box sizing means the bezel eats the content box, so the panel is
      stated at 400x240 plus its 10px bezel on each side. Anything less and the
      canvas resamples a 1-bit image to a fractional scale. */
-  width: ${400 + 2 * dims.bezelX}px;
+  width: ${320 + 2 * dims.bezelX}px;
   height: ${240 + 2 * dims.bezelY}px;
   background: #cfd6cb;
   /* Two-value widths need the longhand — the border shorthand takes one */

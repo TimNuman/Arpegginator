@@ -13,7 +13,7 @@ use std::path::Path;
 
 // (bdf file stem, generated const name)
 const FONTS: &[(&str, &str)] = &[
-    ("spleen-6x12", "SPLEEN_6X12"),   // field labels
+    ("spleen-5x8", "SPLEEN_5X8"),     // field labels
     ("spleen-8x16", "SPLEEN_8X16"),   // values, buttons, title bar
     ("spleen-12x24", "SPLEEN_12X24"), // emphasized values
     ("spleen-16x32", "SPLEEN_16X32"), // hero readouts (key letter)

@@ -33,7 +33,7 @@ pub struct BitFont {
 
 // ============ Framebuffer ============
 
-pub const GFX_WIDTH: usize = 400;
+pub const GFX_WIDTH: usize = 320;
 pub const GFX_HEIGHT: usize = 240;
 
 pub const fn gfx_rgb565(r: u8, g: u8, b: u8) -> u16 {
