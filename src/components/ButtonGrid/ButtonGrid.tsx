@@ -2,6 +2,13 @@ import { memo, useCallback, useRef } from "react";
 import { Box } from "@mui/material";
 import { rowStyles } from "./ButtonGrid.styles";
 import { dims } from "../../theme/dimensions";
+import { chrome } from "../../theme/chrome";
+
+/** A chrome hex token at an explicit alpha, for washing light over a part. */
+const hexAt = (hex: string, alpha: number): string => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha.toFixed(3)})`;
+};
 
 /** The engine's ARGB at an explicit alpha, for layering light through the cap. */
 const argbAt = (argb: number, alpha: number): string =>
@@ -141,7 +148,10 @@ const GridButtonCell = memo(
               }}
             />
 
-            {/* Keycap mounts on two rails, not a cross stem */}
+            {/* Keycap mounts on two rails, not a cross stem. These are Choc
+          Reds, so the rails are red nylon — the only coloured part of the
+          switch, sitting 4.7 mm south of the emitter where they pick its
+          light up and glow with it. */}
             {[-1, 1].map((side) => (
               <div
                 key={side}
@@ -152,7 +162,18 @@ const GridButtonCell = memo(
                   width: dims.stemW,
                   height: dims.stemH,
                   borderRadius: 1,
-                  background: "linear-gradient(180deg, #3c3c40, #26262a)",
+                  // The red is always there; what the LED adds is a wash over
+                  // it that has to track how hard the emitter is actually
+                  // driven, or a barely-lit pad glows as brightly as a full one.
+                  background: lit
+                    ? `linear-gradient(180deg, ${hexAt(chrome.stemLit, 0.9 * a)}, ${hexAt(
+                        chrome.stemLit,
+                        0.35 * a,
+                      )}), linear-gradient(180deg, ${chrome.stem}, ${chrome.stemLow})`
+                    : `linear-gradient(180deg, ${chrome.stem}, ${chrome.stemLow})`,
+                  boxShadow: lit
+                    ? `0 0 ${Math.round(5 * a)}px ${hexAt(chrome.stemLit, 0.7 * a)}`
+                    : "none",
                 }}
               />
             ))}

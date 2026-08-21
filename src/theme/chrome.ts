@@ -35,6 +35,14 @@ export const chrome = {
   cavity: "#33322e",
   cavityDeep: "#1b1a17",
 
+  /** Kailh Choc v1 Red: black nylon bottom housing under a clear top, with a
+      red stem sitting right in the middle of the cap. It is the one coloured
+      part you see through a transparent cap, and it is close enough to the
+      LED window to catch the light and glow with it. */
+  stem: "#a8302a",
+  stemLow: "#6e1e1a",
+  stemLit: "#e0574a",
+
   ink: "#2b2a26",
   /** Screen-printed legends: pad-printed grey, never pure black */
   inkDim: "#7d786c",
