@@ -1,7 +1,6 @@
 import { memo, useCallback, useRef } from "react";
 import { Box } from "@mui/material";
 import { rowStyles } from "./ButtonGrid.styles";
-import { chrome } from "../../theme/chrome";
 
 // Convert ARGB u32 (0xAARRGGBB) to CSS rgba string
 const argbToRgba = (argb: number): string => {
@@ -24,29 +23,11 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
   const bgColor = argbToRgba(color);
   const a = ((color >>> 24) & 0xff) / 255;
 
-  // A doubleshot keycap seen head-on: the skirt tapers away from a dished top
-  // face, and the RGB LED under it tints the plastic rather than replacing it.
-  const skirt = [
-    `linear-gradient(${bgColor}, ${bgColor})`,
-    `linear-gradient(180deg, ${chrome.capMid} 0%, ${chrome.capSkirt} 55%, ${chrome.capBottom} 100%)`,
-  ].join(", ");
-
-  const topFace = [
-    `linear-gradient(${bgColor}, ${bgColor})`,
-    "radial-gradient(115% 90% at 50% 14%, rgba(255,255,255,0.9), rgba(255,255,255,0) 66%)",
-    `linear-gradient(180deg, ${chrome.capTop} 0%, ${chrome.capMid} 62%, ${chrome.capBottom} 100%)`,
-  ].join(", ");
-
-  // The cap stands off the keywell floor; a lit one spills onto its neighbours.
-  const skirtShadow = [
-    "inset 0 1px 0 rgba(255,255,255,0.85)",
-    "inset 0 -2px 3px rgba(0,0,0,0.2)",
-    "0 2px 2px rgba(0,0,0,0.5)",
-    "0 3px 5px rgba(0,0,0,0.35)",
-    a > 0.35 ? `0 0 ${Math.round(10 * a)}px ${bgColor}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
+  // Simple glow for bright cells
+  const boxShadow =
+    a > 0.5
+      ? `0 0 ${Math.round(5 * a)}px ${bgColor}, inset 0 0 ${Math.round(3 * a)}px rgba(255, 255, 255, ${(0.15 * a).toFixed(3)})`
+      : "inset 0 0 5px rgba(0, 0, 0, 0.5)";
 
   return (
     <div
@@ -71,27 +52,14 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
         width: 40,
         height: 40,
         margin: 2,
-        borderRadius: 5,
-        border: "1px solid rgba(52, 50, 45, 0.42)",
+        borderRadius: 4,
+        border: "1px solid rgba(255, 255, 255, 0.1)",
         cursor: "pointer",
         touchAction: "none",
-        background: skirt,
-        boxShadow: skirtShadow,
-        padding: "3px 4px 6px",
+        background: bgColor,
+        boxShadow,
       }}
-    >
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          borderRadius: 3,
-          background: topFace,
-          boxShadow:
-            "inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(0,0,0,0.10), 0 1px 1px rgba(0,0,0,0.16)",
-          pointerEvents: "none",
-        }}
-      />
-    </div>
+    />
   );
 });
 

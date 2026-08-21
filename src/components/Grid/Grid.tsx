@@ -24,9 +24,6 @@ import {
   oledColumnStyles,
   oledScreenStyles,
   encoderRowStyles,
-  arrowButtonContainerStyles,
-  arrowButtonRowStyles,
-  arrowButtonStyles,
 } from "./Grid.styles";
 import {
   KEY_MAP,
@@ -456,24 +453,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
               label="&#x25C0; &#x25B6;"
               tint={chrome.panel.magenta}
             />
-          </Box>
-          <Box css={arrowButtonContainerStyles}>
-            <Box css={arrowButtonRowStyles}>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_UP)}>
-                &#x25B2;
-              </Box>
-            </Box>
-            <Box css={arrowButtonRowStyles}>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_LEFT)}>
-                &#x25C0;
-              </Box>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_DOWN)}>
-                &#x25BC;
-              </Box>
-              <Box css={arrowButtonStyles} onClick={() => handleArrow(DIR_RIGHT)}>
-                &#x25B6;
-              </Box>
-            </Box>
           </Box>
         </Box>
       </Box>

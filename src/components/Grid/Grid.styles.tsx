@@ -21,9 +21,11 @@ export const gridContainerStyles = css`
   flex-direction: column;
   align-items: center;
   padding: 9px;
-  background-color: ${chrome.cavity};
-  background-image:
-    ${moulded}, linear-gradient(180deg, #2b2a26 0%, ${chrome.cavity} 30%, #3a3833 100%);
+  /* The floor stays as dark as it always was: the pads are semi-transparent,
+     and the engine draws octave lines, beat markers and the playhead as low
+     alpha over it, so lifting this washes that structure out. */
+  background-color: #101010;
+  background-image: ${moulded}, linear-gradient(160deg, #1c1c1c 0%, #141414 55%, #0d0d0d 100%);
   ${cavityIn}
   border-radius: 6px;
 `;
@@ -134,42 +136,4 @@ export const encoderRowStyles = css`
   gap: 16px;
   margin-top: 12px;
   align-items: flex-start;
-`;
-
-export const arrowButtonContainerStyles = css`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-top: 12px;
-  gap: 2px;
-`;
-
-export const arrowButtonRowStyles = css`
-  display: flex;
-  gap: 2px;
-`;
-
-export const arrowButtonStyles = css`
-  width: 32px;
-  height: 32px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
-  ${bevelOut}
-  color: ${chrome.ink};
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  user-select: none;
-
-  &:hover {
-    background: linear-gradient(180deg, #fffdf5, ${chrome.capMid});
-  }
-
-  &:active {
-    background: linear-gradient(180deg, ${chrome.capBottom}, ${chrome.capMid});
-    ${bevelIn}
-    padding: 2px 0 0 2px;
-  }
 `;
