@@ -1,14 +1,15 @@
 import { css } from "@emotion/react";
+import { bevelIn, bevelOut, caption, chrome } from "../theme/chrome";
 
+/** Toolbar strip across the top of the window, raised off the case. */
 export const transportStyles = css`
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 16px 24px;
-  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
-  border-radius: 12px;
-  margin-bottom: 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  gap: 20px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: ${chrome.case};
+  ${bevelOut}
 `;
 
 export const controlGroupStyles = css`
@@ -17,102 +18,137 @@ export const controlGroupStyles = css`
   gap: 12px;
 `;
 
+/** Scrollbar-shaped tempo control: sunken trough, square raised thumb. */
 export const bpmSliderStyles = css`
   width: 150px;
-  color: #66ffcc;
+  padding: 0;
+  height: 16px;
+  color: ${chrome.case};
 
-  .MuiSlider-thumb {
-    background-color: #66ffcc;
+  .MuiSlider-rail,
+  .MuiSlider-track {
+    border-radius: 0;
+    opacity: 1;
+    height: 16px;
+    background-color: ${chrome.caseMid};
+    ${bevelIn}
   }
 
   .MuiSlider-track {
-    background-color: #66ffcc;
+    background-color: ${chrome.caseHi};
+    border-color: transparent;
+    box-shadow: none;
   }
 
-  .MuiSlider-rail {
-    background-color: rgba(102, 255, 204, 0.3);
+  .MuiSlider-thumb {
+    width: 13px;
+    height: 20px;
+    border-radius: 1px;
+    background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
+    ${bevelOut}
+
+    &:hover,
+    &.Mui-focusVisible,
+    &.Mui-active {
+      box-shadow:
+        inset 1px 1px 0 ${chrome.caseLight},
+        inset -1px -1px 0 ${chrome.caseShadow},
+        inset 2px 2px 0 ${chrome.caseHi},
+        inset -2px -2px 0 ${chrome.caseMid};
+    }
+  }
+`;
+
+const transportButton = `
+  border-radius: 2px;
+  background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
+  ${bevelOut}
+
+  &:hover {
+    background: linear-gradient(180deg, #fffdf5, ${chrome.capMid});
+  }
+
+  &:active {
+    background: linear-gradient(180deg, ${chrome.capBottom}, ${chrome.capMid});
+    ${bevelIn}
   }
 `;
 
 export const playButtonStyles = css`
-  background: linear-gradient(145deg, #33ff66, #22cc44);
-  color: #000;
-  width: 48px;
-  height: 48px;
-
-  &:hover {
-    background: linear-gradient(145deg, #44ff77, #33dd55);
-  }
+  ${transportButton}
+  color: #1d7a34;
+  width: 44px;
+  height: 44px;
 
   &.Mui-disabled {
-    background: linear-gradient(145deg, #444, #333);
-    color: rgba(255, 255, 255, 0.3);
+    background: ${chrome.case};
+    color: ${chrome.caseShadow};
+    ${bevelOut}
   }
 `;
 
 export const stopButtonStyles = css`
-  background: linear-gradient(145deg, #ff3366, #cc2244);
-  color: #fff;
-  width: 48px;
-  height: 48px;
-
-  &:hover {
-    background: linear-gradient(145deg, #ff4477, #dd3355);
-  }
+  ${transportButton}
+  color: ${chrome.led};
+  width: 44px;
+  height: 44px;
 `;
 
 export const clearButtonStyles = css`
-  background: linear-gradient(145deg, #666, #444);
-  color: #fff;
-  width: 40px;
-  height: 40px;
+  ${transportButton}
+  color: ${chrome.ink};
+  width: 38px;
+  height: 38px;
+`;
 
-  &:hover {
-    background: linear-gradient(145deg, #777, #555);
-  }
+/** Numeric readout: a sunken LCD-ish field, monospaced like a panel meter. */
+export const readoutStyles = css`
+  ${caption}
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 46px;
+  padding: 2px 6px;
+  text-align: center;
+  background: ${chrome.caseHi};
+  ${bevelIn}
 `;
 
 export const labelStyles = css`
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  ${caption}
 `;
 
 export const bpmValueStyles = css`
-  color: #66ffcc;
-  font-size: 24px;
-  font-weight: bold;
-  font-family: "Courier New", monospace;
-  min-width: 60px;
-  text-align: center;
+  ${readoutStyles}
 `;
 
 export const midiSelectStyles = css`
   min-width: 200px;
 
   .MuiOutlinedInput-root {
-    color: #fff;
-    background: rgba(0, 0, 0, 0.3);
+    ${caption}
+    font-size: 12px;
+    text-transform: none;
+    background: ${chrome.caseHi};
+    border-radius: 2px;
+    ${bevelIn}
 
     fieldset {
-      border-color: rgba(255, 255, 255, 0.2);
+      border: none;
     }
-
-    &:hover fieldset {
-      border-color: rgba(255, 255, 255, 0.4);
-    }
-
-    &.Mui-focused fieldset {
-      border-color: #66ffcc;
-    }
-  }
-
-  .MuiInputLabel-root {
-    color: rgba(255, 255, 255, 0.5);
   }
 
   .MuiSelect-icon {
-    color: rgba(255, 255, 255, 0.5);
+    color: ${chrome.ink};
+  }
+
+  .MuiInputLabel-root {
+    ${caption}
+    font-size: 10px;
+    color: ${chrome.inkDim};
+
+    &.Mui-focused {
+      color: ${chrome.ink};
+    }
   }
 `;

@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef } from "react";
 import { Box } from "@mui/material";
 import { rowStyles } from "./ButtonGrid.styles";
+import { chrome } from "../../theme/chrome";
 
 // Convert ARGB u32 (0xAARRGGBB) to CSS rgba string
 const argbToRgba = (argb: number): string => {
@@ -23,11 +24,25 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
   const bgColor = argbToRgba(color);
   const a = ((color >>> 24) & 0xff) / 255;
 
-  // Simple glow for bright cells
-  const boxShadow =
-    a > 0.5
-      ? `0 0 ${Math.round(5 * a)}px ${bgColor}, inset 0 0 ${Math.round(3 * a)}px rgba(255, 255, 255, ${(0.15 * a).toFixed(3)})`
-      : "inset 0 0 5px rgba(0, 0, 0, 0.5)";
+  // A milky keycap with an RGB LED under it: the plastic is always the same
+  // warm white, and the LED tints it from beneath rather than replacing it.
+  const background = [
+    `linear-gradient(${bgColor}, ${bgColor})`,
+    "radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,0.85), rgba(255,255,255,0) 62%)",
+    `linear-gradient(180deg, ${chrome.capTop} 0%, ${chrome.capMid} 55%, ${chrome.capBottom} 100%)`,
+  ].join(", ");
+
+  // Keycap edge: a lit top lip, shade pooling at the bottom, and the cap
+  // casting onto the cavity floor. Bright cells spill light onto their sides.
+  const boxShadow = [
+    "inset 0 1px 0 rgba(255,255,255,0.95)",
+    "inset 0 -2px 2px rgba(0,0,0,0.16)",
+    "0 1px 0 rgba(255,255,255,0.10)",
+    "0 2px 3px rgba(0,0,0,0.45)",
+    a > 0.35 ? `0 0 ${Math.round(9 * a)}px ${bgColor}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <div
@@ -52,11 +67,11 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
         width: 40,
         height: 40,
         margin: 2,
-        borderRadius: 4,
-        border: "1px solid rgba(255, 255, 255, 0.1)",
+        borderRadius: 3,
+        border: "1px solid rgba(52, 50, 45, 0.55)",
         cursor: "pointer",
         touchAction: "none",
-        background: bgColor,
+        background,
         boxShadow,
       }}
     />

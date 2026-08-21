@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Output } from "webmidi";
 import { css, Global } from "@emotion/react";
+import { bevelOut, chrome, pinstripes } from "./theme/chrome";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
 import { Transport } from "./components/Transport";
@@ -18,10 +19,15 @@ import { TICKS_PER_QUARTER } from "./components/Grid/Grid.config";
 /** Web-mic recorder for the drum sampler (engine ref wired once loaded). */
 const recorder = new SampleRecorder(synth);
 
-const darkTheme = createTheme({
+/** MUI inherits the case, so its widgets stop looking like 2015 on a 1992 box. */
+const caseTheme = createTheme({
   palette: {
-    mode: "dark",
+    mode: "light",
+    background: { default: chrome.case, paper: chrome.case },
+    text: { primary: chrome.ink, secondary: chrome.inkDim },
   },
+  typography: { fontFamily: chrome.font },
+  shape: { borderRadius: 2 },
 });
 
 const globalStyles = css`
@@ -37,14 +43,14 @@ const globalStyles = css`
   body {
     margin: 0;
     padding: 0;
-    background: linear-gradient(180deg, #0a0a0a 0%, #1a0a1a 100%);
+    /* The desktop the machine sits on, dithered the way 8-bit teal was */
+    background-color: ${chrome.desktop};
+    background-image: radial-gradient(${chrome.desktopDark} 0.5px, transparent 0.5px);
+    background-size: 6px 6px;
     min-height: 100vh;
     min-height: 100dvh;
-    font-family:
-      "Inter",
-      -apple-system,
-      BlinkMacSystemFont,
-      sans-serif;
+    font-family: ${chrome.font};
+    color: ${chrome.ink};
     /* Mobile Safari: no double-tap zoom, tap flashes, or long-press callouts */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
@@ -81,26 +87,62 @@ const appContainerStyles = css`
   }
 `;
 
-/** Fixed-size content that gets uniformly scaled down on small screens */
+/** Fixed-size content that gets uniformly scaled down on small screens.
+    Dressed as a desktop window: platinum case, hard bevel, drop shadow. */
 const stageStyles = css`
   display: flex;
   flex-direction: column;
   align-items: center;
   width: fit-content;
+  padding: 3px 3px 8px;
+  background: ${chrome.case};
+  ${bevelOut}
+  box-shadow:
+    inset 1px 1px 0 ${chrome.caseLight},
+    inset -1px -1px 0 ${chrome.caseShadow},
+    inset 2px 2px 0 ${chrome.caseHi},
+    inset -2px -2px 0 ${chrome.caseMid},
+    4px 4px 0 rgba(0, 0, 0, 0.28);
 `;
 
+/** Window title bar — pinstriped with a close box, matching the chrome the
+    display itself draws, with the title knocked out of the stripes. */
 const titleStyles = css`
-  color: #fff;
-  font-size: 32px;
-  font-weight: 300;
-  letter-spacing: 8px;
-  margin-top: 0;
-  margin-bottom: 30px;
-  text-transform: uppercase;
-  background: linear-gradient(90deg, #ff3366, #66ffcc, #3366ff);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: 22px;
+  margin: 0 0 8px;
+  padding: 0;
+  ${pinstripes}
+  border-bottom: 1px solid ${chrome.caseDark};
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 3px;
+    width: 15px;
+    height: 15px;
+    background: ${chrome.case};
+    border: 1px solid ${chrome.caseDark};
+    box-shadow:
+      inset 0 0 0 2px ${chrome.case},
+      inset 0 0 0 3px ${chrome.caseDark};
+  }
+
+  span {
+    background: ${chrome.case};
+    padding: 0 10px;
+    font-family: ${chrome.font};
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: ${chrome.ink};
+  }
 
   /* Short screens (landscape phone): drop the title to give the grid room */
   @media (max-height: 520px) {
@@ -504,12 +546,12 @@ function App() {
   if (!wasmEngine) {
     console.log("[startup] Gated: wasmEngine=" + !!wasmEngine + " isEnabled=" + isEnabled);
     return (
-      <ThemeProvider theme={darkTheme}>
+      <ThemeProvider theme={caseTheme}>
         <CssBaseline />
         <Global styles={globalStyles} />
         <Box css={appContainerStyles}>
           <Box component="h1" css={titleStyles}>
-            ARPEGGINATOR
+            <span>Arpegginator</span>
           </Box>
         </Box>
       </ThemeProvider>
@@ -526,7 +568,7 @@ function App() {
   const scaled = fit.scale < 1 && fit.width > 0;
 
   return (
-    <ThemeProvider theme={darkTheme}>
+    <ThemeProvider theme={caseTheme}>
       <CssBaseline />
       <Global styles={globalStyles} />
       <Box css={rotateHintStyles}>Rotate to landscape</Box>
@@ -556,7 +598,7 @@ function App() {
             }
           >
             <Box component="h1" css={titleStyles}>
-              ARPEGGINATOR
+              <span>Arpegginator</span>
             </Box>
             <Transport
               isPlaying={isPlaying}

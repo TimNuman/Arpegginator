@@ -13,6 +13,7 @@ import PauseIcon from "@mui/icons-material/Pause";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import { Output, Input } from "webmidi";
+import { chrome } from "../theme/chrome";
 import {
   transportStyles,
   controlGroupStyles,
@@ -23,6 +24,7 @@ import {
   labelStyles,
   bpmValueStyles,
   midiSelectStyles,
+  readoutStyles,
 } from "./Transport.styles";
 
 interface TransportProps {
@@ -128,16 +130,8 @@ export const Transport = ({
             const v = Math.max(50, Math.min(75, Number(e.target.value)));
             onSwingChange(v);
           }}
-          style={{
-            width: 48,
-            background: "transparent",
-            border: "1px solid rgba(102, 255, 204, 0.3)",
-            borderRadius: 4,
-            color: "#66ffcc",
-            fontSize: 14,
-            padding: "2px 4px",
-            textAlign: "center",
-          }}
+          css={readoutStyles}
+          style={{ width: 54 }}
         />
       </Box>
 
@@ -190,7 +184,7 @@ export const Transport = ({
       </FormControl>
 
       {!midiEnabled && (
-        <Typography sx={{ color: "rgba(255, 255, 255, 0.45)", fontSize: "12px" }}>
+        <Typography sx={{ color: chrome.inkDim, fontSize: "11px" }}>
           Web MIDI unavailable — built-in sounds active
         </Typography>
       )}

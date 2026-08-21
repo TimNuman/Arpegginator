@@ -1,4 +1,5 @@
 import { css } from "@emotion/react";
+import { bevelIn, bevelOut, cavityIn, caption, chrome } from "../../theme/chrome";
 
 export const gridOuterContainerStyles = css`
   display: flex;
@@ -13,16 +14,14 @@ export const gridInnerContainerStyles = css`
   gap: 12px;
 `;
 
+/** The keybed: a cavity milled into the case, keycaps sitting proud of it. */
 export const gridContainerStyles = css`
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
-  background: linear-gradient(145deg, #1a1a1a, #0d0d0d);
-  border-radius: 12px;
-  box-shadow:
-    0 10px 40px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 10px;
+  background: ${chrome.cavity};
+  ${cavityIn}
 `;
 
 export const verticalStripContainerStyles = css`
@@ -43,16 +42,17 @@ export const modifierKeysContainerStyles = css`
   gap: 4px;
 `;
 
+/** Hold-keys: milky plastic, raised, and they physically go down when held. */
 export const modifierKeyStyles = css`
-  width: 56px;
+  width: 64px;
   height: 32px;
-  border-radius: 4px;
-  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
-  border: none;
-  color: rgba(255, 255, 255, 0.4);
+  overflow: hidden;
+  border-radius: 2px;
+  background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
+  ${bevelOut}
+  ${caption}
   font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
+  font-weight: 700;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -74,10 +74,11 @@ export const modifierKeyStyles = css`
 `;
 
 export const modifierKeyFnStyles = css`
-  font-size: 7px;
+  font-size: 6.5px;
   font-weight: 400;
-  letter-spacing: 0.5px;
-  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  color: ${chrome.inkDim};
 
   @media (max-height: 520px) {
     font-size: 9px;
@@ -85,15 +86,15 @@ export const modifierKeyFnStyles = css`
 `;
 
 export const modifierKeyActiveStyles = css`
-  background: linear-gradient(145deg, #4a4a4a, #3a3a3a);
-  color: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+  background: linear-gradient(180deg, ${chrome.capBottom}, ${chrome.capMid});
+  ${bevelIn}
+  padding-top: 2px;
 `;
 
-/* Double-tapped sticky latch: same accent as the encoder indicators */
+/* Double-tapped sticky latch: the little panel LED comes on and stays on */
 export const modifierKeyLatchedStyles = css`
-  color: #66ffcc;
-  box-shadow: 0 0 8px rgba(102, 255, 204, 0.4);
+  color: ${chrome.led};
+  text-shadow: 0 0 4px rgba(200, 64, 47, 0.45);
 `;
 
 export const oledContainerStyles = css`
@@ -108,15 +109,18 @@ export const oledColumnStyles = css`
   align-items: center;
 `;
 
+/** The panel, set into the case behind its own dark bezel. No inner glow —
+    a reflective LCD is lit by the room, not from behind. */
 export const oledScreenStyles = css`
   width: 400px;
   height: 240px;
   background: #cfd6cb;
-  border-radius: 4px;
-  border: 2px solid #1a1a1a;
+  border: 8px solid ${chrome.cavityDeep};
+  border-radius: 3px;
   box-shadow:
-    inset 0 0 20px rgba(0, 0, 0, 0.8),
-    0 2px 8px rgba(0, 0, 0, 0.5);
+    0 0 0 1px ${chrome.caseShadow},
+    0 0 0 2px ${chrome.caseLight},
+    inset 0 0 0 1px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 `;
 
@@ -143,26 +147,24 @@ export const arrowButtonRowStyles = css`
 export const arrowButtonStyles = css`
   width: 32px;
   height: 32px;
-  border-radius: 4px;
-  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
-  border: 1px solid #333;
-  color: rgba(255, 255, 255, 0.5);
+  border-radius: 2px;
+  background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
+  ${bevelOut}
+  color: ${chrome.ink};
   font-size: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.1s ease;
   user-select: none;
 
   &:hover {
-    background: linear-gradient(145deg, #3a3a3a, #2a2a2a);
-    color: rgba(255, 255, 255, 0.8);
+    background: linear-gradient(180deg, #fffdf5, ${chrome.capMid});
   }
 
   &:active {
-    background: linear-gradient(145deg, #4a4a4a, #3a3a3a);
-    color: rgba(255, 255, 255, 1);
-    box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+    background: linear-gradient(180deg, ${chrome.capBottom}, ${chrome.capMid});
+    ${bevelIn}
+    padding: 2px 0 0 2px;
   }
 `;

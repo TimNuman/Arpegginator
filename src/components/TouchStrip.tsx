@@ -1,6 +1,7 @@
 import { memo, useRef, useEffect } from "react";
 import type { Engine } from "../engine/types";
 import { markDirty } from "../store/renderStore";
+import { chrome } from "../theme/chrome";
 
 interface TouchStripProps {
   orientation: "vertical" | "horizontal";
@@ -99,13 +100,14 @@ export const TouchStrip = memo(
         style={{
           width: isHorizontal ? length : thickness,
           height: isHorizontal ? thickness : length,
-          background: "linear-gradient(145deg, #2a1a2a, #1a0a1a)",
+          // A capacitive slot milled into the case: dark trough, lit lower lip
+          background: `linear-gradient(180deg, ${chrome.cavityDeep}, ${chrome.cavity})`,
           borderRadius: thickness / 2,
           cursor: "grab",
           touchAction: "none",
           userSelect: "none",
-          boxShadow: "inset 0 2px 8px rgba(0,0,0,0.6)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: `inset 0 2px 5px rgba(0,0,0,0.75), 0 1px 0 ${chrome.caseLight}`,
+          border: `1px solid ${chrome.caseShadow}`,
         }}
       />
     );

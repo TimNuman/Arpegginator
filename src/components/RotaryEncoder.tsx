@@ -1,5 +1,6 @@
 import { memo, useCallback, useRef } from "react";
 import { css } from "@emotion/react";
+import { chrome } from "../theme/chrome";
 
 // Rotation/steps tuning
 const TOUCH_DEG_PER_STEP = 44; // ~8 steps per full circle
@@ -10,11 +11,13 @@ const encoderStyles = css`
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
-  border: 3px solid #333;
+  /* The collar the knob turns in — a ring cut into the case */
+  background: ${chrome.case};
+  border: 1px solid ${chrome.caseShadow};
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.5),
-    inset 0 2px 4px rgba(255, 255, 255, 0.05);
+    inset 1px 1px 2px rgba(0, 0, 0, 0.35),
+    inset -1px -1px 0 ${chrome.caseLight},
+    0 1px 0 ${chrome.caseLight};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -39,8 +42,15 @@ const knobStyles = css`
   width: 75%;
   height: 75%;
   border-radius: 50%;
-  background: linear-gradient(145deg, #222, #181818);
-  border: 2px solid #2a2a2a;
+  /* Milled grip: alternating facets round the rim, lit from the top-left */
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 58%),
+    repeating-conic-gradient(${chrome.capMid} 0deg 6deg, ${chrome.capTop} 6deg 12deg);
+  border: 1px solid ${chrome.caseDark};
+  box-shadow:
+    inset 0 0 0 6px ${chrome.capTop},
+    inset 0 0 0 7px ${chrome.caseMid},
+    0 2px 3px rgba(0, 0, 0, 0.4);
   position: relative;
   will-change: transform;
 
@@ -53,7 +63,7 @@ const knobStyles = css`
     width: 4px;
     height: 26%;
     margin-left: -2px;
-    background: #66ffcc;
+    background: ${chrome.led};
     border-radius: 2px;
     box-shadow: 0 0 6px rgba(102, 255, 204, 0.5);
   }
@@ -63,7 +73,7 @@ const labelStyles = css`
   margin-top: 4px;
   font-size: 10px;
   letter-spacing: 2px;
-  color: rgba(255, 255, 255, 0.35);
+  color: ${chrome.inkDim};
   text-align: center;
   user-select: none;
 `;
