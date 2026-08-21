@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Output } from "webmidi";
 import { css, Global } from "@emotion/react";
-import { bevelOut, chrome, pinstripes } from "./theme/chrome";
+import { chrome, moulded } from "./theme/chrome";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
 import { Transport } from "./components/Transport";
@@ -43,10 +43,14 @@ const globalStyles = css`
   body {
     margin: 0;
     padding: 0;
-    /* The desktop the machine sits on, dithered the way 8-bit teal was */
-    background-color: ${chrome.desktop};
-    background-image: radial-gradient(${chrome.desktopDark} 0.5px, transparent 0.5px);
-    background-size: 6px 6px;
+    /* The desk it sits on, lit from above and falling off at the edges */
+    background-color: ${chrome.deskDark};
+    background-image: radial-gradient(
+      120% 85% at 50% 12%,
+      ${chrome.desk} 0%,
+      ${chrome.deskDark} 72%
+    );
+    background-attachment: fixed;
     min-height: 100vh;
     min-height: 100dvh;
     font-family: ${chrome.font};
@@ -88,63 +92,78 @@ const appContainerStyles = css`
 `;
 
 /** Fixed-size content that gets uniformly scaled down on small screens.
-    Dressed as a desktop window: platinum case, hard bevel, drop shadow. */
+    The upper shell of the enclosure: moulded ABS, lit along its top edge,
+    thickening into a shaded lip at the bottom, sitting on the desk. */
 const stageStyles = css`
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   width: fit-content;
-  padding: 3px 3px 8px;
-  background: ${chrome.case};
-  ${bevelOut}
+  padding: 16px 22px 30px;
+  border-radius: 11px 11px 14px 14px;
+  background-color: ${chrome.case};
+  background-image:
+    ${moulded},
+    linear-gradient(
+      180deg,
+      ${chrome.caseTop} 0%,
+      ${chrome.case} 9%,
+      ${chrome.case} 68%,
+      ${chrome.caseLow} 100%
+    );
   box-shadow:
-    inset 1px 1px 0 ${chrome.caseLight},
-    inset -1px -1px 0 ${chrome.caseShadow},
-    inset 2px 2px 0 ${chrome.caseHi},
-    inset -2px -2px 0 ${chrome.caseMid},
-    4px 4px 0 rgba(0, 0, 0, 0.28);
-`;
+    inset 0 1px 0 ${chrome.caseLight},
+    inset 1px 0 0 rgba(255, 255, 255, 0.5),
+    inset -1px 0 0 rgba(0, 0, 0, 0.09),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.14),
+    0 2px 0 ${chrome.caseShadow},
+    0 26px 40px -12px rgba(0, 0, 0, 0.75),
+    0 4px 10px rgba(0, 0, 0, 0.4);
 
-/** Window title bar — pinstriped with a close box, matching the chrome the
-    display itself draws, with the title knocked out of the stripes. */
-const titleStyles = css`
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  align-self: stretch;
-  height: 22px;
-  margin: 0 0 8px;
-  padding: 0;
-  ${pinstripes}
-  border-bottom: 1px solid ${chrome.caseDark};
-
-  &::before {
+  /* Parting line where the upper shell meets the lower */
+  &::after {
     content: "";
     position: absolute;
-    left: 4px;
-    top: 3px;
-    width: 15px;
-    height: 15px;
-    background: ${chrome.case};
-    border: 1px solid ${chrome.caseDark};
-    box-shadow:
-      inset 0 0 0 2px ${chrome.case},
-      inset 0 0 0 3px ${chrome.caseDark};
+    left: 0;
+    right: 0;
+    bottom: 14px;
+    height: 2px;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0 1px, ${chrome.caseLight} 1px 2px);
+    pointer-events: none;
   }
+`;
+
+/** Pad-printed branding on the top shell, with the model number beside it —
+    the way every keyboard of the era wore its name above the keywell. */
+const titleStyles = css`
+  align-self: stretch;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px 2px;
+  padding: 0;
 
   span {
-    background: ${chrome.case};
-    padding: 0 10px;
     font-family: ${chrome.font};
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.34em;
     text-transform: uppercase;
-    color: ${chrome.ink};
+    color: ${chrome.caseDark};
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
   }
 
-  /* Short screens (landscape phone): drop the title to give the grid room */
+  &::after {
+    content: "MODEL AG-16 · 6 CH · 128 KEY";
+    font-family: ${chrome.font};
+    font-size: 8px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    color: ${chrome.caseShadow};
+  }
+
+  /* Short screens (landscape phone): drop the branding to give the grid room */
   @media (max-height: 520px) {
     display: none;
   }
@@ -628,27 +647,33 @@ function App() {
                 sx={{
                   background: "transparent",
                   border: "none",
-                  color: teensyConnected ? "#6c6" : "#555",
                   cursor: "pointer",
-                  fontSize: "10px",
-                  letterSpacing: "1px",
+                  fontFamily: chrome.font,
+                  fontSize: "8px",
+                  fontWeight: 700,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: chrome.caseShadow,
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
                   padding: "2px 8px",
-                  "&:hover": {
-                    color: teensyConnected ? "#8e8" : "#888",
-                  },
+                  "&:hover": { color: chrome.caseDark },
                 }}
               >
                 <Box
                   component="span"
+                  // Pinpoint status LED behind its little window in the shell
                   sx={{
-                    width: "6px",
-                    height: "6px",
+                    width: "7px",
+                    height: "7px",
                     borderRadius: "50%",
-                    background: teensyConnected ? "#6c6" : "#444",
-                    boxShadow: teensyConnected ? "0 0 4px #6c6" : "none",
+                    background: teensyConnected ? chrome.ledGreen : chrome.ledDim,
+                    boxShadow: teensyConnected
+                      ? `0 0 5px ${chrome.ledGreen}, inset 0 1px 1px rgba(255,255,255,0.5)`
+                      : "inset 0 1px 1px rgba(255,255,255,0.25), inset 0 0 2px rgba(0,0,0,0.6)",
+                    outline: `1px solid rgba(0,0,0,0.35)`,
+                    outlineOffset: "1px",
                   }}
                 />
                 {teensyConnected ? "TEENSY" : "WASM"}

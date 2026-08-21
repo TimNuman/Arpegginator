@@ -184,7 +184,16 @@ export const Transport = ({
       </FormControl>
 
       {!midiEnabled && (
-        <Typography sx={{ color: chrome.inkDim, fontSize: "11px" }}>
+        <Typography
+          sx={{
+            color: chrome.caseShadow,
+            fontFamily: chrome.font,
+            fontSize: "8px",
+            fontWeight: 700,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
           Web MIDI unavailable — built-in sounds active
         </Typography>
       )}

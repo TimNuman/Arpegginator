@@ -1,5 +1,5 @@
 import { css } from "@emotion/react";
-import { bevelIn, bevelOut, cavityIn, caption, chrome } from "../../theme/chrome";
+import { bevelIn, bevelOut, cavityIn, caption, chrome, moulded } from "../../theme/chrome";
 
 export const gridOuterContainerStyles = css`
   display: flex;
@@ -14,14 +14,18 @@ export const gridInnerContainerStyles = css`
   gap: 12px;
 `;
 
-/** The keybed: a cavity milled into the case, keycaps sitting proud of it. */
+/** The keywell: a tray moulded into the top shell, its floor a darker shot of
+    plastic, with the caps standing proud of it. */
 export const gridContainerStyles = css`
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px;
-  background: ${chrome.cavity};
+  padding: 9px;
+  background-color: ${chrome.cavity};
+  background-image:
+    ${moulded}, linear-gradient(180deg, #2b2a26 0%, ${chrome.cavity} 30%, #3a3833 100%);
   ${cavityIn}
+  border-radius: 6px;
 `;
 
 export const verticalStripContainerStyles = css`
@@ -109,18 +113,19 @@ export const oledColumnStyles = css`
   align-items: center;
 `;
 
-/** The panel, set into the case behind its own dark bezel. No inner glow —
-    a reflective LCD is lit by the room, not from behind. */
+/** The panel, dropped into a recess in the top shell behind a moulded bezel.
+    No inner glow — a reflective LCD is lit by the room, not from behind. */
 export const oledScreenStyles = css`
   width: 400px;
   height: 240px;
   background: #cfd6cb;
-  border: 8px solid ${chrome.cavityDeep};
-  border-radius: 3px;
+  border: 10px solid ${chrome.cavityDeep};
+  border-radius: 5px;
   box-shadow:
-    0 0 0 1px ${chrome.caseShadow},
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.4),
     0 0 0 2px ${chrome.caseLight},
-    inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+    0 3px 6px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 `;
 

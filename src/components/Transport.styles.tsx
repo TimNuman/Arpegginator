@@ -1,15 +1,24 @@
 import { css } from "@emotion/react";
-import { bevelIn, bevelOut, caption, chrome } from "../theme/chrome";
+import { bevelIn, bevelOut, caption, chrome, moulded } from "../theme/chrome";
 
-/** Toolbar strip across the top of the window, raised off the case. */
+/** Control strip along the top of the enclosure: a shallow recess in the
+    shell with the transport keys standing in it. */
 export const transportStyles = css`
+  align-self: stretch;
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  background: ${chrome.case};
-  ${bevelOut}
+  gap: 18px;
+  padding: 9px 14px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background-color: ${chrome.case};
+  background-image:
+    ${moulded},
+    linear-gradient(180deg, ${chrome.caseLow} 0%, ${chrome.caseHi} 22%, ${chrome.case} 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.24),
+    inset 0 -1px 0 ${chrome.caseLight},
+    0 1px 0 ${chrome.caseLight};
 `;
 
 export const controlGroupStyles = css`
@@ -129,8 +138,8 @@ export const midiSelectStyles = css`
     ${caption}
     font-size: 12px;
     text-transform: none;
-    background: ${chrome.caseHi};
-    border-radius: 2px;
+    background: ${chrome.caseLow};
+    border-radius: 3px;
     ${bevelIn}
 
     fieldset {
@@ -139,13 +148,14 @@ export const midiSelectStyles = css`
   }
 
   .MuiSelect-icon {
-    color: ${chrome.ink};
+    color: ${chrome.inkDim};
   }
 
+  /* Legend pad-printed on the shell above the insert */
   .MuiInputLabel-root {
     ${caption}
-    font-size: 10px;
-    color: ${chrome.inkDim};
+    font-size: 8px;
+    color: ${chrome.caseShadow};
 
     &.Mui-focused {
       color: ${chrome.ink};

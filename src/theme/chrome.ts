@@ -1,89 +1,96 @@
 /**
- * chrome.ts — the case the simulated hardware sits in.
+ * chrome.ts — the enclosure the simulated hardware is moulded into.
  *
- * The display is a reflective 1-bit panel dressed in System 6 window chrome,
- * so the web shell around it is the machine that panel would have been bolted
- * into: a beige desktop box from about 1992. Platinum plastic, hard two-step
- * bevels, milky keycaps lit from underneath, and a teal desktop behind it all.
- * Every surface is one of these tokens — no ad-hoc greys.
+ * Not a window and not an application: the page is a physical object on a
+ * desk, in the spirit of a 90s keyboard. Injection-moulded ABS that has gone
+ * slightly warm with age, a keywell milled into the top shell, doubleshot
+ * caps with a dished top face, screen-printed legends, and pinpoint status
+ * LEDs. Every surface comes from these tokens — no ad-hoc greys.
  */
 
 export const chrome = {
-  /** Win 3.1's teal desktop, pulled a little green so beige reads warm on it */
-  desktop: "#0d7c77",
-  desktopDark: "#065c58",
+  /** The desk it sits on */
+  desk: "#3a3a38",
+  deskDark: "#1e1e20",
 
-  /** Platinum case plastic, and the four tones its bevels are cut from */
-  case: "#d9d5c9",
-  caseLight: "#fffefa",
-  caseHi: "#eae7dd",
-  caseMid: "#c3bfb2",
-  caseShadow: "#8d8a7f",
-  caseDark: "#42403a",
+  /** Moulded ABS: lit top edge, body, and the shaded lower shell */
+  caseTop: "#efeadd",
+  case: "#e4dece",
+  caseLow: "#d2ccb9",
+  caseLight: "#fffdf4",
+  caseHi: "#eae4d5",
+  caseMid: "#cac4b1",
+  caseShadow: "#9b9686",
+  caseDark: "#55514a",
 
-  /** Keycap plastic: milky, warm, lit from beneath by the LED under it */
-  capTop: "#f6f3ea",
-  capMid: "#e8e4d7",
-  capBottom: "#d8d3c2",
+  /** Doubleshot cap: skirt, dished top face, and the shade under the lip */
+  capSkirt: "#ded8c7",
+  capTop: "#f8f5ec",
+  capMid: "#ece8db",
+  capBottom: "#d9d3c1",
 
-  /** Recessed cavities — the grid well, the display bezel */
-  cavity: "#2e2c28",
+  /** The keywell floor and the display bezel, moulded in a darker shot */
+  cavity: "#33322e",
   cavityDeep: "#1b1a17",
 
   ink: "#2b2a26",
-  inkDim: "#6f6c63",
-  /** Panel-indicator red, the little LED next to a floppy slot */
-  led: "#c8402f",
-  ledDim: "#6d3229",
+  /** Screen-printed legends: pad-printed grey, never pure black */
+  inkDim: "#7d786c",
+  /** Pinpoint status LEDs behind their little window */
+  led: "#d63b26",
+  ledDim: "#5c2a22",
+  ledGreen: "#3f9c4a",
 
   font: '"MS Sans Serif", Tahoma, Geneva, Verdana, sans-serif',
 } as const;
 
-/** Raised plastic: light from the top-left, shadow to the bottom-right. */
+/** A moulded key or button: rounded, lit along the top lip, shaded beneath. */
 export const bevelOut = `
-  border: 1px solid ${chrome.caseDark};
+  border: 1px solid rgba(85, 81, 74, 0.42);
+  border-radius: 4px;
   box-shadow:
-    inset 1px 1px 0 ${chrome.caseLight},
-    inset -1px -1px 0 ${chrome.caseShadow},
-    inset 2px 2px 0 ${chrome.caseHi},
-    inset -2px -2px 0 ${chrome.caseMid};
+    inset 0 1px 0 ${chrome.caseLight},
+    inset 0 -3px 4px -2px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.35),
+    0 2px 3px rgba(0, 0, 0, 0.32);
 `;
 
-/** The same bevel inverted — pressed buttons and sunken wells. */
+/** The same key pressed: it sinks, its lip loses the light, the shade closes. */
 export const bevelIn = `
-  border: 1px solid ${chrome.caseShadow};
+  border: 1px solid rgba(85, 81, 74, 0.55);
+  border-radius: 4px;
   box-shadow:
-    inset 1px 1px 0 ${chrome.caseShadow},
-    inset -1px -1px 0 ${chrome.caseLight},
-    inset 2px 2px 0 ${chrome.caseMid},
-    inset -2px -2px 0 ${chrome.caseHi};
+    inset 0 2px 4px rgba(0, 0, 0, 0.32),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.35);
 `;
 
-/** A deep cavity for things set into the case: the grid, the display. */
+/** A well milled into the top shell — the keybed, the display recess. */
 export const cavityIn = `
-  border: 1px solid ${chrome.caseShadow};
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
   box-shadow:
-    inset 2px 2px 4px rgba(0, 0, 0, 0.55),
-    inset -1px -1px 0 ${chrome.caseLight},
+    inset 0 3px 6px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18),
     0 1px 0 ${chrome.caseLight};
 `;
 
-/** Title-bar pinstripes, same gesture the display draws in its own chrome. */
-export const pinstripes = `
-  background-image: repeating-linear-gradient(
-    180deg,
-    ${chrome.caseDark} 0px,
-    ${chrome.caseDark} 1px,
-    ${chrome.case} 1px,
-    ${chrome.case} 3px
-  );
-`;
+/** Fine moulding texture — ABS is never optically flat. This is a bare
+    gradient, not a declaration: compose it into a background-image list ahead
+    of the surface's own gradient, or it would replace it. */
+export const moulded = `repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.05) 0px,
+    rgba(255, 255, 255, 0.05) 1px,
+    rgba(0, 0, 0, 0.022) 1px,
+    rgba(0, 0, 0, 0.022) 2px
+  )`;
 
-/** Uppercase system-UI label, the way every 16-bit dialog set its captions. */
+/** Pad-printed legend: small, tracked out, never pure black. */
 export const caption = `
   font-family: ${chrome.font};
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: ${chrome.ink};
+  color: ${chrome.inkDim};
 `;
