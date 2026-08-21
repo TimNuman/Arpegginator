@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef } from "react";
 import { Box } from "@mui/material";
 import { rowStyles } from "./ButtonGrid.styles";
+import { dims } from "../../theme/dimensions";
 
 // Convert ARGB u32 (0xAARRGGBB) to CSS rgba string
 const argbToRgba = (argb: number): string => {
@@ -49,9 +50,10 @@ const GridButtonCell = memo(({ row, col, color, onPress, onDragEnter }: GridButt
       }}
       onContextMenu={(e) => e.preventDefault()}
       style={{
-        width: 40,
-        height: 40,
-        margin: 2,
+        // A Kailh Choc v1 keycap: 17.5 x 16.5 mm, sitting in a 19.05 mm cell
+        width: dims.capW,
+        height: dims.capH,
+        margin: `${dims.capMarginY}px ${dims.capMarginX}px`,
         borderRadius: 4,
         border: "1px solid rgba(255, 255, 255, 0.1)",
         cursor: "pointer",

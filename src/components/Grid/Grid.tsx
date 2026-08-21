@@ -9,6 +9,7 @@ import * as actions from "../../actions";
 import type { Engine } from "../../engine/types";
 import { OledRenderer } from "../../engine/OledRenderer";
 import { chrome } from "../../theme/chrome";
+import { dims } from "../../theme/dimensions";
 import {
   gridOuterContainerStyles,
   gridInnerContainerStyles,
@@ -52,6 +53,8 @@ interface ModifierKeyProps {
   latched: boolean;
   onHold: (held: boolean) => void;
   onLatch: (latched: boolean) => void;
+  /** Cap width in px — 40 is one grid button, 84 spans two */
+  width?: number;
 }
 
 /**
@@ -60,37 +63,42 @@ interface ModifierKeyProps {
  *   each key tracks its own pointer, so several can be held at once)
  * - double tap: latch sticky until tapped again
  */
-const ModifierKey = memo(({ name, fn, active, latched, onHold, onLatch }: ModifierKeyProps) => {
-  const lastDownAt = useRef(-Infinity);
+const ModifierKey = memo(
+  ({ name, fn, active, latched, onHold, onLatch, width = dims.capW }: ModifierKeyProps) => {
+    const lastDownAt = useRef(-Infinity);
 
-  return (
-    <Box
-      css={[
-        modifierKeyStyles,
-        active && modifierKeyActiveStyles,
-        latched && modifierKeyLatchedStyles,
-      ]}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        const now = performance.now();
-        if (latched) {
-          onLatch(false);
-        } else if (now - lastDownAt.current < DOUBLE_TAP_MS) {
-          onLatch(true);
-        }
-        lastDownAt.current = now;
-        onHold(true);
-      }}
-      onPointerUp={() => onHold(false)}
-      onPointerCancel={() => onHold(false)}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      <span>{name}</span>
-      {fn && <span css={modifierKeyFnStyles}>{fn}</span>}
-    </Box>
-  );
-});
+    return (
+      <Box
+        css={[
+          modifierKeyStyles(width),
+          active && modifierKeyActiveStyles,
+          latched && modifierKeyLatchedStyles,
+        ]}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          const now = performance.now();
+          if (latched) {
+            onLatch(false);
+          } else if (now - lastDownAt.current < DOUBLE_TAP_MS) {
+            onLatch(true);
+          }
+          lastDownAt.current = now;
+          onHold(true);
+        }}
+        onPointerUp={() => onHold(false)}
+        onPointerCancel={() => onHold(false)}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <span>{name}</span>
+        {/* A one-cap key has no room for the live hint — the panel's button row
+            already shows what the held modifier does, so only the wide key
+            carries it here rather than clipping mid-word. */}
+        {fn && width > dims.capW && <span css={modifierKeyFnStyles}>{fn}</span>}
+      </Box>
+    );
+  },
+);
 
 ModifierKey.displayName = "ModifierKey";
 
@@ -128,10 +136,6 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
   });
 
   // ============ Read ALL state from WASM (single source of truth) ============
-  const VISIBLE_ROWS = wasmEngine.getVisibleRows();
-
-  const buttonSize = 44;
-  const gridHeight = VISIBLE_ROWS * buttonSize;
 
   // ============ Keyboard -> WASM ============
   const keyboardRef = useRef<KeyboardState>({
@@ -366,8 +370,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           orientation="vertical"
           strip={0}
           wasmEngine={wasmEngine}
-          length={gridHeight}
-          thickness={24}
+          length={dims.slider8V}
+          thickness={dims.sliderThickness}
         />
       </Box>
       <Box css={gridInnerContainerStyles}>
@@ -384,6 +388,7 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           <Box css={modifierKeysContainerStyles}>
             {/* Hold-to-apply (double-tap to latch); live hints from the OLED legend */}
             <ModifierKey
+              width={dims.pitch + dims.capW}
               name="shift"
               fn={modHints.shift}
               active={mods.shift}
@@ -420,8 +425,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             orientation="horizontal"
             strip={1}
             wasmEngine={wasmEngine}
-            length={buttonSize * 8}
-            thickness={24}
+            length={dims.slider8}
+            thickness={dims.capH}
           />
         </Box>
       </Box>
@@ -431,8 +436,8 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
           <Box css={oledScreenStyles}>
             <canvas
               ref={oledCanvasRef}
-              width={256}
-              height={128}
+              width={400}
+              height={240}
               style={{
                 width: "100%",
                 height: "100%",
@@ -444,11 +449,13 @@ export const Grid = memo(({ wasmEngine }: GridProps) => {
             {/* Cap colors are the panel's own axis colors: up/down is the
                 yellow the display fills a field with, left/right the red. */}
             <RotaryEncoder
+              size={dims.encoder}
               onStep={handleEncoderUD}
               label="&#x25B2; &#x25BC;"
               tint={chrome.panel.yellow}
             />
             <RotaryEncoder
+              size={dims.encoder}
               onStep={handleEncoderLR}
               label="&#x25C0; &#x25B6;"
               tint={chrome.panel.magenta}

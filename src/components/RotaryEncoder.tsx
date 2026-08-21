@@ -1,15 +1,16 @@
 import { memo, useCallback, useRef } from "react";
 import { css } from "@emotion/react";
 import { chrome } from "../theme/chrome";
+import { dims, px } from "../theme/dimensions";
 
 // Rotation/steps tuning
 const TOUCH_DEG_PER_STEP = 44; // ~8 steps per full circle
 const MOUSE_PX_PER_STEP = 28; // vertical drag distance per step
 const MOUSE_DEG_PER_PX = 1.6; // visual spin feedback for mouse drags
 
-const encoderStyles = css`
-  width: 80px;
-  height: 80px;
+const encoderStyles = (size: number) => css`
+  width: ${size}px;
+  height: ${size}px;
   border-radius: 50%;
   /* The collar the knob turns in — a ring cut into the case */
   background: ${chrome.case};
@@ -83,8 +84,8 @@ const knobStyles = (tint: string) => css`
 `;
 
 const labelStyles = css`
-  margin-top: 4px;
-  font-size: 10px;
+  margin-top: ${px(1)}px;
+  font-size: ${px(2.2)}px;
   letter-spacing: 2px;
   color: ${chrome.inkDim};
   text-align: center;
@@ -102,6 +103,8 @@ interface RotaryEncoderProps {
   label?: string;
   /** Centre-cap color; use a chrome.panel value so it matches the display */
   tint?: string;
+  /** Knob diameter in px — dims.encoder is the real 16 mm part */
+  size?: number;
 }
 
 interface DragState {
@@ -119,107 +122,109 @@ interface DragState {
  * - touch/pen: drag in circles around the knob — clockwise = +1 steps
  * - mouse: drag vertically — up = +1 steps, down = -1
  */
-export const RotaryEncoder = memo(({ onStep, label, tint = chrome.capTop }: RotaryEncoderProps) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const knobRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<DragState | null>(null);
-  const rotation = useRef(0); // visual knob angle in degrees
+export const RotaryEncoder = memo(
+  ({ onStep, label, tint = chrome.capTop, size = dims.encoder }: RotaryEncoderProps) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const knobRef = useRef<HTMLDivElement>(null);
+    const drag = useRef<DragState | null>(null);
+    const rotation = useRef(0); // visual knob angle in degrees
 
-  const spinTo = useCallback((deltaDeg: number) => {
-    rotation.current += deltaDeg;
-    if (knobRef.current) {
-      knobRef.current.style.transform = `rotate(${rotation.current}deg)`;
-    }
-  }, []);
-
-  const angleAt = useCallback((clientX: number, clientY: number): number => {
-    const r = containerRef.current!.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    return (Math.atan2(clientY - cy, clientX - cx) * 180) / Math.PI;
-  }, []);
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      e.preventDefault();
-      containerRef.current?.setPointerCapture(e.pointerId);
-      drag.current = {
-        pointerId: e.pointerId,
-        circular: e.pointerType !== "mouse",
-        lastAngle: angleAt(e.clientX, e.clientY),
-        lastY: e.clientY,
-        accum: 0,
-      };
-    },
-    [angleAt],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const d = drag.current;
-      if (!d || e.pointerId !== d.pointerId) return;
-
-      if (d.circular) {
-        // Angular delta, normalized to (-180, 180] to survive the ±180° wrap
-        const a = angleAt(e.clientX, e.clientY);
-        let delta = a - d.lastAngle;
-        if (delta > 180) delta -= 360;
-        if (delta <= -180) delta += 360;
-        d.lastAngle = a;
-        d.accum += delta;
-        spinTo(delta);
-
-        while (d.accum >= TOUCH_DEG_PER_STEP) {
-          d.accum -= TOUCH_DEG_PER_STEP;
-          onStep(1);
-        }
-        while (d.accum <= -TOUCH_DEG_PER_STEP) {
-          d.accum += TOUCH_DEG_PER_STEP;
-          onStep(-1);
-        }
-      } else {
-        // Mouse: vertical drag, up = clockwise
-        const dy = d.lastY - e.clientY;
-        d.lastY = e.clientY;
-        d.accum += dy;
-        spinTo(dy * MOUSE_DEG_PER_PX);
-
-        while (d.accum >= MOUSE_PX_PER_STEP) {
-          d.accum -= MOUSE_PX_PER_STEP;
-          onStep(1);
-        }
-        while (d.accum <= -MOUSE_PX_PER_STEP) {
-          d.accum += MOUSE_PX_PER_STEP;
-          onStep(-1);
-        }
+    const spinTo = useCallback((deltaDeg: number) => {
+      rotation.current += deltaDeg;
+      if (knobRef.current) {
+        knobRef.current.style.transform = `rotate(${rotation.current}deg)`;
       }
-    },
-    [angleAt, onStep, spinTo],
-  );
+    }, []);
 
-  const handlePointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (drag.current?.pointerId !== e.pointerId) return;
-    drag.current = null;
-    containerRef.current?.releasePointerCapture(e.pointerId);
-  }, []);
+    const angleAt = useCallback((clientX: number, clientY: number): number => {
+      const r = containerRef.current!.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      return (Math.atan2(clientY - cy, clientX - cx) * 180) / Math.PI;
+    }, []);
 
-  return (
-    <div>
-      <div
-        ref={containerRef}
-        css={encoderStyles}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerEnd}
-        onPointerCancel={handlePointerEnd}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        <div ref={knobRef} css={knobStyles(tint)} />
+    const handlePointerDown = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        containerRef.current?.setPointerCapture(e.pointerId);
+        drag.current = {
+          pointerId: e.pointerId,
+          circular: e.pointerType !== "mouse",
+          lastAngle: angleAt(e.clientX, e.clientY),
+          lastY: e.clientY,
+          accum: 0,
+        };
+      },
+      [angleAt],
+    );
+
+    const handlePointerMove = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        const d = drag.current;
+        if (!d || e.pointerId !== d.pointerId) return;
+
+        if (d.circular) {
+          // Angular delta, normalized to (-180, 180] to survive the ±180° wrap
+          const a = angleAt(e.clientX, e.clientY);
+          let delta = a - d.lastAngle;
+          if (delta > 180) delta -= 360;
+          if (delta <= -180) delta += 360;
+          d.lastAngle = a;
+          d.accum += delta;
+          spinTo(delta);
+
+          while (d.accum >= TOUCH_DEG_PER_STEP) {
+            d.accum -= TOUCH_DEG_PER_STEP;
+            onStep(1);
+          }
+          while (d.accum <= -TOUCH_DEG_PER_STEP) {
+            d.accum += TOUCH_DEG_PER_STEP;
+            onStep(-1);
+          }
+        } else {
+          // Mouse: vertical drag, up = clockwise
+          const dy = d.lastY - e.clientY;
+          d.lastY = e.clientY;
+          d.accum += dy;
+          spinTo(dy * MOUSE_DEG_PER_PX);
+
+          while (d.accum >= MOUSE_PX_PER_STEP) {
+            d.accum -= MOUSE_PX_PER_STEP;
+            onStep(1);
+          }
+          while (d.accum <= -MOUSE_PX_PER_STEP) {
+            d.accum += MOUSE_PX_PER_STEP;
+            onStep(-1);
+          }
+        }
+      },
+      [angleAt, onStep, spinTo],
+    );
+
+    const handlePointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+      if (drag.current?.pointerId !== e.pointerId) return;
+      drag.current = null;
+      containerRef.current?.releasePointerCapture(e.pointerId);
+    }, []);
+
+    return (
+      <div>
+        <div
+          ref={containerRef}
+          css={encoderStyles(size)}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div ref={knobRef} css={knobStyles(tint)} />
+        </div>
+        {label && <div css={labelStyles}>{label}</div>}
       </div>
-      {label && <div css={labelStyles}>{label}</div>}
-    </div>
-  );
-});
+    );
+  },
+);
 
 RotaryEncoder.displayName = "RotaryEncoder";

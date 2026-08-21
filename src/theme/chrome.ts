@@ -1,3 +1,5 @@
+import { px } from "./dimensions";
+
 /**
  * chrome.ts — the enclosure the simulated hardware is moulded into.
  *
@@ -103,10 +105,12 @@ export const moulded = `repeating-linear-gradient(
     rgba(0, 0, 0, 0.022) 2px
   )`;
 
-/** Pad-printed legend: small, tracked out, never pure black. */
+/** Pad-printed legend: small, tracked out, never pure black. Sized in
+    millimetres like everything else on the case — roughly 2.2 mm of cap
+    height, which is what a silkscreened legend actually measures. */
 export const caption = `
   font-family: ${chrome.font};
-  font-size: 10px;
+  font-size: ${px(2.2)}px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Output } from "webmidi";
 import { css, Global } from "@emotion/react";
 import { chrome, moulded } from "./theme/chrome";
+import { px } from "./theme/dimensions";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
 import { Transport } from "./components/Transport";
@@ -100,7 +101,7 @@ const stageStyles = css`
   flex-direction: column;
   align-items: center;
   width: fit-content;
-  padding: 16px 22px 30px;
+  padding: ${px(4)}px ${px(5)}px ${px(7)}px;
   border-radius: 11px 11px 14px 14px;
   background-color: ${chrome.case};
   background-image:
@@ -141,12 +142,12 @@ const titleStyles = css`
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin: 0 0 10px 2px;
+  margin: 0 0 ${px(2)}px 2px;
   padding: 0;
 
   span {
     font-family: ${chrome.font};
-    font-size: 13px;
+    font-size: ${px(3.2)}px;
     font-weight: 700;
     letter-spacing: 0.34em;
     text-transform: uppercase;
@@ -157,7 +158,7 @@ const titleStyles = css`
   &::after {
     content: "MODEL AG-16 · 6 CH · 128 KEY";
     font-family: ${chrome.font};
-    font-size: 8px;
+    font-size: ${px(1.9)}px;
     font-weight: 400;
     letter-spacing: 0.16em;
     color: ${chrome.caseShadow};

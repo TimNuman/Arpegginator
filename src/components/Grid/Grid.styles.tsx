@@ -1,17 +1,21 @@
 import { css } from "@emotion/react";
 import { bevelIn, bevelOut, cavityIn, caption, chrome, moulded } from "../../theme/chrome";
+import { dims, panelButtonCenter, px } from "../../theme/dimensions";
 
 export const gridOuterContainerStyles = css`
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 12px;
+  /* The slider cell butts against the grid cells on the board, so the only
+     space between them is the gap two caps would leave. */
+  gap: ${dims.pitch - dims.capW}px;
 `;
 
 export const gridInnerContainerStyles = css`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* Row 9 on the board — modifier keys, space, horizontal slider */
+  gap: ${dims.pitch - dims.capH}px;
 `;
 
 /** The keywell: a tray moulded into the top shell, its floor a darker shot of
@@ -20,7 +24,7 @@ export const gridContainerStyles = css`
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 9px;
+  padding: 0;
   /* The floor stays as dark as it always was: the pads are semi-transparent,
      and the engine draws octave lines, beat markers and the playhead as low
      alpha over it, so lifting this washes that structure out. */
@@ -30,34 +34,38 @@ export const gridContainerStyles = css`
   border-radius: 6px;
 `;
 
+/* Cap geometry: 44px pitch, 40px cap, so the first cap starts 12px inside the
+   well (1px border + 9px padding + 2px margin) and the block runs 4px short of
+   the pitch. Every strip and key below is placed off those two numbers. */
 export const verticalStripContainerStyles = css`
   display: flex;
-  align-items: center;
-  padding: 20px 0;
+  align-items: flex-start;
+  margin-top: ${dims.capMarginY + 1}px;
 `;
 
 export const horizontalStripContainerStyles = css`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 ${dims.capMarginX + 1}px;
 `;
 
 export const modifierKeysContainerStyles = css`
   display: flex;
-  gap: 4px;
+  gap: ${dims.pitch - dims.capW}px;
 `;
 
-/** Hold-keys: milky plastic, raised, and they physically go down when held. */
-export const modifierKeyStyles = css`
-  width: 64px;
-  height: 32px;
+/** Hold-keys: milky plastic, raised, and they physically go down when held.
+    Sized in cap widths so they line up with the columns above them. */
+export const modifierKeyStyles = (width: number) => css`
+  width: ${width}px;
+  height: ${dims.capH}px;
   overflow: hidden;
   border-radius: 2px;
   background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
   ${bevelOut}
   ${caption}
-  font-size: 9px;
+  font-size: ${px(2.6)}px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
@@ -73,16 +81,16 @@ export const modifierKeyStyles = css`
   /* Short screens (landscape phone): the whole UI is scaled down, so give
      these hold-keys a larger natural size to stay finger-friendly */
   @media (max-height: 520px) {
-    width: 78px;
+    width: ${Math.round(width * 1.7)}px;
     height: 44px;
     font-size: 12px;
   }
 `;
 
 export const modifierKeyFnStyles = css`
-  font-size: 6.5px;
+  font-size: ${px(1.7)}px;
   font-weight: 400;
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
   white-space: nowrap;
   color: ${chrome.inkDim};
 
@@ -106,7 +114,8 @@ export const modifierKeyLatchedStyles = css`
 export const oledContainerStyles = css`
   display: flex;
   align-items: flex-start;
-  padding: 20px 0;
+  /* DISP_X on the board: the module sits 3 mm right of the grid */
+  margin-left: ${dims.displayGap - (dims.pitch - dims.capW)}px;
 `;
 
 export const oledColumnStyles = css`
@@ -118,10 +127,16 @@ export const oledColumnStyles = css`
 /** The panel, dropped into a recess in the top shell behind a moulded bezel.
     No inner glow — a reflective LCD is lit by the room, not from behind. */
 export const oledScreenStyles = css`
-  width: 400px;
-  height: 240px;
+  /* Border-box sizing means the bezel eats the content box, so the panel is
+     stated at 400x240 plus its 10px bezel on each side. Anything less and the
+     canvas resamples a 1-bit image to a fractional scale. */
+  width: ${400 + 2 * dims.bezelX}px;
+  height: ${240 + 2 * dims.bezelY}px;
   background: #cfd6cb;
-  border: 10px solid ${chrome.cavityDeep};
+  /* Two-value widths need the longhand — the border shorthand takes one */
+  border-width: ${dims.bezelY}px ${dims.bezelX}px;
+  border-style: solid;
+  border-color: ${chrome.cavityDeep};
   border-radius: 5px;
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.55),
@@ -131,9 +146,17 @@ export const oledScreenStyles = css`
   overflow: hidden;
 `;
 
+/** The panel draws its three buttons at x=8, 138 and 268, each 120 wide, so
+    their centres land at 68 / 198 / 328 in canvas pixels — plus the 10px bezel
+    to get to the display's outer edge. The two knobs (80px) sit under the
+    yellow and magenta ones: 208-40=168, then 338-40-80=50 of gap. */
 export const encoderRowStyles = css`
   display: flex;
-  gap: 16px;
-  margin-top: 12px;
+  align-self: flex-start;
+  /* Each knob centred under the panel button it drives, measured from the
+     display's outer edge: bezel + the button's centre in panel pixels. */
+  margin-left: ${dims.bezelX + panelButtonCenter(1) - dims.encoder / 2}px;
+  gap: ${panelButtonCenter(2) - panelButtonCenter(1) - dims.encoder}px;
+  margin-top: ${px(4)}px;
   align-items: flex-start;
 `;

@@ -1,5 +1,6 @@
 import { css } from "@emotion/react";
 import { bevelIn, bevelOut, caption, chrome, moulded } from "../theme/chrome";
+import { px } from "../theme/dimensions";
 
 /** Control strip along the top of the enclosure: a shallow recess in the
     shell with the transport keys standing in it. */
@@ -7,9 +8,9 @@ export const transportStyles = css`
   align-self: stretch;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 9px 14px;
-  margin-bottom: 12px;
+  gap: ${px(4)}px;
+  padding: ${px(2)}px ${px(3)}px;
+  margin-bottom: ${px(2.5)}px;
   border-radius: 6px;
   background-color: ${chrome.case};
   background-image:
@@ -29,16 +30,16 @@ export const controlGroupStyles = css`
 
 /** Scrollbar-shaped tempo control: sunken trough, square raised thumb. */
 export const bpmSliderStyles = css`
-  width: 150px;
+  width: ${px(34)}px;
   padding: 0;
-  height: 16px;
+  height: ${px(3.6)}px;
   color: ${chrome.case};
 
   .MuiSlider-rail,
   .MuiSlider-track {
     border-radius: 0;
     opacity: 1;
-    height: 16px;
+    height: ${px(3.6)}px;
     background-color: ${chrome.caseMid};
     ${bevelIn}
   }
@@ -50,8 +51,8 @@ export const bpmSliderStyles = css`
   }
 
   .MuiSlider-thumb {
-    width: 13px;
-    height: 20px;
+    width: ${px(3)}px;
+    height: ${px(4.6)}px;
     border-radius: 1px;
     background: linear-gradient(180deg, ${chrome.capTop}, ${chrome.capBottom});
     ${bevelOut}
@@ -86,8 +87,8 @@ const transportButton = `
 export const playButtonStyles = css`
   ${transportButton}
   color: #1d7a34;
-  width: 44px;
-  height: 44px;
+  width: ${px(9)}px;
+  height: ${px(9)}px;
 
   &.Mui-disabled {
     background: ${chrome.case};
@@ -99,25 +100,25 @@ export const playButtonStyles = css`
 export const stopButtonStyles = css`
   ${transportButton}
   color: ${chrome.led};
-  width: 44px;
-  height: 44px;
+  width: ${px(9)}px;
+  height: ${px(9)}px;
 `;
 
 export const clearButtonStyles = css`
   ${transportButton}
   color: ${chrome.ink};
-  width: 38px;
-  height: 38px;
+  width: ${px(8)}px;
+  height: ${px(8)}px;
 `;
 
 /** Numeric readout: a sunken LCD-ish field, monospaced like a panel meter. */
 export const readoutStyles = css`
   ${caption}
-  font-size: 15px;
+  font-size: ${px(3.2)}px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  min-width: 46px;
-  padding: 2px 6px;
+  min-width: ${px(10)}px;
+  padding: ${px(0.4)}px ${px(1.4)}px;
   text-align: center;
   background: ${chrome.caseHi};
   ${bevelIn}
@@ -132,11 +133,11 @@ export const bpmValueStyles = css`
 `;
 
 export const midiSelectStyles = css`
-  min-width: 200px;
+  min-width: ${px(44)}px;
 
   .MuiOutlinedInput-root {
     ${caption}
-    font-size: 12px;
+    font-size: ${px(2.6)}px;
     text-transform: none;
     background: ${chrome.caseLow};
     border-radius: 3px;
@@ -154,7 +155,7 @@ export const midiSelectStyles = css`
   /* Legend pad-printed on the shell above the insert */
   .MuiInputLabel-root {
     ${caption}
-    font-size: 8px;
+    font-size: ${px(1.8)}px;
     color: ${chrome.caseShadow};
 
     &.Mui-focused {
