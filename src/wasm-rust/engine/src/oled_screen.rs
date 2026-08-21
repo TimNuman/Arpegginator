@@ -1,5 +1,5 @@
-// oled_screen.rs — OLED screen content rendering
-// Full-width layout with 256×128 display, IBM Plex Mono fonts
+// oled_screen.rs — panel content rendering
+// Portrait layout on a 240x320 memory LCD, Spleen bitmap fonts
 
 use core::fmt::Write;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -13,16 +13,24 @@ use crate::engine_ui;
 
 const CH_DRUM: u8 = ChannelType::Drum as u8;
 
-// ============ Layout constants (320×240) ============
+// ============ Layout constants (240×320) ============
 //
 // The panel is a JDI LPM044M141A: 4.4", 320x240 over 89.66 x 67.25 mm, so a
 // pixel is 0.28 mm — nearly twice the 2.7" part's. Everything is physically
 // larger at the same pixel size, which is why labels can drop to a 5x8 face
 // and still read: 5x8 here is bigger on the glass than 6x12 was there.
+//
+// The module mounts on its side, so the UI is 240 wide by 320 tall. Nothing is
+// reserved sideways any more: the dial stacks under the content instead of
+// taking a column, every value well runs the full width, and the three axis
+// legends pack 1 + 2 at the foot — the grid across the top, the two encoder
+// axes side by side beneath it, which is the shape of the two knobs below.
 
 const DISPLAY_W: i16 = GFX_WIDTH as i16;
 const PAD_X: i16 = 8;
-const CONTENT_RIGHT: i16 = 196; // ~61% of display — right 39% is the dial panel
+// Portrait: nothing is reserved sideways, so content runs the full width and
+// every value hangs off the same right edge.
+const CONTENT_RIGHT: i16 = DISPLAY_W - PAD_X;
 const CONTENT_W: i16 = CONTENT_RIGHT - PAD_X;
 const HALF_W: i16 = CONTENT_W / 2;
 
@@ -35,27 +43,45 @@ const WELL_H: i16 = 18;
 
 // Row Y positions (top of the text line; 4 data rows + ruler + button bar)
 const ROW_Y: [i16; 4] = [32, 59, 86, 113];
-// 5-row layout for the selected-note view
-const ROW_Y5: [i16; 5] = [31, 62, 90, 118, 146];
+// 5-row layout for the screens with no dial — the note view and the sound
+// pages. Portrait gives these 231 px between the title and the button bar for
+// five rows, so they spread to fill it rather than sitting in a compact block
+// with a dead band underneath.
+const ROW_Y5: [i16; 5] = [31, 78, 125, 172, 219];
 
 // Scale-degree ruler
-const DOT_Y: i16 = 140;
+const DOT_Y: i16 = 137;
 const DOT_SIZE: i16 = 12;
 const DOT_GAP: i16 = 2;
 
-// Transport scrollbar under the ruler
-const TRANSPORT_Y: i16 = 163;
-const TRANSPORT_H: i16 = 14;
+// Circle of fifths, now centered under the ruler rather than parked in a side
+// column. Slightly tighter than it was, with the root chip scaled to match so
+// the ticks keep their air.
+const DIAL_CY: i16 = 201;
+const DIAL_R: i16 = 40;
+const DIAL_CHIP_H: i16 = 28;
 
-// Bottom button bar — the only place structure is allowed color
-const LEGEND_Y: i16 = 200;
+// Bottom button bar — the only place structure is allowed color. Three axes,
+// packed 1 + 2: the grid takes the full width on top, the two encoder axes
+// share the row beneath it, which is the shape of the two knobs below.
+const LEGEND_Y: [i16; 2] = [253, 286];
 const BTN_H: i16 = 26;
 const BTN_MARGIN: i16 = 6;
 const BTN_GAP: i16 = 8;
 const BTN_SHADOW: i16 = 3;
-const BTN_W: i16 = (DISPLAY_W - 2 * BTN_MARGIN - 2 * BTN_GAP - BTN_SHADOW) / 3;
+const BTN_W_FULL: i16 = DISPLAY_W - 2 * BTN_MARGIN - BTN_SHADOW;
+const BTN_W_HALF: i16 = (DISPLAY_W - 2 * BTN_MARGIN - BTN_GAP - BTN_SHADOW) / 2;
 const ICON_SIZE: i16 = 10;
 const ICON_LABEL_GAP: i16 = 6;
+
+/// Where a legend column's slab sits: x, y, width.
+const fn legend_box(col: i16) -> (i16, i16, i16) {
+    match col {
+        0 => (BTN_MARGIN, LEGEND_Y[0], BTN_W_FULL),
+        1 => (BTN_MARGIN, LEGEND_Y[1], BTN_W_HALF),
+        _ => (BTN_MARGIN + BTN_W_HALF + BTN_GAP, LEGEND_Y[1], BTN_W_HALF),
+    }
+}
 
 // ============ Ticker animation ============
 
@@ -437,29 +463,6 @@ fn draw_selection_bar(text: &str, ticker_slot: usize, hint: &str, hint_color: u1
                  &FONT_LARGE, TICKER_PAUSE_FRAMES);
 }
 
-/// Loop progress as a scrollbar track: dithered ground, a darker filled
-/// region, and a hard playhead.
-fn draw_transport(s: &EngineState) {
-    let ch = s.current_channel as usize;
-    let pat = s.current_patterns[ch] as usize;
-    let loop_data = &s.loops[ch][pat];
-    let len = loop_data.length.max(1);
-    let raw = if s.resume_tick >= 0 { s.resume_tick } else { s.current_tick };
-    let pos = if raw >= 0 { ((raw - loop_data.start) % len + len) % len } else { 0 };
-
-    let x = PAD_X;
-    let w = CONTENT_RIGHT - PAD_X;
-    gfx_dither_rect(x, TRANSPORT_Y, w, TRANSPORT_H, 4, GFX_INK, GFX_GROUND);
-    gfx_frame(x, TRANSPORT_Y, w, TRANSPORT_H, GFX_INK);
-
-    let played = ((pos as i64 * (w - 2) as i64) / len as i64) as i16;
-    gfx_dither_rect(x + 1, TRANSPORT_Y + 1, played, TRANSPORT_H - 2, 8, GFX_INK, GFX_GROUND);
-
-    let px = x + 1 + played;
-    gfx_fill_rect(px - 3, TRANSPORT_Y - 2, 8, TRANSPORT_H + 4, GFX_INK);
-    gfx_fill_rect(px, TRANSPORT_Y + 2, 2, TRANSPORT_H - 4, GFX_GROUND);
-}
-
 /// Draw label + value on a full-width row
 fn draw_row(y: i16, label: &str, value: &str, val_color: u16) {
     draw_field(PAD_X, CONTENT_W, y, label, value, val_color);
@@ -555,9 +558,9 @@ static COF_ORDER: [u8; 12] = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 /// An anti-aliased ring has no 1-bit equivalent, but a hairline circle with
 /// hard ticks is exactly what this panel draws well.
 fn draw_circle_of_fifths(s: &EngineState, active: bool) {
-    let cx: i16 = (CONTENT_RIGHT + DISPLAY_W) / 2 + 2;
-    let cy: i16 = TITLE_H + 66;
-    let r: i16 = 46;
+    let cx: i16 = DISPLAY_W / 2;
+    let cy: i16 = DIAL_CY;
+    let r: i16 = DIAL_R;
 
     gfx_circle(cx, cy, r, GFX_INK);
 
@@ -588,11 +591,15 @@ fn draw_circle_of_fifths(s: &EngineState, active: bool) {
 
     // Root name in an inverted chip at the center
     let root_name = NOTE_NAMES[root];
-    let font = &FONT_COF;
+    // The chip scales with the ring: a letter sized for the old radius crowds
+    // the ticks at this one, so the widget shrinks as a whole.
+    let font = &FONT_LARGE;
     let kw = gfx_text_width(root_name, font);
     let fill = if active { GFX_AXIS_LR } else { GFX_INK };
-    gfx_fill_rect(cx - kw / 2 - 6, cy - 18, kw + 12, 36, fill);
-    gfx_text_center(cx, cy - 15, root_name, gfx_ink_on(fill), font);
+    let h = DIAL_CHIP_H;
+    gfx_fill_rect(cx - kw / 2 - 6, cy - h / 2, kw + 12, h, fill);
+    gfx_text_center(cx, cy - h / 2 + (h - gfx_font_height(font)) / 2, root_name,
+                    gfx_ink_on(fill), font);
 }
 
 // ============ Bottom bar icons (10x10px) ============
@@ -644,22 +651,22 @@ fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
         return;
     }
 
-    let x = BTN_MARGIN + col * (BTN_W + BTN_GAP);
+    let (x, y, w) = legend_box(col);
     let fill = fill_for(color);
     let ink = gfx_ink_on(fill);
 
     // Hard offset shadow, 1px outline, and a second ring on the grid button —
     // System 6 depth, none of which needs a tone to work.
-    gfx_fill_rect(x + BTN_SHADOW, LEGEND_Y + BTN_SHADOW, BTN_W, BTN_H, GFX_INK);
-    gfx_fill_rect(x, LEGEND_Y, BTN_W, BTN_H, fill);
-    gfx_frame(x, LEGEND_Y, BTN_W, BTN_H, GFX_INK);
+    gfx_fill_rect(x + BTN_SHADOW, y + BTN_SHADOW, w, BTN_H, GFX_INK);
+    gfx_fill_rect(x, y, w, BTN_H, fill);
+    gfx_frame(x, y, w, BTN_H, GFX_INK);
     let is_default = icon_type == 0;
     if is_default {
-        gfx_frame(x + 3, LEGEND_Y + 3, BTN_W - 6, BTN_H - 6, ink);
+        gfx_frame(x + 3, y + 3, w - 6, BTN_H - 6, ink);
     }
 
     let icon_x = x + if is_default { 9 } else { 7 };
-    let icon_y = LEGEND_Y + (BTN_H - ICON_SIZE) / 2;
+    let icon_y = y + (BTN_H - ICON_SIZE) / 2;
     match icon_type {
         0 => draw_icon_grid_button(icon_x, icon_y, ink),
         1 => draw_icon_ud_carets(icon_x, icon_y, ink),
@@ -668,9 +675,9 @@ fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
     }
 
     let text_x = icon_x + ICON_SIZE + ICON_LABEL_GAP;
-    let text_y = LEGEND_Y + (BTN_H - gfx_font_height(&FONT_MEDIUM)) / 2;
+    let text_y = y + (BTN_H - gfx_font_height(&FONT_MEDIUM)) / 2;
     // No initial pause: button text only appears while modifiers are held.
-    draw_marquee(4 + col as usize, text_x, x + BTN_W - 5, text_y, label, ink, &FONT_MEDIUM, 0);
+    draw_marquee(4 + col as usize, text_x, x + w - 5, text_y, label, ink, &FONT_MEDIUM, 0);
 }
 
 
@@ -761,9 +768,6 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
 
     // ---- Scale interval visualization ----
     draw_scale_dots(s, cmd_only);
-
-    // ---- Loop progress ----
-    draw_transport(s);
 
     // ---- Circle of fifths (right panel) ----
     if !is_drum {

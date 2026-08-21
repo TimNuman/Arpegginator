@@ -1,6 +1,6 @@
 import { css } from "@emotion/react";
 import { bevelIn, bevelOut, cavityIn, caption, chrome, moulded } from "../../theme/chrome";
-import { dims, panelButtonCenter, px } from "../../theme/dimensions";
+import { dims, panelLegendCenter, px } from "../../theme/dimensions";
 
 export const gridOuterContainerStyles = css`
   display: flex;
@@ -114,6 +114,9 @@ export const modifierKeyLatchedStyles = css`
 export const oledContainerStyles = css`
   display: flex;
   align-items: flex-start;
+  /* Runs the full height of the keybed so the column's last row can settle on
+     the same bottom line as the modifier keys across the case. */
+  align-self: stretch;
   /* DISP_X on the board: the module sits 3 mm right of the grid */
   margin-left: ${dims.displayGap - (dims.pitch - dims.capW)}px;
 `;
@@ -122,16 +125,17 @@ export const oledColumnStyles = css`
   display: flex;
   flex-direction: column;
   align-items: center;
+  height: 100%;
 `;
 
 /** The panel, dropped into a recess in the top shell behind a moulded bezel.
     No inner glow — a reflective LCD is lit by the room, not from behind. */
 export const oledScreenStyles = css`
   /* Border-box sizing means the bezel eats the content box, so the panel is
-     stated at 400x240 plus its 10px bezel on each side. Anything less and the
+     stated at 240x320 plus its bezel on each side. Anything less and the
      canvas resamples a 1-bit image to a fractional scale. */
-  width: ${320 + 2 * dims.bezelX}px;
-  height: ${240 + 2 * dims.bezelY}px;
+  width: ${240 + 2 * dims.bezelX}px;
+  height: ${320 + 2 * dims.bezelY}px;
   background: #cfd6cb;
   /* Two-value widths need the longhand — the border shorthand takes one */
   border-width: ${dims.bezelY}px ${dims.bezelX}px;
@@ -146,17 +150,16 @@ export const oledScreenStyles = css`
   overflow: hidden;
 `;
 
-/** The panel draws its three buttons at x=8, 138 and 268, each 120 wide, so
-    their centres land at 68 / 198 / 328 in canvas pixels — plus the 10px bezel
-    to get to the display's outer edge. The two knobs (80px) sit under the
-    yellow and magenta ones: 208-40=168, then 338-40-80=50 of gap. */
+/** The panel packs its legend 1 + 2, so the two encoder axes are the pair on
+    the bottom row — slab centres at 60 and 176 in panel pixels. Each knob sits
+    under the slab it drives, measured from the display's outer edge. */
 export const encoderRowStyles = css`
   display: flex;
   align-self: flex-start;
   /* Each knob centred under the panel button it drives, measured from the
      display's outer edge: bezel + the button's centre in panel pixels. */
-  margin-left: ${dims.bezelX + panelButtonCenter(1) - dims.encoder / 2}px;
-  gap: ${panelButtonCenter(2) - panelButtonCenter(1) - dims.encoder}px;
+  margin-left: ${dims.bezelX + panelLegendCenter(1) - dims.encoder / 2}px;
+  gap: ${panelLegendCenter(2) - panelLegendCenter(1) - dims.encoder}px;
   margin-top: ${px(4)}px;
   align-items: flex-start;
 `;
@@ -164,12 +167,15 @@ export const encoderRowStyles = css`
 /** Transport keys sit on the case below the knobs, spaced like the grid and
     centred on the pair above them. */
 const keyRowWidth = 3 * dims.capW + 2 * (dims.pitch - dims.capW);
-const knobGroupCenter = dims.bezelX + (panelButtonCenter(1) + panelButtonCenter(2)) / 2;
+const knobGroupCenter = dims.bezelX + (panelLegendCenter(1) + panelLegendCenter(2)) / 2;
 
 export const transportKeysContainerStyles = css`
   display: flex;
   align-self: flex-start;
   gap: ${dims.pitch - dims.capW}px;
-  margin-top: ${px(4)}px;
+  /* Pushed to the foot of the column: the portrait module is tall enough that
+     this row lands level with the modifier keys on the other side of the case,
+     which is the one horizontal line the whole instrument can share. */
+  margin-top: auto;
   margin-left: ${knobGroupCenter - keyRowWidth / 2}px;
 `;

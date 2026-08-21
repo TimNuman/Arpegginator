@@ -33,8 +33,12 @@ pub struct BitFont {
 
 // ============ Framebuffer ============
 
-pub const GFX_WIDTH: usize = 320;
-pub const GFX_HEIGHT: usize = 240;
+// The module mounts on its side, so the buffer is portrait-native and every
+// primitive above it is authored in portrait. A driver pushing this to the
+// panel transposes on the way out — the panel's line order is fixed in
+// silicon, the coordinate system the UI is drawn in is not.
+pub const GFX_WIDTH: usize = 240;
+pub const GFX_HEIGHT: usize = 320;
 
 pub const fn gfx_rgb565(r: u8, g: u8, b: u8) -> u16 {
     ((r as u16 & 0xF8) << 8) | ((g as u16 & 0xFC) << 3) | ((b as u16 & 0xF8) >> 3)

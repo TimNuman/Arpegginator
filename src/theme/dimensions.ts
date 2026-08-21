@@ -22,12 +22,14 @@ export const mm = {
   /** The touch strips are one button wide */
   sliderW: 18,
 
-  /** JDI LPM044M141A — 4.4" colour memory LCD, 320 x 240 */
-  displayModuleW: 92.664,
-  displayModuleH: 72.748,
-  /** Active area: 320 x 240 at a 0.2802 mm pixel pitch */
-  displayActiveW: 89.664,
-  displayActiveH: 67.248,
+  /** JDI LPM044M141A — 4.4" colour memory LCD, mounted on its side so the
+      panel is 240 x 320. Rotating it takes ~20 mm off the case width, because
+      the module is the widest thing in the right-hand column. */
+  displayModuleW: 72.748,
+  displayModuleH: 92.664,
+  /** Active area: 240 x 320 at a 0.2802 mm pixel pitch */
+  displayActiveW: 67.248,
+  displayActiveH: 89.664,
   /** The module sits 3 mm to the right of the grid */
   displayGap: 3.0,
 
@@ -69,7 +71,7 @@ export const mm = {
  * part never managed. Lower this to shrink the device further; the
  * proportions hold either way.
  */
-export const PX_PER_MM = 320 / mm.displayActiveW;
+export const PX_PER_MM = 240 / mm.displayActiveW;
 
 /** Millimetres to CSS pixels. */
 export const px = (v: number) => v * PX_PER_MM;
@@ -114,10 +116,27 @@ export const dims = {
 } as const;
 
 /**
- * Where the panel draws its three modifier buttons, in panel pixels — these
- * mirror BTN_MARGIN / BTN_W / BTN_GAP in engine/src/oled_screen.rs. The knobs
- * on the case line up with them, so the two have to agree.
+ * Where the panel draws its three modifier slabs, in panel pixels — these
+ * mirror legend_box() in engine/src/oled_screen.rs. The knobs on the case line
+ * up with the two on the bottom row, so the two have to agree.
+ *
+ * Packed 1 + 2: the grid axis takes the full width on top, the two encoder
+ * axes share the row beneath, which is the shape of the two knobs below.
  */
-export const panelButton = { margin: 6, width: 96, gap: 8 } as const;
-export const panelButtonCenter = (i: number) =>
-  panelButton.margin + i * (panelButton.width + panelButton.gap) + panelButton.width / 2;
+const PANEL_W = 240;
+export const panelLegend = {
+  margin: 6,
+  gap: 8,
+  shadow: 3,
+  full: PANEL_W - 2 * 6 - 3,
+  // Integer division, to land on the same pixel the engine does
+  half: Math.floor((PANEL_W - 2 * 6 - 8 - 3) / 2),
+} as const;
+
+/** Centre of legend slab `col` in panel pixels. */
+export const panelLegendCenter = (col: number) =>
+  col === 0
+    ? panelLegend.margin + panelLegend.full / 2
+    : col === 1
+      ? panelLegend.margin + panelLegend.half / 2
+      : panelLegend.margin + panelLegend.half + panelLegend.gap + panelLegend.half / 2;
