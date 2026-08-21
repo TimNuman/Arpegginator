@@ -35,13 +35,18 @@ export const chrome = {
   cavity: "#33322e",
   cavityDeep: "#1b1a17",
 
-  /** Kailh Choc v1 Red: black nylon bottom housing under a clear top, with a
-      red stem sitting right in the middle of the cap. It is the one coloured
-      part you see through a transparent cap, and it is close enough to the
-      LED window to catch the light and glow with it. */
-  stem: "#a8302a",
-  stemLow: "#6e1e1a",
-  stemLit: "#e0574a",
+  /** Kailh Choc v1 White: black nylon bottom housing under a clear top, with
+      a white stem in the middle of the cap. It is the one bright part you see
+      through a transparent cap, and being white it takes on whatever colour
+      the LED 4.7 mm north of it is driving. */
+  stem: "#eceae3",
+  stemLow: "#b8b6ae",
+
+  /** White PBT Choc keycap: cooler and flatter than the case's ivory ABS,
+      and matte where the case is faintly glossy. */
+  keycapTop: "#f4f3ef",
+  keycapMid: "#e4e3dd",
+  keycapLow: "#c6c5be",
 
   ink: "#2b2a26",
   /** Screen-printed legends: pad-printed grey, never pure black */

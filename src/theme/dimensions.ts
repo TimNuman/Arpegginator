@@ -50,9 +50,6 @@ export const mm = {
   /** Cap wall thickness — the part that pipes light out to the edges */
   capWall: 1.0,
 
-  /** OP-1-style cap: a milky diffuser disc over a centred emitter */
-  diffuser: 7.5,
-
   /** Knob for a panel-mount encoder (6 mm shaft). The panel's buttons are
       29.1 mm apart on the 4.4", so a standard 20 mm knob clears its
       neighbour with room to spare. */
@@ -108,7 +105,6 @@ export const dims = {
   ledW: px(mm.ledW),
   ledH: px(mm.ledH),
   capWall: px(mm.capWall),
-  diffuser: px(mm.diffuser),
 } as const;
 
 /**

@@ -4,12 +4,6 @@ import { rowStyles } from "./ButtonGrid.styles";
 import { dims } from "../../theme/dimensions";
 import { chrome } from "../../theme/chrome";
 
-/** A chrome hex token at an explicit alpha, for washing light over a part. */
-const hexAt = (hex: string, alpha: number): string => {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha.toFixed(3)})`;
-};
-
 /** The engine's ARGB at an explicit alpha, for layering light through the cap. */
 const argbAt = (argb: number, alpha: number): string =>
   `rgba(${(argb >> 16) & 0xff}, ${(argb >> 8) & 0xff}, ${argb & 0xff}, ${alpha.toFixed(3)})`;
@@ -24,12 +18,9 @@ const HOUSING_INSET_Y = (dims.capH - dims.switchBody) / 2;
 
 const layer: React.CSSProperties = { position: "absolute", pointerEvents: "none" };
 
-export type CapStyle = "clear" | "diffuser" | "diffuserNorth";
-
-/** Disc centre: over the switch centre, or over the LED window that actually
-    exists 4.7 mm north of it. */
-const discTop = (centred: boolean) =>
-  (centred ? dims.capH / 2 : dims.capH / 2 + dims.ledOffsetY) - dims.diffuser / 2;
+/** The two caps that are actually in the parts box: white transparent, and
+    the opaque white PBT. */
+export type CapStyle = "clear" | "white";
 
 interface GridButtonCellProps {
   row: number;
@@ -41,14 +32,19 @@ interface GridButtonCellProps {
 }
 
 /**
- * A Kailh Choc v1 under a transparent keycap, seen from above.
+ * A Kailh Choc v1 White under one of the two caps on the shelf, from above.
  *
- * Through clear plastic you see the switch itself, so it is all drawn: the
- * 15 mm housing the cap overhangs, the two stem rails a Choc mounts on, and
- * the SK6812MINI-E in the north LED window. The light is layered the way it
- * actually behaves — a hotspot over the emitter, a wash that falls off toward
- * the bottom of the cap, the walls piping light out to the cap's edges, and a
- * bloom onto the keywell floor around it.
+ * Under the transparent cap you see the switch itself, so it is all drawn:
+ * the 15 mm housing the cap overhangs, the two white stem rails a Choc mounts
+ * on, and the SK6812MINI-E in the north LED window. The light is layered the
+ * way it actually behaves — a hotspot over the emitter, a wash falling off
+ * toward the bottom of the cap, the walls piping light out to the edges, and
+ * a bloom onto the keywell floor.
+ *
+ * Under the opaque white PBT you see none of that. PBT is not a light pipe,
+ * so all that comes through is a soft glow where the wall is thinnest, still
+ * sitting north of centre because that is where the emitter is, plus what
+ * escapes around the cap into the keywell.
  */
 const GridButtonCell = memo(
   ({ row, col, color, capStyle, onPress, onDragEnter }: GridButtonCellProps) => {
@@ -99,38 +95,39 @@ const GridButtonCell = memo(
             .join(", "),
         }}
       >
-        {capStyle !== "clear" ? (
+        {capStyle === "white" ? (
           <>
-            {/* Opaque cap, milky disc, emitter centred under it. A Choc v1's
-              3.45 mm alignment post occupies that exact spot, so this needs
-              the post clipped and the LED in a centre cutout. */}
+            {/* Opaque white PBT: the switch disappears behind it. Dished top
+              face, lit lip, shade closing under the far edge. */}
             <div
               style={{
                 ...layer,
                 inset: 0,
-                background: "linear-gradient(180deg, #35342f, #232320)",
-              }}
-            />
-            <div
-              style={{
-                ...layer,
-                left: dims.capW / 2 - dims.diffuser / 2,
-                top: discTop(capStyle === "diffuser"),
-                width: dims.diffuser,
-                height: dims.diffuser,
-                borderRadius: "50%",
-                background: lit
-                  ? `radial-gradient(circle at 50% 42%, ${argbAt(color, Math.min(1, 0.75 + a))} 0%, ${argbAt(color, 0.85 * a)} 55%, ${argbAt(color, 0.55 * a)} 100%)`
-                  : "linear-gradient(180deg, #d8d5cb, #b4b1a6)",
+                background: `linear-gradient(160deg, ${chrome.keycapTop} 0%, ${chrome.keycapMid} 55%, ${chrome.keycapLow} 100%)`,
                 boxShadow: [
-                  "inset 0 1px 1px rgba(255,255,255,0.55)",
-                  "inset 0 -1px 2px rgba(0,0,0,0.35)",
-                  lit ? `0 0 ${Math.round(9 * a)}px ${argbAt(color, 0.85 * a)}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(", "),
+                  "inset 0 1px 0 rgba(255,255,255,0.85)",
+                  "inset 0 -2px 3px rgba(0,0,0,0.16)",
+                ].join(", "),
               }}
             />
+
+            {/* What little the plastic passes. PBT is a poor diffuser, so this
+              is a soft bloom rather than a lit pad, and it keeps the emitter's
+              northward offset instead of pretending to be centred. */}
+            {lit && (
+              <div
+                style={{
+                  ...layer,
+                  inset: 0,
+                  background: `radial-gradient(ellipse 62% 54% at 50% ${LED_CENTER_PCT.toFixed(
+                    1,
+                  )}%, ${argbAt(color, 0.5 * a)} 0%, ${argbAt(color, 0.28 * a)} 40%, ${argbAt(
+                    color,
+                    0.1 * a,
+                  )} 72%, transparent 100%)`,
+                }}
+              />
+            )}
           </>
         ) : (
           <>
@@ -149,9 +146,8 @@ const GridButtonCell = memo(
             />
 
             {/* Keycap mounts on two rails, not a cross stem. These are Choc
-          Reds, so the rails are red nylon — the only coloured part of the
-          switch, sitting 4.7 mm south of the emitter where they pick its
-          light up and glow with it. */}
+          Whites, so the rails are white — the brightest thing under the cap,
+          sitting 4.7 mm south of the emitter and taking on its colour. */}
             {[-1, 1].map((side) => (
               <div
                 key={side}
@@ -162,18 +158,16 @@ const GridButtonCell = memo(
                   width: dims.stemW,
                   height: dims.stemH,
                   borderRadius: 1,
-                  // The red is always there; what the LED adds is a wash over
-                  // it that has to track how hard the emitter is actually
-                  // driven, or a barely-lit pad glows as brightly as a full one.
+                  // White plastic near a driven emitter does not stay white.
+                  // The wash tracks how hard that channel is actually driven,
+                  // or a barely-lit pad glows as brightly as a full one.
                   background: lit
-                    ? `linear-gradient(180deg, ${hexAt(chrome.stemLit, 0.9 * a)}, ${hexAt(
-                        chrome.stemLit,
-                        0.35 * a,
+                    ? `linear-gradient(180deg, ${argbAt(color, 0.85 * a)}, ${argbAt(
+                        color,
+                        0.4 * a,
                       )}), linear-gradient(180deg, ${chrome.stem}, ${chrome.stemLow})`
                     : `linear-gradient(180deg, ${chrome.stem}, ${chrome.stemLow})`,
-                  boxShadow: lit
-                    ? `0 0 ${Math.round(5 * a)}px ${hexAt(chrome.stemLit, 0.7 * a)}`
-                    : "none",
+                  boxShadow: lit ? `0 0 ${Math.round(5 * a)}px ${argbAt(color, 0.6 * a)}` : "none",
                 }}
               />
             ))}
@@ -216,13 +210,17 @@ const GridButtonCell = memo(
           />
         )}
 
-        {/* Specular sheen on the cap's top face, above everything it covers */}
+        {/* Sheen on the cap's top face, above everything it covers. The
+            transparent cap is glossy PC; the PBT is matte and barely catches
+            anything, so it gets a fraction of it. */}
         <div
           style={{
             ...layer,
             inset: 0,
             background:
-              "linear-gradient(150deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 26%, rgba(255,255,255,0) 52%)",
+              capStyle === "white"
+                ? "linear-gradient(150deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0) 58%)"
+                : "linear-gradient(150deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 26%, rgba(255,255,255,0) 52%)",
           }}
         />
       </div>
@@ -243,7 +241,7 @@ interface ButtonGridProps {
   onDragEnter: (row: number, col: number) => void;
   /** Called when mouse/touch is released */
   onRelease: () => void;
-  /** Which cap is fitted — clear over the switch, or an OP-1-style disc */
+  /** Which cap is fitted — white transparent, or opaque white PBT */
   capStyle: CapStyle;
 }
 

@@ -75,9 +75,8 @@ export const HostControls = ({
     <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
       Caps
       <select value={capStyle} onChange={(e) => onCapStyleChange(e.target.value as CapStyle)}>
-        <option value="clear">Clear over Choc</option>
-        <option value="diffuser">Milky disc, centred LED</option>
-        <option value="diffuserNorth">Milky disc over the real LED</option>
+        <option value="clear">Clear</option>
+        <option value="white">White</option>
       </select>
     </label>
 
