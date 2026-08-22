@@ -45,14 +45,24 @@ export const verticalStripContainerStyles = css`
 
 export const horizontalStripContainerStyles = css`
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: ${dims.pitch - dims.capW}px;
   padding: 0 ${dims.capMarginX + 1}px;
 `;
 
 export const modifierKeysContainerStyles = css`
   display: flex;
   gap: ${dims.pitch - dims.capW}px;
+  /* One key left of the grid: the hold-keys start on the touch strip's column,
+     which is the outer edge of the whole control area, not on grid column 0. */
+  margin-left: -${dims.sliderThickness + (dims.pitch - dims.capW) + dims.capMarginX + 1}px;
+`;
+
+/** Space bar: nominally four keys, but it grows into whatever is left between
+    the hold-keys and the strip, so the strip stays locked to the grid's right
+    edge whatever the row does on the left. */
+export const spaceBarStyles = css`
+  flex: 1;
 `;
 
 /** Hold-keys: milky plastic, raised, and they physically go down when held.
