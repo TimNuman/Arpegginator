@@ -167,16 +167,20 @@ fn fig_stack(stack: i16, repeat: i16) {
 /// drop to dither and the gaps get counted instead. One yellow dot per note up
 /// the first column, one magenta dot per sixteenth along the bottom row: the gap
 /// is built out of the value rather than drawn to a length and then labelled.
-fn fig_spacing(stack_notes: i16, repeat_sixteenths: i16) {
+fn fig_spacing(stack_notes: i16, blocks: i16, per_col: i16) {
     const DOT: i16 = 3;
     const PITCH: i16 = 9;
     const PAD: i16 = (PITCH - DOT) / 2;
+    const BLK: i16 = 4;
+    const BLK_GAP_Y: i16 = 1;
+    const COL_PITCH: i16 = 8;
     const BW: i16 = 42;
     const BH: i16 = 22;
     const ROWS: i16 = 3;
     const COLS: i16 = 2;
+    let cols = (blocks + per_col - 1) / per_col;
     let stack_gap = stack_notes * PITCH;
-    let repeat_gap = repeat_sixteenths * PITCH;
+    let repeat_gap = cols * COL_PITCH + 6;
     let grid_w = COLS * BW + repeat_gap;
     let grid_h = ROWS * BH + (ROWS - 1) * stack_gap;
     let ox = CX - grid_w / 2;
@@ -184,8 +188,10 @@ fn fig_spacing(stack_notes: i16, repeat_sixteenths: i16) {
     let bx = |k: i16| ox + k * (BW + repeat_gap);
     let by = |r: i16| oy - (r + 1) * BH - r * stack_gap;
 
-    // One ruler each, on the edge the value runs along. Marking every gap said
-    // the same thing four times over.
+    // One ruler each, on the edge the value runs along. The stack is a count of
+    // notes, so it counts in dots; the repeat is a duration, so it counts in
+    // sixty-fourths stacked four to a sixteenth — three when the value is a
+    // triplet, which is how a triplet has always been drawn.
     let sx = bx(0) + BW / 2 - 1;
     (0..ROWS - 1).for_each(|r| {
         let top = by(r + 1) + BH;
@@ -193,11 +199,15 @@ fn fig_spacing(stack_notes: i16, repeat_sixteenths: i16) {
             gfx_fill_rect(sx, top + d * PITCH + PAD, DOT, DOT, GFX_AXIS_UD);
         });
     });
-    let ry = by(0) + BH / 2 - 1;
-    (0..repeat_sixteenths).for_each(|d| {
-        gfx_fill_rect(bx(0) + BW + d * PITCH + PAD, ry, DOT, DOT, GFX_AXIS_LR);
+    let ry = by(0) + BH / 2;
+    (0..cols).for_each(|c| {
+        let n = (blocks - c * per_col).min(per_col);
+        let h = n * BLK + (n - 1) * BLK_GAP_Y;
+        let x = bx(0) + BW + 3 + c * COL_PITCH;
+        (0..n).for_each(|b| {
+            gfx_fill_rect(x, ry - h / 2 + b * (BLK + BLK_GAP_Y), BLK, BLK, GFX_AXIS_LR);
+        });
     });
-
     (0..ROWS).for_each(|r| {
         (0..COLS).for_each(|k| {
             gfx_dither_rect(bx(k), by(r), BW, BH, 8, GFX_INK, GFX_GROUND);
@@ -256,7 +266,7 @@ fn arp_path(style: u8, voices: i16, out: &mut [i16; 12]) -> usize {
 /// per event, and each move a straight arrow on a fixed 2:1 stair. Yellow,
 /// because the style is what the yellow encoder shapes: the arrows are the
 /// parameter, not a join between two marks.
-fn fig_arp(style: u8, voices: i16) {
+fn fig_arp(style: u8, voices: i16, offset: i16) {
     const STEP_W: i16 = 28;
     const LANE: i16 = 2 * STEP_W; // a one-lane move lands on 2:1 exactly
     let lanes = voices.max(2).min(4);
@@ -265,7 +275,8 @@ fn fig_arp(style: u8, voices: i16) {
 
     let lx = SQ_X + 22;
     let lw = SQ_S - 44;
-    let oy = CY - (lanes - 1) * LANE / 2;
+    // The lanes ride high enough to leave the offset its own row underneath.
+    let oy = CY - (lanes - 1) * LANE / 2 - 20;
     (0..lanes).for_each(|i| {
         gfx_dither_rect(lx, oy + (lanes - 1 - i) * LANE, lw, 1, 8, GFX_INK, GFX_GROUND);
     });
@@ -287,6 +298,29 @@ fn fig_arp(style: u8, voices: i16) {
     (0..len).for_each(|i| {
         gfx_fill_rect(px(i) - 9, py(buf[i]) - 9, 19, 19, GFX_GROUND);
         gfx_fill_rect(px(i) - 5, py(buf[i]) - 5, 11, 11, GFX_INK);
+    });
+
+    draw_offset(py(0) + 30, offset);
+}
+
+/// The offset is a rotation: how many places the path starts along from the
+/// root. Drawn as that many chevrons on their own row below the lanes, in the
+/// colour of the encoder that turns them, pointing the way they shift.
+fn draw_offset(y: i16, offset: i16) {
+    if offset == 0 {
+        return;
+    }
+    const PITCH: i16 = 14;
+    const W: i16 = 8;
+    let n = offset.abs().min(8);
+    let dir = if offset < 0 { -1 } else { 1 };
+    let x0 = CX - (n * PITCH - (PITCH - W)) / 2;
+    (0..n).for_each(|k| {
+        let x = x0 + k * PITCH;
+        (0..W).for_each(|i| {
+            let xi = if dir > 0 { x + i } else { x + W - 1 - i };
+            gfx_vline(xi, y - 7 + i, 15 - 2 * i, GFX_AXIS_LR);
+        });
     });
 }
 
@@ -415,10 +449,21 @@ pub fn screen_stack(ev: &NoteEvent) {
 }
 
 pub fn screen_spacing(ev: &NoteEvent) {
-    let sixteenth = TICKS_PER_QUARTER / 4;
-    let dots = ((ev.repeat_space / sixteenth.max(1)) as i16).max(1).min(8);
+    // A block is a sixty-fourth and four of them stack into a sixteenth, so a
+    // 1/8 draws as two full columns. A triplet value counts in thirds instead
+    // and stacks three, which is the mark that says triplet without a letter.
+    const SIXTYFOURTH: i32 = TICKS_PER_QUARTER / 16;
+    const SIXTEENTH: i32 = TICKS_PER_QUARTER / 4;
+    const SIXTEENTH_TRIPLET: i32 = TICKS_PER_QUARTER / 6;
+    let t = ev.repeat_space.max(0);
+    let (blocks, per_col) = if t > 0 && t % SIXTEENTH != 0 && t % SIXTEENTH_TRIPLET == 0 {
+        (((t / SIXTEENTH_TRIPLET) * 3) as i16, 3)
+    } else {
+        ((t / SIXTYFOURTH) as i16, 4)
+    };
+    let blocks = blocks.max(1).min(40);
     let notes = (ev.chord_space as i16).max(1).min(8);
-    fig_spacing(notes, dots);
+    fig_spacing(notes, blocks, per_col);
     let mut a = FmtBuf::<8>::new();
     let _ = write!(a, "{}", ev.chord_space);
     let b = ticks_to_canonical_name(ev.repeat_space);
@@ -426,7 +471,7 @@ pub fn screen_spacing(ev: &NoteEvent) {
 }
 
 pub fn screen_arp(ev: &NoteEvent) {
-    fig_arp(ev.arp_style, ev.chord_amount as i16);
+    fig_arp(ev.arp_style, ev.chord_amount as i16, ev.arp_offset as i16);
     let style = *ARP_STYLE_NAMES.get(ev.arp_style as usize).unwrap_or(&"CHD");
     let mut off = FmtBuf::<8>::new();
     let sign = if ev.arp_offset > 0 { "+" } else { "" };
