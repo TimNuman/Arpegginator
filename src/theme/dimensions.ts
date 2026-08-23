@@ -22,12 +22,14 @@ export const mm = {
   /** The touch strips are one button wide */
   sliderW: 18,
 
-  /** JDI LPM044M141A — 4.4" colour memory LCD, mounted on its side so the
-      panel is 240 x 320. Rotating it takes ~20 mm off the case width, because
-      the module is the widest thing in the right-hand column. */
+  /** JDI LPM044M141A — 4.4" reflective colour memory LCD, mounted on its side.
+      Rotating it takes ~20 mm off the case width, because the module is the
+      widest thing in the right-hand column. */
   displayModuleW: 72.748,
   displayModuleH: 92.664,
-  /** Active area: 240 x 320 at a 0.2802 mm pixel pitch */
+  /** Active area. The glass is 640x480 at a 0.1401 mm pitch; the UI is drawn
+      at 240x320 and lands as 2x2 blocks, which is what makes a 5x8 label
+      2.2 mm tall instead of 1.1 mm. So a UI pixel is 0.2802 mm. */
   displayActiveW: 67.248,
   displayActiveH: 89.664,
   /** The module sits 3 mm to the right of the grid */

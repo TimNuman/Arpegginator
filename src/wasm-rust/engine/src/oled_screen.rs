@@ -15,10 +15,11 @@ const CH_DRUM: u8 = ChannelType::Drum as u8;
 
 // ============ Layout constants (240×320) ============
 //
-// The panel is a JDI LPM044M141A: 4.4", 320x240 over 89.66 x 67.25 mm, so a
-// pixel is 0.28 mm — nearly twice the 2.7" part's. Everything is physically
-// larger at the same pixel size, which is why labels can drop to a 5x8 face
-// and still read: 5x8 here is bigger on the glass than 6x12 was there.
+// The panel is a JDI LPM044M141A: 4.4", 640x480 over 89.66 x 67.25 mm. The UI
+// is drawn at half that and blitted as 2x2 blocks, so a UI pixel is 0.28 mm —
+// nearly twice the 2.7" part's. Everything is physically larger at the same
+// pixel size, which is why labels can drop to a 5x8 face and still read: 5x8
+// here is bigger on the glass than 6x12 was there.
 //
 // The module mounts on its side, so the UI is 240 wide by 320 tall. Nothing is
 // reserved sideways any more: the dial stacks under the content instead of
