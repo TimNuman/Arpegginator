@@ -130,6 +130,129 @@ fn arrow_to(x0: i16, y0: i16, x1: i16, y1: i16, clear: i16, head: i16, half: i16
     arrow_head(x1 as f32 - ux * c, y1 as f32 - uy * c, ux, uy, head as f32, half as f32, col);
 }
 
+// ============ Notation ============
+
+/// Rests, drawn as rests. A count of blocks told you how long the gap was but
+/// not what it was; the symbol a player already reads does both, and the slab
+/// beside it still carries the fraction for anyone who wants the number.
+struct Rest {
+    w: i16,
+    rows: &'static [u8],
+}
+
+static REST_QUARTER: Rest = Rest {
+    w: 7,
+    rows: &[
+        0b0011100, 0b0111000, 0b1110000, 0b0110000, 0b0011000, 0b0001100, 0b0011100,
+        0b0111100, 0b1111110, 0b1100110, 0b1000110, 0b0011100, 0b0011000, 0b0110000,
+    ],
+};
+static REST_EIGHTH: Rest = Rest {
+    w: 7,
+    rows: &[
+        0b1110011, 0b1110111, 0b0110110, 0b0000110, 0b0001100, 0b0001100, 0b0011000,
+        0b0011000, 0b0110000, 0b0110000, 0b1100000,
+    ],
+};
+static REST_SIXTEENTH: Rest = Rest {
+    w: 7,
+    rows: &[
+        0b1110011, 0b1110111, 0b0110110, 0b0000110, 0b0001100, 0b1101100, 0b1101100,
+        0b0111000, 0b0011000, 0b0011000, 0b0110000, 0b0110000, 0b1100000,
+    ],
+};
+static REST_THIRTYSECOND: Rest = Rest {
+    w: 7,
+    rows: &[
+        0b1110011, 0b1110111, 0b0110110, 0b0000110, 0b1101100, 0b1101100, 0b0111000,
+        0b1101100, 0b1101100, 0b0111000, 0b0011000, 0b0110000, 0b0110000, 0b1100000,
+    ],
+};
+
+/// Blitted at 2x. A rest drawn one pixel to the pixel is a smudge at this
+/// size; doubled it is a symbol, and doubling suits a panel whose every other
+/// mark is already blocky.
+fn blit_rest(r: &Rest, x: i16, y: i16, sc: i16, col: u16) {
+    r.rows.iter().enumerate().for_each(|(j, bits)| {
+        (0..r.w).for_each(|i| {
+            if bits & (1 << (r.w - 1 - i)) != 0 {
+                gfx_fill_rect(x + i * sc, y + j as i16 * sc, sc, sc, col);
+            }
+        });
+    });
+}
+
+/// Which rest a span is, and whether it is dotted or a triplet. Anything that
+/// is not one of those lands on the largest rest it contains, which is what a
+/// notation program would do before it started tying things together.
+fn rest_for(ticks: i32) -> (i16, bool, bool) {
+    const BASES: [i32; 6] = [1920, 960, 480, 240, 120, 60];
+    let exact = BASES.iter().enumerate().find_map(|(i, &b)| {
+        if ticks == b {
+            Some((i as i16, false, false))
+        } else if ticks * 2 == b * 3 {
+            Some((i as i16, true, false))
+        } else if ticks * 3 == b * 2 {
+            Some((i as i16, false, true))
+        } else {
+            None
+        }
+    });
+    if let Some(e) = exact {
+        return e;
+    }
+    let i = BASES.iter().position(|&b| ticks >= b).unwrap_or(5);
+    (i as i16, false, false)
+}
+
+/// One rest, centred, with its dot or its 3. Whole and half are a bar against a
+/// rule; below that the stem-and-flag family carries it.
+fn draw_rest(cx: i16, cy: i16, ticks: i32, col: u16) {
+    const SC: i16 = 2;
+    let (idx, dotted, triplet) = rest_for(ticks);
+    let w = match idx {
+        0 | 1 => 20,
+        _ => REST_QUARTER.w * SC,
+    };
+    let x = cx - w / 2;
+    match idx {
+        0 => {
+            gfx_fill_rect(x - 2, cy - 8, w + 4, 2, col);
+            gfx_fill_rect(x, cy - 6, w, 6, col);
+        }
+        1 => {
+            gfx_fill_rect(x, cy - 6, w, 6, col);
+            gfx_fill_rect(x - 2, cy, w + 4, 2, col);
+        }
+        2 => blit_rest(&REST_QUARTER, x, cy - 14, SC, col),
+        3 => blit_rest(&REST_EIGHTH, x, cy - 11, SC, col),
+        4 => blit_rest(&REST_SIXTEENTH, x, cy - 13, SC, col),
+        _ => blit_rest(&REST_THIRTYSECOND, x, cy - 14, SC, col),
+    }
+    if dotted {
+        gfx_fill_rect(x + w + 4, cy - 2, 4, 4, col);
+    }
+    if triplet {
+        gfx_text_center(cx, cy - 26, "3", col, &FONT_SMALL);
+    }
+}
+
+/// The interval a spacing actually produces, which is not the same at every
+/// step of a diatonic stack: thirds off C major give a major then a minor.
+static INTERVALS: [&str; 13] = [
+    "UNI", "MIN2", "MAJ2", "MIN3", "MAJ3", "PER4", "TRIT", "PER5", "MIN6", "MAJ6", "MIN7",
+    "MAJ7", "OCT",
+];
+
+fn interval_name(semitones: i16) -> &'static str {
+    let n = semitones.rem_euclid(12);
+    if semitones >= 12 && n == 0 {
+        "OCT"
+    } else {
+        INTERVALS[n as usize]
+    }
+}
+
 // ============ Figures ============
 
 /// The largest block and gap that fit `count` of them in `avail`, never bigger
@@ -186,23 +309,16 @@ fn fig_stack(stack: i16, repeat: i16) {
 /// drop to dither and the gaps get counted instead. One yellow dot per note up
 /// the first column, one magenta dot per sixteenth along the bottom row: the gap
 /// is built out of the value rather than drawn to a length and then labelled.
-fn fig_spacing(stack_notes: i16, blocks: i16, per_col: i16) {
+fn fig_spacing(intervals: [&str; 2], ticks: i32) {
     const BW: i16 = 42;
     const BH: i16 = 22;
     const ROWS: i16 = 3;
     const COLS: i16 = 2;
-    const BLK_GAP_Y: i16 = 1;
-    let cols = (blocks + per_col - 1) / per_col;
-    // Both rulers are the gaps they measure, so both have to give when the
-    // count outgrows the well: the dot pitch and the column pitch shrink
-    // rather than the ruler running past the frame.
-    let pitch = (134 / (ROWS - 1) / stack_notes.max(1)).clamp(3, 9);
-    let dot = (pitch - 6).clamp(2, 3);
-    let pad = (pitch - dot) / 2;
-    let col_pitch = ((116 - 6) / cols.max(1)).clamp(3, 8);
-    let blk = (col_pitch - 4).clamp(2, 4);
-    let stack_gap = stack_notes * pitch;
-    let repeat_gap = cols * col_pitch + 6;
+    // The gap holds its mark and grows a little with the span, so a whole rest
+    // sits in more air than a thirty-second — but the symbol carries the value,
+    // not the distance.
+    let stack_gap: i16 = 22;
+    let repeat_gap = 34 + (ticks / 90).clamp(0, 24) as i16;
     let grid_w = COLS * BW + repeat_gap;
     let grid_h = ROWS * BH + (ROWS - 1) * stack_gap;
     let ox = CX - grid_w / 2;
@@ -210,26 +326,23 @@ fn fig_spacing(stack_notes: i16, blocks: i16, per_col: i16) {
     let bx = |k: i16| ox + k * (BW + repeat_gap);
     let by = |r: i16| oy - (r + 1) * BH - r * stack_gap;
 
-    // One ruler each, on the edge the value runs along. The stack is a count of
-    // notes, so it counts in dots; the repeat is a duration, so it counts in
-    // sixty-fourths stacked four to a sixteenth — three when the value is a
-    // triplet, which is how a triplet has always been drawn.
-    let sx = bx(0) + BW / 2 - 1;
     (0..ROWS - 1).for_each(|r| {
-        let top = by(r + 1) + BH;
-        (0..stack_notes).for_each(|d| {
-            gfx_fill_rect(sx, top + d * pitch + pad, dot, dot, GFX_AXIS_UD);
-        });
+        let name = intervals[r as usize];
+        if !name.is_empty() {
+            // Yellow on paper is the weakest pair this palette has, so the
+            // interval rides in a filled chip with ink on it — the same way a
+            // value sits in a well — and the colour still says whose it is.
+            let tw = gfx_text_width(name, &FONT_SMALL);
+            let cw = tw + 10;
+            let x = bx(0) + BW / 2 - cw / 2;
+            let y = by(r + 1) + BH + (stack_gap - 14) / 2;
+            gfx_fill_rect(x, y, cw, 14, GFX_AXIS_UD);
+            gfx_frame(x, y, cw, 14, GFX_INK);
+            gfx_text_center(bx(0) + BW / 2, y + 3, name, GFX_INK, &FONT_SMALL);
+        }
     });
-    let ry = by(0) + BH / 2;
-    (0..cols).for_each(|c| {
-        let n = (blocks - c * per_col).min(per_col);
-        let h = n * blk + (n - 1) * BLK_GAP_Y;
-        let x = bx(0) + BW + 3 + c * col_pitch;
-        (0..n).for_each(|b| {
-            gfx_fill_rect(x, ry - h / 2 + b * (blk + BLK_GAP_Y), blk, blk, GFX_AXIS_LR);
-        });
-    });
+    draw_rest(bx(0) + BW + repeat_gap / 2, by(0) + BH / 2, ticks, GFX_AXIS_LR);
+
     (0..ROWS).for_each(|r| {
         (0..COLS).for_each(|k| {
             gfx_dither_rect(bx(k), by(r), BW, BH, 8, GFX_INK, GFX_GROUND);
@@ -496,26 +609,22 @@ pub fn screen_stack(ev: &NoteEvent) {
     frame_screen("DISABLE", ("STACK", a.as_str()), ("REPEAT", b.as_str()));
 }
 
-pub fn screen_spacing(ev: &NoteEvent) {
-    // A block is a sixty-fourth and four of them stack into a sixteenth, so a
-    // 1/8 draws as two full columns. A triplet value counts in thirds instead
-    // and stacks three, which is the mark that says triplet without a letter.
-    const SIXTYFOURTH: i32 = TICKS_PER_QUARTER / 16;
-    const SIXTEENTH: i32 = TICKS_PER_QUARTER / 4;
-    const SIXTEENTH_TRIPLET: i32 = TICKS_PER_QUARTER / 6;
-    let t = ev.repeat_space.max(0);
-    let (blocks, per_col) = if t > 0 && t % SIXTEENTH != 0 && t % SIXTEENTH_TRIPLET == 0 {
-        (((t / SIXTEENTH_TRIPLET) * 3) as i16, 3)
-    } else {
-        ((t / SIXTYFOURTH) as i16, 4)
-    };
-    let blocks = blocks.max(1).min(96);
-    let notes = (ev.chord_space as i16).max(1);
-    fig_spacing(notes, blocks, per_col);
-    let mut a = FmtBuf::<8>::new();
-    let _ = write!(a, "{}", ev.chord_space);
-    let b = ticks_to_canonical_name(ev.repeat_space);
-    frame_screen("RST/RPT", ("STK SPC", a.as_str()), ("RPT SPC", b.as_str()));
+pub fn screen_spacing(s: &EngineState, ev: &NoteEvent) {
+    // The stacking is nominal — every chord_space degrees off the note — so the
+    // figure names the interval this spacing produces here, at this root, in
+    // this scale, rather than the one it produces in theory.
+    let step = ev.chord_space as i16;
+    let midi = |k: i16| note_to_midi(ev.row + k * step, s) as i16;
+    let (a, b, c) = (midi(0), midi(1), midi(2));
+    let intervals = [
+        if a >= 0 && b >= 0 { interval_name(b - a) } else { "" },
+        if b >= 0 && c >= 0 { interval_name(c - b) } else { "" },
+    ];
+    fig_spacing(intervals, ev.repeat_space.max(0));
+    let mut sp = FmtBuf::<8>::new();
+    let _ = write!(sp, "{}", ev.chord_space);
+    let rp = ticks_to_canonical_name(ev.repeat_space);
+    frame_screen("RST/RPT", ("STK SPC", sp.as_str()), ("RPT SPC", rp.as_str()));
 }
 
 pub fn screen_arp(ev: &NoteEvent) {

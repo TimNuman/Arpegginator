@@ -852,7 +852,7 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
             return;
         }
         EditGroup::Stack => return crate::oled_widgets::screen_stack(ev),
-        EditGroup::Spacing => return crate::oled_widgets::screen_spacing(ev),
+        EditGroup::Spacing => return crate::oled_widgets::screen_spacing(s, ev),
         EditGroup::Arp => return crate::oled_widgets::screen_arp(ev),
         EditGroup::Voicing => return crate::oled_widgets::screen_voicing(ev),
         _ => {}
