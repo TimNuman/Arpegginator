@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Output } from "webmidi";
 import { css, Global } from "@emotion/react";
+import { chrome, moulded } from "./theme/chrome";
+import { px } from "./theme/dimensions";
 import { Box, CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import { Grid } from "./components/Grid";
-import { Transport } from "./components/Transport";
+import { HostControls } from "./components/HostControls";
+import type { CapStyle } from "./components/ButtonGrid/ButtonGrid";
 import { WasmEngine } from "./engine/WasmEngine";
 import { TeensyEngine } from "./engine/TeensyEngine";
 import type { Engine } from "./engine/types";
@@ -18,10 +21,15 @@ import { TICKS_PER_QUARTER } from "./components/Grid/Grid.config";
 /** Web-mic recorder for the drum sampler (engine ref wired once loaded). */
 const recorder = new SampleRecorder(synth);
 
-const darkTheme = createTheme({
+/** MUI inherits the case, so its widgets stop looking like 2015 on a 1992 box. */
+const caseTheme = createTheme({
   palette: {
-    mode: "dark",
+    mode: "light",
+    background: { default: chrome.case, paper: chrome.case },
+    text: { primary: chrome.ink, secondary: chrome.inkDim },
   },
+  typography: { fontFamily: chrome.font },
+  shape: { borderRadius: 2 },
 });
 
 const globalStyles = css`
@@ -37,14 +45,18 @@ const globalStyles = css`
   body {
     margin: 0;
     padding: 0;
-    background: linear-gradient(180deg, #0a0a0a 0%, #1a0a1a 100%);
+    /* The desk it sits on, lit from above and falling off at the edges */
+    background-color: ${chrome.deskDark};
+    background-image: radial-gradient(
+      120% 85% at 50% 12%,
+      ${chrome.desk} 0%,
+      ${chrome.deskDark} 72%
+    );
+    background-attachment: fixed;
     min-height: 100vh;
     min-height: 100dvh;
-    font-family:
-      "Inter",
-      -apple-system,
-      BlinkMacSystemFont,
-      sans-serif;
+    font-family: ${chrome.font};
+    color: ${chrome.ink};
     /* Mobile Safari: no double-tap zoom, tap flashes, or long-press callouts */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
@@ -81,28 +93,79 @@ const appContainerStyles = css`
   }
 `;
 
-/** Fixed-size content that gets uniformly scaled down on small screens */
+/** Fixed-size content that gets uniformly scaled down on small screens.
+    The upper shell of the enclosure: moulded ABS, lit along its top edge,
+    thickening into a shaded lip at the bottom, sitting on the desk. */
 const stageStyles = css`
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   width: fit-content;
+  padding: ${px(4)}px ${px(5)}px ${px(7)}px;
+  border-radius: 11px 11px 14px 14px;
+  background-color: ${chrome.case};
+  background-image:
+    ${moulded},
+    linear-gradient(
+      180deg,
+      ${chrome.caseTop} 0%,
+      ${chrome.case} 9%,
+      ${chrome.case} 68%,
+      ${chrome.caseLow} 100%
+    );
+  box-shadow:
+    inset 0 1px 0 ${chrome.caseLight},
+    inset 1px 0 0 rgba(255, 255, 255, 0.5),
+    inset -1px 0 0 rgba(0, 0, 0, 0.09),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.14),
+    0 2px 0 ${chrome.caseShadow},
+    0 26px 40px -12px rgba(0, 0, 0, 0.75),
+    0 4px 10px rgba(0, 0, 0, 0.4);
+
+  /* Parting line where the upper shell meets the lower */
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 14px;
+    height: 2px;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0 1px, ${chrome.caseLight} 1px 2px);
+    pointer-events: none;
+  }
 `;
 
+/** Pad-printed branding on the top shell, with the model number beside it —
+    the way every keyboard of the era wore its name above the keywell. */
 const titleStyles = css`
-  color: #fff;
-  font-size: 32px;
-  font-weight: 300;
-  letter-spacing: 8px;
-  margin-top: 0;
-  margin-bottom: 30px;
-  text-transform: uppercase;
-  background: linear-gradient(90deg, #ff3366, #66ffcc, #3366ff);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  align-self: stretch;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 ${px(2)}px 2px;
+  padding: 0;
 
-  /* Short screens (landscape phone): drop the title to give the grid room */
+  span {
+    font-family: ${chrome.font};
+    font-size: ${px(3.2)}px;
+    font-weight: 700;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: ${chrome.caseDark};
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  }
+
+  &::after {
+    content: "MODEL AG-16 · 6 CH · 128 KEY";
+    font-family: ${chrome.font};
+    font-size: ${px(1.9)}px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    color: ${chrome.caseShadow};
+  }
+
+  /* Short screens (landscape phone): drop the branding to give the grid room */
   @media (max-height: 520px) {
     display: none;
   }
@@ -316,6 +379,9 @@ function App() {
   const isExternalPlayback = wasmEngine?.getIsExternalPlayback() ?? false;
   const bpm = wasmEngine?.getBpm() ?? 120;
   const [swing, setSwingLocal] = useState(50);
+  // Which keycap the simulation wears — a preview choice, so it lives with
+  // the host controls rather than on the instrument.
+  const [capStyle, setCapStyle] = useState<CapStyle>("clear");
 
   // Keep bpmRef in sync with actual BPM
   useEffect(() => {
@@ -504,12 +570,12 @@ function App() {
   if (!wasmEngine) {
     console.log("[startup] Gated: wasmEngine=" + !!wasmEngine + " isEnabled=" + isEnabled);
     return (
-      <ThemeProvider theme={darkTheme}>
+      <ThemeProvider theme={caseTheme}>
         <CssBaseline />
         <Global styles={globalStyles} />
         <Box css={appContainerStyles}>
           <Box component="h1" css={titleStyles}>
-            ARPEGGINATOR
+            <span>Arpegginator</span>
           </Box>
         </Box>
       </ThemeProvider>
@@ -526,10 +592,30 @@ function App() {
   const scaled = fit.scale < 1 && fit.width > 0;
 
   return (
-    <ThemeProvider theme={darkTheme}>
+    <ThemeProvider theme={caseTheme}>
       <CssBaseline />
       <Global styles={globalStyles} />
       <Box css={rotateHintStyles}>Rotate to landscape</Box>
+      <HostControls
+        bpm={bpm}
+        swing={swing}
+        isExternalPlayback={isExternalPlayback}
+        onBpmChange={handleSetBpm}
+        onSwingChange={handleSetSwing}
+        midiOutputs={outputs}
+        midiInputs={inputs}
+        selectedOutput={selectedOutput}
+        selectedInput={selectedInput}
+        onOutputChange={handleOutputChange}
+        onInputChange={setSelectedInput}
+        midiEnabled={isEnabled}
+        builtinSoundSelected={builtinSound}
+        onSelectBuiltinSound={handleSelectBuiltinSound}
+        teensyConnected={teensyConnected}
+        onConnectTeensy={handleConnectTeensy}
+        capStyle={capStyle}
+        onCapStyleChange={setCapStyle}
+      />
       <Box ref={fitContainerRef} css={appContainerStyles}>
         {/* Outer div reserves the scaled footprint so flex centering works;
             inner stage keeps its natural layout size and is scaled visually */}
@@ -556,63 +642,18 @@ function App() {
             }
           >
             <Box component="h1" css={titleStyles}>
-              ARPEGGINATOR
+              <span>Arpegginator</span>
             </Box>
-            <Transport
+            <Grid
+              wasmEngine={wasmEngine}
+              capStyle={capStyle}
               isPlaying={isPlaying}
               isExternalPlayback={isExternalPlayback}
-              bpm={bpm}
-              swing={swing}
               onPlay={handlePlay}
               onStop={handleStop}
               onReset={handleReset}
               onClear={handleClear}
-              onBpmChange={handleSetBpm}
-              onSwingChange={handleSetSwing}
-              midiOutputs={outputs}
-              midiInputs={inputs}
-              selectedOutput={selectedOutput}
-              selectedInput={selectedInput}
-              onOutputChange={handleOutputChange}
-              onInputChange={setSelectedInput}
-              midiEnabled={isEnabled}
-              builtinSoundSelected={builtinSound}
-              onSelectBuiltinSound={handleSelectBuiltinSound}
             />
-            <Box sx={{ display: "flex", justifyContent: "center", mb: 1 }}>
-              <Box
-                component="button"
-                onClick={handleConnectTeensy}
-                sx={{
-                  background: "transparent",
-                  border: "none",
-                  color: teensyConnected ? "#6c6" : "#555",
-                  cursor: "pointer",
-                  fontSize: "10px",
-                  letterSpacing: "1px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "2px 8px",
-                  "&:hover": {
-                    color: teensyConnected ? "#8e8" : "#888",
-                  },
-                }}
-              >
-                <Box
-                  component="span"
-                  sx={{
-                    width: "6px",
-                    height: "6px",
-                    borderRadius: "50%",
-                    background: teensyConnected ? "#6c6" : "#444",
-                    boxShadow: teensyConnected ? "0 0 4px #6c6" : "none",
-                  }}
-                />
-                {teensyConnected ? "TEENSY" : "WASM"}
-              </Box>
-            </Box>
-            <Grid wasmEngine={wasmEngine} />
           </div>
         </div>
       </Box>

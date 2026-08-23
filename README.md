@@ -1,8 +1,8 @@
 # Arpegginator
 
-Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a **Teensy 4.1** (ARM Cortex-M7, 600MHz, 1MB RAM) driving a physical grid with RGB LEDs and an OLED display. This browser version serves as the development environment for the Rust engine -- the same code that runs here as WebAssembly will compile natively for the Teensy.
+Web prototype of a hardware MIDI step sequencer and arpeggiator. The end goal is a standalone device built around a **Teensy 4.1** (ARM Cortex-M7, 600MHz, 1MB RAM) driving a physical grid with RGB LEDs and a reflective memory LCD. This browser version serves as the development environment for the Rust engine -- the same code that runs here as WebAssembly will compile natively for the Teensy.
 
-Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware interface (button grid, display, transport controls) while the Rust engine underneath handles all sequencer state and logic, keeping the path to hardware short.
+Place notes on an 8x16 grid, build chords, set up arpeggiation patterns, and send everything out over MIDI to your synths or DAW. The React UI simulates the hardware itself -- an enclosure at true scale carrying the button grid, the panel, the encoders and the transport keys, with host-only controls (tempo, MIDI ports) kept off the case as plain HTML while the Rust engine underneath handles all sequencer state and logic, keeping the path to hardware short.
 
 ## Features
 
@@ -42,7 +42,7 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 ### Sound
 
 - Built-in sounds -- no MIDI hardware needed. Drum channels play an analog-modeled 808 drum synth (kick, snare, clap, hats, toms/congas, cymbals, rimshot/claves, cowbell, maracas, mapped by GM drum note) rendered by the same Rust synth as everything else. Melodic channels play the Rust synth (`arp3-synth`): a polyphonic subtractive engine (selectable waveforms, sub osc, state-variable lowpass, ADSR, glide, drive) compiled to WASM and rendered in an AudioWorklet. Browsers without AudioWorklet fall back to a Web Audio kit and piano (works on e.g. iPad Safari).
-- On the Teensy, the *same* `arp3-synth` crate renders melodic channels through the i.MX RT1062's MQS (Medium Quality Sound) block -- 16-bit 44.1kHz stereo PWM on **pin 10 (right)** and **pin 12 (left)**, driven by a SAI3 FIFO interrupt. Hookup: a first-order RC low-pass per pin (e.g. 1kΩ series + 10nF to ground) into an amp or powered speakers; add a ~10µF DC-blocking cap in series with the output. No codec chip required.
+- On the Teensy, the _same_ `arp3-synth` crate renders melodic channels through the i.MX RT1062's MQS (Medium Quality Sound) block -- 16-bit 44.1kHz stereo PWM on **pin 10 (right)** and **pin 12 (left)**, driven by a SAI3 FIFO interrupt. Hookup: a first-order RC low-pass per pin (e.g. 1kΩ series + 10nF to ground) into an amp or powered speakers; add a ~10µF DC-blocking cap in series with the output. No codec chip required.
 - The Teensy also streams the synth over **USB audio**: the device enumerates as a 44.1kHz 16-bit stereo sound input (same USB audio function as the MIDI interface), so the synth can be monitored or recorded on the computer with no analog wiring at all. The USB stream is a bit-exact tap of what MQS plays.
 - **Sound mode** -- per-channel patch editing on the grid (Ctrl + third bottom-row button). The left encoder cycles pages (preset picker, osc 1/2 waveform choosers that draw the wave in LEDs -- Shift+encoder on osc 2 nudges detune -- then amp with vol/mix/sub/glide faders, envelope, filter, FX), the right encoder edits the focused value (Shift for fine), and the grid is directly pressable: fader banks for continuous params, selector rows for waveforms. Edits are audible immediately while the sequencer runs.
 - **Presets** -- the first Sound-mode page is a bank of 43 factory patches, color-coded by engine: classic-analog staples (FAT STACK, ACID LINE, RUBBER BASS, STARDUST, HOOVERCRAFT...), NES and SID chip flavors (8-BIT HERO, PIPE DREAM, COIN GET, BREADBIN, SEWER GOBLIN...), 4-op FM sounds (TINE MACHINE, CASTLE BELLS, MECHA BASS, RUST ORGAN...), lo-fi wavetables (OP WON, PHASE DANCER, TAPE GHOST...), additive patches (TONEWHEEL, BELL TOWER, GAMELAN...), and West Coast folder voices (EASEL RIDER, STEEL PAN, FOLD BLOOM, KALIMBA...). Tap a cell or step with the right encoder to load; editing any parameter marks the patch EDITED (amber) and lights a reset cell that restores the preset.
@@ -60,7 +60,10 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 
 ### Display
 
-- Simulated 160x128 OLED screen showing note parameters, chord names, voicings, and playback state -- rendered entirely in Rust and blitted to a canvas via an RGB565 framebuffer
+- Simulated **320x240 memory LCD** showing note parameters, chord names, voicings, and playback state -- rendered entirely in Rust and blitted to a canvas via an RGB565 framebuffer, then mapped through a panel simulation so the browser shows what the panel shows. The target panel is a **JDI LPM044M141A**: 4.4", 320x240 over an 89.66 x 67.25 mm active area, reflective, no backlight, and 1 bit per channel. At 0.28 mm per pixel it is coarse enough that the UI is physically large -- a value in Spleen 8x16 stands 2.8 mm tall -- so the design is built for what that panel can show rather than ported onto it.
+- **Paper UI** -- white ground, black ink, and no tone in between. There is no grey to dim a label with, so hierarchy comes from size (Spleen 5x8 labels against 8x16 values) and emphasis comes from inversion or a filled slab. Shading is a 4x4 ordered dither, used for areas only -- fader tracks and inactive slots -- never for glyphs or hairlines.
+- **Color means live state, never structure.** The only colored pixels on screen are the three modifier buttons along the bottom edge -- blue for the grid, yellow for up/down, magenta for left/right -- plus whichever field the held modifier is currently pointing at, which takes that same color as its well fill. Everything else is black and white. Because color is redundant with the icons and inversion already there, the UI stays complete on a monochrome panel.
+- **Bitmap fonts** -- Spleen (BSD-2), parsed straight from BDF at build time into packed 1-bit glyphs. A vector face rasterized at 11px puts stems on fractional coordinates at ~50% coverage, and a 1-bit threshold rounds them away, so `CH` renders as `CII`. Spleen is drawn on the pixel grid, so there is nothing to threshold. The four-size ladder is roughly 12 kB of glyph data against ~175 kB of anti-aliased coverage bytes.
 - Color-coded channels on the grid with visual flags for playhead, beat markers, loop boundaries, and selected notes
 
 ## Architecture
@@ -68,7 +71,7 @@ Each note has 5 sub-mode arrays that cycle across repeats, each with its own loo
 ```
 ┌─────────────────────────────────────────────────┐
 │  React UI (TypeScript)                          │
-│  Grid, Transport, TouchStrip, OLED canvas       │
+│  Grid, ButtonGrid, TouchStrip, panel canvas     │
 ├──────────────┬──────────────────────────────────┤
 │  WasmEngine  │  Actions / Playback loop         │
 │  (JS<>Rust)  │  (tick scheduling, BPM)          │
@@ -144,7 +147,7 @@ npm run build:wasm
 npm run dev
 ```
 
-Open the app and press play -- built-in 808 + piano sounds work out of the box. To drive external gear instead, pick a MIDI output device in the Sound Output selector in the transport bar (Chrome will prompt for MIDI access).
+Open the app and press play -- built-in 808 + piano sounds work out of the box. To drive external gear instead, pick a MIDI output device in the Out selector in the page's top-right corner (Chrome will prompt for MIDI access).
 
 ## Build
 
@@ -176,10 +179,10 @@ src/
 │   ├── engine_sampler Drum sampler pages (SLOT/REC/TRIM/PLAY/MOD)
 │   ├── engine_strip   Touch strip handling
 │   ├── platform       Platform callbacks (WASM / Teensy / test)
-│   ├── oled_*         OLED display rendering, fonts, graphics primitives
+│   ├── oled_*         Display rendering, bitmap fonts, 1-bit graphics primitives
 │   └── test_*         Rust unit tests
 ├── engine/            TypeScript wrappers for WASM module (WasmEngine, OledRenderer)
-├── components/        React components (Grid, Transport, ButtonGrid, TouchStrip)
+├── components/        React components (Grid, ButtonGrid, TouchStrip, HostControls)
 ├── actions/           Playback and pattern actions (transport loop, MIDI scheduling)
 ├── hooks/             useMidi (Web MIDI I/O + sync), useKeyboard
 └── store/             Zustand render store for React<>WASM sync

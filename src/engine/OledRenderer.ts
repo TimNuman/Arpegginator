@@ -1,10 +1,32 @@
 // OledRenderer.ts — Canvas-based OLED display renderer using WASM framebuffer
 
 import type { WasmModule } from "./WasmEngine";
+import { chrome } from "../theme/chrome";
+
+// Reflective memory-LCD simulation. The engine writes one of eight colors
+// (1 bit per channel); a JDI LPM027M128C shows those as muted, paper-like
+// reflections rather than pure RGB, so the sim maps them the same way. Keyed
+// by RGB565 value; anything else falls through to a plain 565 expansion.
+const rgb = (hex: string): [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+
+const PANEL_LUT = new Map<number, [number, number, number]>([
+  [0x0000, rgb(chrome.panel.ink)],
+  [0xffff, rgb(chrome.panel.paper)],
+  [0xf800, rgb(chrome.panel.red)],
+  [0x07e0, rgb(chrome.panel.green)],
+  [0x001f, rgb(chrome.panel.blue)],
+  [0xffe0, rgb(chrome.panel.yellow)],
+  [0xf81f, rgb(chrome.panel.magenta)],
+  [0x07ff, rgb(chrome.panel.cyan)],
+]);
 
 // Display dimensions (must match oled_gfx.rs)
-export const OLED_WIDTH = 256;
-export const OLED_HEIGHT = 128;
+export const OLED_WIDTH = 240;
+export const OLED_HEIGHT = 320;
 
 export class OledRenderer {
   private module: WasmModule;
@@ -43,10 +65,17 @@ export class OledRenderer {
     for (let i = 0; i < OLED_WIDTH * OLED_HEIGHT; i++) {
       const rgb565 = fb[i];
       const j = i * 4;
-      // RGB565: RRRRR GGGGGG BBBBB
-      pixels[j] = ((rgb565 >> 11) & 0x1f) << 3; // R: 5-bit → 8-bit
-      pixels[j + 1] = ((rgb565 >> 5) & 0x3f) << 2; // G: 6-bit → 8-bit
-      pixels[j + 2] = (rgb565 & 0x1f) << 3; // B: 5-bit → 8-bit
+      const panel = PANEL_LUT.get(rgb565);
+      if (panel) {
+        pixels[j] = panel[0];
+        pixels[j + 1] = panel[1];
+        pixels[j + 2] = panel[2];
+      } else {
+        // RGB565: RRRRR GGGGGG BBBBB
+        pixels[j] = ((rgb565 >> 11) & 0x1f) << 3; // R: 5-bit → 8-bit
+        pixels[j + 1] = ((rgb565 >> 5) & 0x3f) << 2; // G: 6-bit → 8-bit
+        pixels[j + 2] = (rgb565 & 0x1f) << 3; // B: 5-bit → 8-bit
+      }
       pixels[j + 3] = 255; // A
     }
 

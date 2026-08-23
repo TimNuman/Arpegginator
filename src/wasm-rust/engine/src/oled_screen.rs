@@ -1,5 +1,5 @@
-// oled_screen.rs — OLED screen content rendering
-// Full-width layout with 256×128 display, IBM Plex Mono fonts
+// oled_screen.rs — panel content rendering
+// Portrait layout on a 240x320 memory LCD, Spleen bitmap fonts
 
 use core::fmt::Write;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -7,36 +7,82 @@ use libm::{cosf, sinf};
 use crate::cell::Global;
 use crate::engine_core::FmtBuf;
 use crate::oled_gfx::*;
-use crate::oled_fonts_aa::*;
 use crate::oled_display::*;
 use crate::engine_core::*;
 use crate::engine_ui;
 
 const CH_DRUM: u8 = ChannelType::Drum as u8;
 
-// ============ Layout constants (256×128) ============
+// ============ Layout constants (240×320) ============
+//
+// The panel is a JDI LPM044M141A: 4.4", 640x480 over 89.66 x 67.25 mm. The UI
+// is drawn at half that and blitted as 2x2 blocks, so a UI pixel is 0.28 mm —
+// nearly twice the 2.7" part's. Everything is physically larger at the same
+// pixel size, which is why labels can drop to a 5x8 face and still read: 5x8
+// here is bigger on the glass than 6x12 was there.
+//
+// The module mounts on its side, so the UI is 240 wide by 320 tall. Nothing is
+// reserved sideways any more: the dial stacks under the content instead of
+// taking a column, every value well runs the full width, and the three axis
+// legends pack 1 + 2 at the foot — the grid across the top, the two encoder
+// axes side by side beneath it, which is the shape of the two knobs below.
 
 const DISPLAY_W: i16 = GFX_WIDTH as i16;
-const PAD_X: i16 = 10;
-const CONTENT_RIGHT: i16 = 154; // 60% of display — right 40% reserved for future dial
+const PAD_X: i16 = 8;
+// Portrait: nothing is reserved sideways, so content runs the full width and
+// every value hangs off the same right edge.
+const CONTENT_RIGHT: i16 = DISPLAY_W - PAD_X;
 const CONTENT_W: i16 = CONTENT_RIGHT - PAD_X;
 const HALF_W: i16 = CONTENT_W / 2;
 
-// Row Y positions (4 data rows + dots + bottom legend)
-const ROW_Y: [i16; 4] = [8, 28, 48, 68];
-// 5-row layout for selected note view (tighter spacing, no dots)
-const ROW_Y5: [i16; 5] = [8, 27, 46, 65, 84];
+// Title bar (pinstriped, with a close box and a transport readout)
+const TITLE_H: i16 = 22;
 
-// Pattern indicator dots
-const DOT_Y: i16 = 90;
-const DOT_SIZE: i16 = 6;
-const DOT_GAP: i16 = 3;
+// Sunken value wells: the label sits in a fixed gutter, the value in the well.
+const LABEL_GUTTER: i16 = 32;
+const WELL_H: i16 = 18;
 
-// Bottom legend bar
-const LEGEND_Y: i16 = 108;
-const LEGEND_COL_W: i16 = DISPLAY_W / 3;
+// Row Y positions (top of the text line; 4 data rows + ruler + button bar)
+const ROW_Y: [i16; 4] = [32, 59, 86, 113];
+// 5-row layout for the screens with no dial — the note view and the sound
+// pages. Portrait gives these 231 px between the title and the button bar for
+// five rows, so they spread to fill it rather than sitting in a compact block
+// with a dead band underneath.
+const ROW_Y5: [i16; 5] = [31, 78, 125, 172, 219];
+
+// Scale-degree ruler
+const DOT_Y: i16 = 137;
+const DOT_SIZE: i16 = 12;
+const DOT_GAP: i16 = 2;
+
+// Circle of fifths, now centered under the ruler rather than parked in a side
+// column. Slightly tighter than it was, with the root chip scaled to match so
+// the ticks keep their air.
+const DIAL_CY: i16 = 201;
+const DIAL_R: i16 = 40;
+const DIAL_CHIP_H: i16 = 28;
+
+// Bottom button bar — the only place structure is allowed color. Three axes,
+// packed 1 + 2: the grid takes the full width on top, the two encoder axes
+// share the row beneath it, which is the shape of the two knobs below.
+const LEGEND_Y: [i16; 2] = [253, 286];
+const BTN_H: i16 = 26;
+const BTN_MARGIN: i16 = 6;
+const BTN_GAP: i16 = 8;
+const BTN_SHADOW: i16 = 3;
+const BTN_W_FULL: i16 = DISPLAY_W - 2 * BTN_MARGIN - BTN_SHADOW;
+const BTN_W_HALF: i16 = (DISPLAY_W - 2 * BTN_MARGIN - BTN_GAP - BTN_SHADOW) / 2;
 const ICON_SIZE: i16 = 10;
-const ICON_LABEL_GAP: i16 = 4;
+const ICON_LABEL_GAP: i16 = 6;
+
+/// Where a legend column's slab sits: x, y, width.
+const fn legend_box(col: i16) -> (i16, i16, i16) {
+    match col {
+        0 => (BTN_MARGIN, LEGEND_Y[0], BTN_W_FULL),
+        1 => (BTN_MARGIN, LEGEND_Y[1], BTN_W_HALF),
+        _ => (BTN_MARGIN + BTN_W_HALF + BTN_GAP, LEGEND_Y[1], BTN_W_HALF),
+    }
+}
 
 // ============ Ticker animation ============
 
@@ -201,7 +247,7 @@ fn ticks_to_musical_name(ticks: i32, zoom: i32) -> FmtBuf<16> {
     buf
 }
 
-fn ticks_to_canonical_name(ticks: i32) -> FmtBuf<16> {
+pub(crate) fn ticks_to_canonical_name(ticks: i32) -> FmtBuf<16> {
     let mut buf = FmtBuf::<16>::new();
     if let Some(trip) = lookup_triplet(ticks) {
         buf.push_str(trip);
@@ -281,7 +327,7 @@ fn chord_name_upper(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
 // ============ Sub-mode / loop mode labels ============
 
 static SUB_MODE_LABELS: [&str; 7] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV", "WHL"];
-static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
+pub(crate) static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
 static INTERVAL_NAMES: [&str; 12] = [
     "UNISON", "MIN 2ND", "2ND", "MIN 3RD", "3RD", "4TH",
     "TRITONE", "5TH", "MIN 6TH", "6TH", "MIN 7TH", "7TH",
@@ -316,55 +362,142 @@ fn get_note_display(row: i16, is_drum: bool, s: &EngineState) -> FmtBuf<8> {
 /// `pause_frames` is the hold time at the start of each wrap cycle.
 #[allow(clippy::too_many_arguments)]
 fn draw_marquee(ticker_slot: usize, x: i16, clip_right: i16, y: i16,
-                text: &str, color: u16, font: &AAFont, pause_frames: u32) {
-    let text_w = gfx_aa_text_width(text, font);
+                text: &str, color: u16, font: &BitFont, pause_frames: u32) {
+    let text_w = gfx_text_width(text, font);
     if text_w <= clip_right - x {
-        gfx_aa_text(x, y, text, color, font);
+        gfx_text(x, y, text, color, font);
         return;
     }
     let wrap_dist = text_w + TICKER_WRAP_GAP;
     let offset = ticker_offset(ticker_slot, text, wrap_dist, pause_frames);
     let x1 = x - offset;
-    gfx_aa_text_clipped(x1, y, text, color, font, x, clip_right);
+    gfx_text_clipped(x1, y, text, color, font, x, clip_right);
     let x2 = x1 + wrap_dist;
     if x2 < clip_right {
-        gfx_aa_text_clipped(x2, y, text, color, font, x, clip_right);
+        gfx_text_clipped(x2, y, text, color, font, x, clip_right);
     }
 }
 
-/// Draw label (left-aligned, normal weight) + value (right-aligned, bold) on a row
+/// Call sites pass an axis color to mean "the held modifier edits this". On a
+/// 1-bit panel that cannot be a text color, so it becomes the well fill and the
+/// value flips to whichever ink reads on it.
+fn fill_for(color: u16) -> u16 {
+    match color {
+        GFX_AXIS_UD | GFX_AXIS_LR | GFX_AXIS_GRID | GFX_ALERT => color,
+        _ => GFX_GROUND,
+    }
+}
+
+/// Label in its gutter, value right-aligned in a sunken well.
+fn draw_field(x: i16, w: i16, y: i16, label: &str, value: &str, val_color: u16) {
+    let fill = fill_for(val_color);
+    // 6x12 label against a 16px value — nudge it onto the value's optical center
+    gfx_text_right(x + LABEL_GUTTER - 8, y + 3, label, GFX_LABEL, &FONT_SMALL);
+    let wx = x + LABEL_GUTTER;
+    let ww = w - LABEL_GUTTER;
+    if fill != GFX_GROUND {
+        gfx_fill_rect(wx + 1, y, ww - 2, WELL_H - 2, fill);
+    }
+    gfx_frame(wx, y - 1, ww, WELL_H, GFX_INK);
+    gfx_text_right(x + w - 5, y, value, gfx_ink_on(fill), &FONT_VALUE);
+}
+
+/// Full-width headline slab. Selection is inversion; when the up/down axis
+/// edits what it names, the slab takes that axis color instead.
+fn draw_banner(text: &str, ticker_slot: usize, hint: &str, hint_color: u16) {
+    draw_selection_bar(text, ticker_slot, hint, hint_color);
+}
+
+/// Pinstriped title bar with a close box and a transport readout — the
+/// System 6 window frame, which exists because that display was 1-bit too.
+fn draw_titlebar(s: &EngineState, mode: &str) {
+    gfx_frame(0, 0, DISPLAY_W, GFX_HEIGHT as i16, GFX_INK);
+
+    let mut y = 5;
+    while y <= 17 {
+        gfx_hline(3, y, DISPLAY_W - 6, GFX_INK);
+        y += 2;
+    }
+    gfx_hline(1, TITLE_H, DISPLAY_W - 2, GFX_INK);
+
+    // Close box
+    gfx_fill_rect(5, 4, 16, 15, GFX_GROUND);
+    gfx_frame(7, 6, 12, 12, GFX_INK);
+    gfx_frame(9, 8, 8, 8, GFX_INK);
+
+    // Title, knocked out of the stripes
+    let tw = gfx_text_width(mode, &FONT_MEDIUM);
+    let cx = DISPLAY_W / 2 - tw / 2;
+    gfx_fill_rect(cx - 9, 3, tw + 18, 17, GFX_GROUND);
+    gfx_text(cx, 3, mode, GFX_INK, &FONT_MEDIUM);
+
+    // Transport readout: play caret + tempo
+    let mut bpm = FmtBuf::<12>::new();
+    let _ = write!(bpm, "{:.1}", s.bpm);
+    let bw = gfx_text_width(&bpm, &FONT_MEDIUM) + 26;
+    gfx_fill_rect(DISPLAY_W - bw - 9, 4, bw + 5, 15, GFX_GROUND);
+    gfx_frame(DISPLAY_W - bw - 6, 5, bw, 13, GFX_INK);
+    gfx_text_right(DISPLAY_W - 11, 3, &bpm, GFX_INK, &FONT_MEDIUM);
+    let px = DISPLAY_W - bw - 1;
+    gfx_vline(px, 8, 7, GFX_INK);
+    gfx_vline(px + 1, 9, 5, GFX_INK);
+    gfx_vline(px + 2, 10, 3, GFX_INK);
+    gfx_pixel(px + 3, 11, GFX_INK);
+}
+
+/// Full-width inverted bar — a list selection, the gesture this panel is
+/// best at. An axis color rides as a chip on the right rather than recoloring
+/// the text.
+fn draw_selection_bar(text: &str, ticker_slot: usize, hint: &str, hint_color: u16) {
+    let bar_y = TITLE_H + 5;
+    gfx_fill_rect(1, bar_y, DISPLAY_W - 2, 23, GFX_INK);
+
+    let mut clip_right = DISPLAY_W - 8;
+    let fill = fill_for(hint_color);
+    if fill != GFX_GROUND && !hint.is_empty() {
+        let hw = gfx_text_width(hint, &FONT_SMALL) + 12;
+        gfx_fill_rect(DISPLAY_W - hw - 7, bar_y + 5, hw, 14, fill);
+        gfx_text(DISPLAY_W - hw - 1, bar_y + 6, hint, gfx_ink_on(fill), &FONT_SMALL);
+        clip_right = DISPLAY_W - hw - 14;
+    }
+    draw_marquee(ticker_slot, PAD_X, clip_right, bar_y + 1, text, GFX_GROUND,
+                 &FONT_LARGE, TICKER_PAUSE_FRAMES);
+}
+
+/// Draw label + value on a full-width row
 fn draw_row(y: i16, label: &str, value: &str, val_color: u16) {
-    gfx_aa_text(PAD_X, y, label, GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(CONTENT_RIGHT, y, value, val_color, &FONT_AA_SMALL_BOLD);
+    draw_field(PAD_X, CONTENT_W, y, label, value, val_color);
 }
 
 /// Draw label + value with ticker scrolling if value overflows.
 /// `ticker_slot` identifies which ticker state to use (0–3).
 fn draw_row_tickered(y: i16, label: &str, value: &str, val_color: u16, ticker_slot: usize) {
-    gfx_aa_text(PAD_X, y, label, GFX_LABEL, &FONT_AA_SMALL);
-    let label_w = gfx_aa_text_width(label, &FONT_AA_SMALL);
-    let val_w = gfx_aa_text_width(value, &FONT_AA_SMALL_BOLD);
-    let gap = 6i16; // min gap between label and value
-    let avail = CONTENT_RIGHT - PAD_X - label_w - gap;
+    let val_w = gfx_text_width(value, &FONT_VALUE);
+    let well_x = PAD_X + LABEL_GUTTER;
+    let avail = CONTENT_RIGHT - well_x - 10;
 
     if val_w <= avail {
-        // Fits — right-align as normal
-        gfx_aa_text_right(CONTENT_RIGHT, y, value, val_color, &FONT_AA_SMALL_BOLD);
-    } else {
-        // Overflow — wrapping ticker, left-aligned after label
-        draw_marquee(ticker_slot, PAD_X + label_w + gap, CONTENT_RIGHT, y,
-                     value, val_color, &FONT_AA_SMALL_BOLD, TICKER_PAUSE_FRAMES);
+        draw_field(PAD_X, CONTENT_W, y, label, value, val_color);
+        return;
     }
+
+    // Overflow — the value scrolls inside its well
+    let fill = fill_for(val_color);
+    gfx_text_right(PAD_X + LABEL_GUTTER - 8, y + 3, label, GFX_LABEL, &FONT_SMALL);
+    if fill != GFX_GROUND {
+        gfx_fill_rect(well_x + 1, y - 1, CONTENT_RIGHT - well_x - 2, WELL_H - 2, fill);
+    }
+    gfx_frame(well_x, y - 2, CONTENT_RIGHT - well_x, WELL_H, GFX_INK);
+    draw_marquee(ticker_slot, well_x + 5, CONTENT_RIGHT - 5, y,
+                 value, gfx_ink_on(fill), &FONT_VALUE, TICKER_PAUSE_FRAMES);
 }
 
 /// Draw a two-column row (row 0: CH xx | PAT yy)
-fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
+pub(crate) fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
                     label2: &str, val2: &str, val2_color: u16) {
-    let col2_x = PAD_X + HALF_W + 6;
-    gfx_aa_text(PAD_X, y, label1, GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(PAD_X + HALF_W - 4, y, val1, val1_color, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(col2_x, y, label2, GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(CONTENT_RIGHT, y, val2, val2_color, &FONT_AA_SMALL_BOLD);
+    let col_w = HALF_W - 5;
+    draw_field(PAD_X, col_w, y, label1, val1, val1_color);
+    draw_field(PAD_X + HALF_W + 5, col_w, y, label2, val2, val2_color);
 }
 
 /// Draw the "MODE" row: every sub-mode label in cycle order, the current one
@@ -373,51 +506,47 @@ fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
 fn draw_mode_row(y: i16, sub_mode: usize, highlight: bool, handles: Option<&[u16; NUM_SUB_MODES]>) {
     // Cycle order: VEL(0), MOD(4), INV(5), HIT(1), FLAM(3), TIME(2), WHL(6)
     static MODE_DISPLAY_ORDER: [usize; 7] = [0, 4, 5, 1, 3, 2, 6];
-    gfx_aa_text(PAD_X, y, "MODE", GFX_LABEL, &FONT_AA_SMALL);
-    let mut x = PAD_X + gfx_aa_text_width("MODE ", &FONT_AA_SMALL);
+    gfx_text(PAD_X, y, "MODE", GFX_LABEL, &FONT_SMALL);
+    let mut x = PAD_X + gfx_text_width("MODE ", &FONT_SMALL);
     for &i in MODE_DISPLAY_ORDER.iter() {
         let label = SUB_MODE_LABELS.get(i).unwrap_or(&"?");
         let has_data = handles.is_some_and(|h| h[i] != POOL_HANDLE_NONE);
-        let font = if has_data { &FONT_AA_SMALL_BOLD } else { &FONT_AA_SMALL };
+        let font = if has_data { &FONT_VALUE } else { &FONT_SMALL };
+        let w = gfx_text_width(label, font);
         let color = if i == sub_mode {
-            if highlight { GFX_YELLOW } else { GFX_VALUE }
+            let fill = if highlight { GFX_AXIS_UD } else { GFX_INK };
+            gfx_fill_rect(x - 3, y - 2, w + 6, WELL_H - 4, fill);
+            gfx_ink_on(fill)
         } else {
-            GFX_DIM
+            GFX_INK
         };
-        gfx_aa_text(x, y, label, color, font);
-        x += gfx_aa_text_width(label, font) + 4;
+        gfx_text(x, y, label, color, font);
+        x += w + 8;
     }
 }
 
-/// Text segment with color for multi-color right-aligned rendering
-struct TextSeg<'a> {
-    text: &'a str,
-    color: u16,
-}
-
-/// Draw text segments right-aligned as a group (each segment can have its own color)
-fn draw_segs_right(right_x: i16, y: i16, segs: &[TextSeg], font: &AAFont) {
-    let total_w: i16 = segs.iter().map(|seg| gfx_aa_text_width(seg.text, font)).sum();
-    let mut x = right_x - total_w;
-    for seg in segs {
-        gfx_aa_text(x, y, seg.text, seg.color, font);
-        x += gfx_aa_text_width(seg.text, font);
-    }
-}
+// Multi-color text runs are gone: on a 1-bit panel a value cannot carry state
+// in its own color, so the well fill carries it instead.
 
 /// Draw scale interval visualization (12 squares for chromatic notes)
 fn draw_scale_dots(s: &EngineState, highlight: bool) {
     let n: i16 = 12;
+    // Right-aligned on the wells above it: every value on this screen hangs off
+    // the same edge, and the degree row is a value like any other.
     let total_w = n * DOT_SIZE + (n - 1) * DOT_GAP;
     let start_x = CONTENT_RIGHT - total_w;
     let idx = (s.scale_id_idx as usize).min(NUM_SCALES - 1);
     let pattern = &SCALE_PATTERNS[idx];
 
-    let active_color = if highlight { GFX_YELLOW } else { GFX_VALUE };
+    // Twelve checkboxes: the frame is always there, the tick is the degree.
     (0..12).for_each(|i| {
         let x = start_x + i as i16 * (DOT_SIZE + DOT_GAP);
-        let color = if pattern[i] != 0 { active_color } else { gfx_rgb565(0x20, 0x2E, 0x50) };
-        gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, color);
+        gfx_fill_rect(x, DOT_Y, DOT_SIZE, DOT_SIZE, GFX_GROUND);
+        gfx_frame(x, DOT_Y, DOT_SIZE, DOT_SIZE, GFX_INK);
+        if pattern[i] != 0 {
+            let fill = if highlight { GFX_AXIS_UD } else { GFX_INK };
+            gfx_fill_rect(x + 3, DOT_Y + 3, DOT_SIZE - 6, DOT_SIZE - 6, fill);
+        }
     });
 }
 
@@ -426,78 +555,52 @@ fn draw_scale_dots(s: &EngineState, highlight: bool) {
 /// Circle of fifths: maps semitone index (0=C) to position on circle (0=top/C, clockwise)
 static COF_ORDER: [u8; 12] = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
 
-/// Draw circle of fifths indicator in the right panel area
+/// Circle of fifths as a 1px ring with twelve ticks and the root inverted.
+/// An anti-aliased ring has no 1-bit equivalent, but a hairline circle with
+/// hard ticks is exactly what this panel draws well.
 fn draw_circle_of_fifths(s: &EngineState, active: bool) {
-    // Center of the right panel area (154..256), shifted right to balance padding
-    let cx: i16 = (CONTENT_RIGHT + DISPLAY_W) / 2 + 2;
-    let cy: i16 = 54; // vertically centered accounting for legend bar
-    let r_outer: i16 = 38;
-    let r_inner: i16 = 24;
-    let thickness: i16 = 2;
+    let cx: i16 = DISPLAY_W / 2;
+    let cy: i16 = DIAL_CY;
+    let r: i16 = DIAL_R;
 
-    let circle_color = if active { GFX_LABEL } else { gfx_rgb565(0x30, 0x3A, 0x58) };
-    let text_color = if active { GFX_RED } else { gfx_rgb565(0x40, 0x4A, 0x68) };
+    gfx_circle(cx, cy, r, GFX_INK);
 
-    // Draw outer ring: filled outer disc, then punch out inner disc with background
-    let bg = GFX_BLACK;
-    gfx_fill_circle(cx, cy, r_outer, circle_color);
-    gfx_fill_circle(cx, cy, r_outer - thickness, bg);
-    // Draw inner ring: filled disc then punch out center
-    gfx_fill_circle(cx, cy, r_inner, circle_color);
-    gfx_fill_circle(cx, cy, r_inner - thickness, bg);
-
-    // Find this key's position on the circle of fifths
     let root = (s.scale_root % 12) as usize;
-    let cof_pos = COF_ORDER[root];
+    let cof_pos = COF_ORDER[root] as usize;
 
-    // Draw tick mark at the key's position (from outer to inner circle)
-    // 0 = top (270° in math coords), going clockwise
-    let angle_deg = cof_pos as f32 * 30.0 - 90.0;
-    let angle_rad = angle_deg * core::f32::consts::PI / 180.0;
-    let cos_a = cosf(angle_rad);
-    let sin_a = sinf(angle_rad);
-
-    // Tick from outer circle inward
-    let tick_outer = r_outer as f32;
-    let tick_inner = r_inner as f32;
-    let x0 = cx + (cos_a * tick_inner) as i16;
-    let y0 = cy + (sin_a * tick_inner) as i16;
-    let x1 = cx + (cos_a * tick_outer) as i16;
-    let y1 = cy + (sin_a * tick_outer) as i16;
-
-    let tick_color = if active { GFX_RED } else { gfx_rgb565(0x40, 0x4A, 0x68) };
-
-    // Draw thick tick (3px wide perpendicular to radius)
-    // Use axis-aligned offsets filtered by perpendicular distance for consistent width
-    // Collect (ox, oy) pairs within ~1.2px perpendicular distance of the line
-    let mut offsets: [(i16, i16); 9] = [(0, 0); 9];
-    let mut n = 0usize;
-    (-1i16..=1).for_each(|dx| {
-        (-1i16..=1).for_each(|dy| {
-            let dist_sq = { let v = dx as f32 * cos_a + dy as f32 * sin_a; v * v };
-            // Keep points within ~1.2px of the line (perpendicular distance)
-            if dist_sq <= 1.5 {
-                offsets[n] = (dx, dy);
-                n += 1;
-            }
-        });
-    });
-    (0..n).for_each(|i| {
-        let (ox, oy) = offsets[i];
-        gfx_line(x0 + ox, y0 + oy, x1 + ox, y1 + oy, tick_color);
+    (0..12).for_each(|i| {
+        let angle = (i as f32 * 30.0 - 90.0) * core::f32::consts::PI / 180.0;
+        let (cos_a, sin_a) = (cosf(angle), sinf(angle));
+        let is_root = i == cof_pos;
+        let inner = (r - if is_root { 12 } else { 6 }) as f32;
+        let x0 = cx + (cos_a * inner) as i16;
+        let y0 = cy + (sin_a * inner) as i16;
+        let x1 = cx + (cos_a * r as f32) as i16;
+        let y1 = cy + (sin_a * r as f32) as i16;
+        if is_root {
+            // 3px wide: step along the perpendicular, not the axes
+            let (px, py) = (-sin_a, cos_a);
+            (-1i16..=1).for_each(|k| {
+                let ox = (px * k as f32) as i16;
+                let oy = (py * k as f32) as i16;
+                gfx_line(x0 + ox, y0 + oy, x1 + ox, y1 + oy, GFX_INK);
+            });
+        } else {
+            gfx_line(x0, y0, x1, y1, GFX_INK);
+        }
     });
 
-    // Draw key name centered in the inner circle
+    // Root name in an inverted chip at the center
     let root_name = NOTE_NAMES[root];
-    let font = &FONT_AA_COF;
-    // Get the first char's actual glyph metrics for precise vertical centering
-    let ch = root_name.as_bytes()[0];
-    let gi = (ch as u16 - font.first) as usize;
-    let glyph = &font.glyphs[gi];
-    let glyph_top = glyph.y_offset as i16;
-    let glyph_bot = glyph_top + glyph.height as i16;
-    let text_y = cy - (glyph_top + glyph_bot) / 2;
-    gfx_aa_text_center(cx, text_y, root_name, text_color, font);
+    // The chip scales with the ring: a letter sized for the old radius crowds
+    // the ticks at this one, so the widget shrinks as a whole.
+    let font = &FONT_LARGE;
+    let kw = gfx_text_width(root_name, font);
+    let fill = if active { GFX_AXIS_LR } else { GFX_INK };
+    let h = DIAL_CHIP_H;
+    gfx_fill_rect(cx - kw / 2 - 6, cy - h / 2, kw + 12, h, fill);
+    gfx_text_center(cx, cy - h / 2 + (h - gfx_font_height(font)) / 2, root_name,
+                    gfx_ink_on(fill), font);
 }
 
 // ============ Bottom bar icons (10x10px) ============
@@ -543,24 +646,39 @@ fn draw_icon_lr_carets(x: i16, y: i16, color: u16) {
 /// Draw a legend item in the bottom bar with ticker if text overflows column.
 /// If label is empty, draw icon in muted color only (no label).
 fn draw_legend_item(col: i16, icon_type: u8, label: &str, color: u16) {
-    let x = col * LEGEND_COL_W + PAD_X;
-    let icon_y = LEGEND_Y + 2; // vertically center icon with text
+    // An axis with nothing bound draws no button at all — an empty slab would
+    // read as an enabled control.
+    if label.is_empty() {
+        return;
+    }
 
-    let draw_color = if label.is_empty() { GFX_DIM } else { color };
+    let (x, y, w) = legend_box(col);
+    let fill = fill_for(color);
+    let ink = gfx_ink_on(fill);
 
+    // Hard offset shadow, 1px outline, and a second ring on the grid button —
+    // System 6 depth, none of which needs a tone to work.
+    gfx_fill_rect(x + BTN_SHADOW, y + BTN_SHADOW, w, BTN_H, GFX_INK);
+    gfx_fill_rect(x, y, w, BTN_H, fill);
+    gfx_frame(x, y, w, BTN_H, GFX_INK);
+    let is_default = icon_type == 0;
+    if is_default {
+        gfx_frame(x + 3, y + 3, w - 6, BTN_H - 6, ink);
+    }
+
+    let icon_x = x + if is_default { 9 } else { 7 };
+    let icon_y = y + (BTN_H - ICON_SIZE) / 2;
     match icon_type {
-        0 => draw_icon_grid_button(x, icon_y, draw_color),
-        1 => draw_icon_ud_carets(x, icon_y, draw_color),
-        2 => draw_icon_lr_carets(x, icon_y, draw_color),
+        0 => draw_icon_grid_button(icon_x, icon_y, ink),
+        1 => draw_icon_ud_carets(icon_x, icon_y, ink),
+        2 => draw_icon_lr_carets(icon_x, icon_y, ink),
         _ => {}
     }
 
-    if !label.is_empty() {
-        let text_x = x + ICON_SIZE + ICON_LABEL_GAP;
-        let clip_right = (col + 1) * LEGEND_COL_W;
-        // No initial pause: legend text only appears while modifiers are held.
-        draw_marquee(4 + col as usize, text_x, clip_right, LEGEND_Y, label, color, &FONT_AA_SMALL, 0);
-    }
+    let text_x = icon_x + ICON_SIZE + ICON_LABEL_GAP;
+    let text_y = y + (BTN_H - gfx_font_height(&FONT_MEDIUM)) / 2;
+    // No initial pause: button text only appears while modifiers are held.
+    draw_marquee(4 + col as usize, text_x, x + w - 5, text_y, label, ink, &FONT_MEDIUM, 0);
 }
 
 
@@ -583,10 +701,10 @@ fn draw_icon_legend(y: i16, label: &str, value: &str, legend_color: u8) {
     let tx = PAD_X + 13 + 4;
     let mut prefix = FmtBuf::<16>::new();
     let _ = write!(prefix, "{}: ", label);
-    gfx_aa_text(tx, y, &prefix, color_lookup(legend_color), &FONT_AA_SMALL);
+    gfx_text(tx, y, &prefix, color_lookup(legend_color), &FONT_SMALL);
     if !value.is_empty() {
-        let w = gfx_aa_text_width(&prefix, &FONT_AA_SMALL);
-        gfx_aa_text(tx + w, y, value, color_lookup(OLED_CYAN), &FONT_AA_SMALL);
+        let w = gfx_text_width(&prefix, &FONT_SMALL);
+        gfx_text(tx + w, y, value, color_lookup(OLED_CYAN), &FONT_SMALL);
     }
 }
 
@@ -600,23 +718,17 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     let p_alt = (mods & MOD_ALT) != 0;
     let p_shift = (mods & MOD_SHIFT) != 0;
 
-    // ---- Row 0: CH xx | PAT yy (40% | 60%) ----
+    // ---- Row 0: CH | PAT ----
     let alt_only = p_alt && !p_meta && !p_shift;
-    let col1_right = PAD_X + CONTENT_W * 2 / 5 - 4;
-    let col2_x = PAD_X + CONTENT_W * 2 / 5 + 2;
-    let col2_right = PAD_X + CONTENT_W * 4 / 5 - 4;
     let mut ch_str = FmtBuf::<4>::new();
     let _ = write!(ch_str, "{:02}", ch + 1);
     let mut pat_str = FmtBuf::<4>::new();
     let _ = write!(pat_str, "{:02}", pat + 1);
-    let ch_color = if alt_only { GFX_YELLOW } else { GFX_VALUE };
-    let pat_color = if alt_only { GFX_RED } else { GFX_VALUE };
-    gfx_aa_text(PAD_X, ROW_Y[0], "CH", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(col1_right, ROW_Y[0], &ch_str, ch_color, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(col2_x, ROW_Y[0], "PAT", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(col2_right, ROW_Y[0], &pat_str, pat_color, &FONT_AA_SMALL_BOLD);
+    let ch_color = if alt_only { GFX_AXIS_UD } else { GFX_VALUE };
+    let pat_color = if alt_only { GFX_AXIS_LR } else { GFX_VALUE };
+    draw_row_two_col(ROW_Y[0], "CH", &ch_str, ch_color, "PAT", &pat_str, pat_color);
 
-    // ---- Row 1: POS z.z (40%) | LOOP x.x-y.y (60%) ----
+    // ---- Row 1: POS | LOOP ----
     let loop_data = &s.loops[ch][pat];
     let loop_len = loop_data.length;
     let raw_tick = if s.resume_tick >= 0 { s.resume_tick } else { s.current_tick };
@@ -626,19 +738,14 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         0
     };
     let pos_buf = tick_to_beat_display(pos_tick);
-    gfx_aa_text(PAD_X, ROW_Y[1], "POS", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(col1_right, ROW_Y[1], pos_buf.as_str(), GFX_VALUE, &FONT_AA_SMALL_BOLD);
     let s_buf = tick_to_beat_display(loop_data.start);
     let e_buf = tick_to_beat_display(loop_data.start + loop_data.length - s.zoom);
-    let s_color = if p_alt && p_meta { GFX_RED } else { GFX_VALUE };
-    let e_color = if p_alt && p_meta { GFX_YELLOW } else { GFX_VALUE };
-    let mut s_part = FmtBuf::<8>::new();
-    let _ = write!(s_part, "{}-", s_buf.as_str());
-    gfx_aa_text(col2_x, ROW_Y[1], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
-    draw_segs_right(CONTENT_RIGHT, ROW_Y[1], &[
-        TextSeg { text: &s_part, color: s_color },
-        TextSeg { text: &e_buf, color: e_color },
-    ], &FONT_AA_SMALL_BOLD);
+    // Start and end used to be two colors in one string; a well can only carry
+    // one fill, so the pair shares the up/down fill and the buttons name both.
+    let mut loop_str = FmtBuf::<16>::new();
+    let _ = write!(loop_str, "{}-{}", s_buf.as_str(), e_buf.as_str());
+    let loop_color = if p_alt && p_meta { GFX_AXIS_UD } else { GFX_VALUE };
+    draw_row_two_col(ROW_Y[1], "POS", pos_buf.as_str(), GFX_VALUE, "LOOP", &loop_str, loop_color);
 
     // ---- Row 2: KEY (or TYPE for drums) ----
     // Cmd-only (no alt) highlights key
@@ -647,7 +754,7 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         draw_row(ROW_Y[2], "TYPE", "DRUMS", GFX_VALUE);
     } else {
         let scale_root_name = NOTE_NAMES[(s.scale_root % 12) as usize];
-        let root_color = if cmd_only { GFX_RED } else { GFX_VALUE };
+        let root_color = if cmd_only { GFX_AXIS_LR } else { GFX_VALUE };
         draw_row(ROW_Y[2], "KEY", scale_root_name, root_color);
     }
 
@@ -656,7 +763,7 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
         draw_row(ROW_Y[3], "SCALE", "-", GFX_DIM);
     } else {
         let scale_name = to_upper(engine_get_scale_name_str(s));
-        let scale_color = if cmd_only { GFX_YELLOW } else { GFX_VALUE };
+        let scale_color = if cmd_only { GFX_AXIS_UD } else { GFX_VALUE };
         draw_row_tickered(ROW_Y[3], "SCALE", &scale_name, scale_color, 3);
     }
 
@@ -673,18 +780,18 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     if p_meta && p_alt && p_shift {
         // Cmd+Alt+Shift: loop end fine (U/D), loop start fine (L/R)
         draw_legend_item(0, 0, "", GFX_DIM);
-        draw_legend_item(1, 1, "LOOP END +/-0.1", GFX_YELLOW);
-        draw_legend_item(2, 2, "LOOP ST +/-0.1", GFX_RED);
+        draw_legend_item(1, 1, "LOOP END +/-0.1", GFX_AXIS_UD);
+        draw_legend_item(2, 2, "LOOP ST +/-0.1", GFX_AXIS_LR);
     } else if p_meta && p_alt {
         // Cmd+Alt: loop end (U/D), loop start (L/R)
         draw_legend_item(0, 0, "", GFX_DIM);
-        draw_legend_item(1, 1, "LOOP END", GFX_YELLOW);
-        draw_legend_item(2, 2, "LOOP ST", GFX_RED);
+        draw_legend_item(1, 1, "LOOP END", GFX_AXIS_UD);
+        draw_legend_item(2, 2, "LOOP ST", GFX_AXIS_LR);
     } else if p_meta {
         // Cmd only: disable + scale/key editing
-        draw_legend_item(0, 0, "DISABLE", GFX_BLUE);
-        draw_legend_item(1, 1, "SCALE", GFX_YELLOW);
-        draw_legend_item(2, 2, "KEY", GFX_RED);
+        draw_legend_item(0, 0, "DISABLE", GFX_AXIS_GRID);
+        draw_legend_item(1, 1, "SCALE", GFX_AXIS_UD);
+        draw_legend_item(2, 2, "KEY", GFX_AXIS_LR);
     } else if p_alt && p_shift {
         // Alt+Shift: unused
         draw_legend_item(0, 0, "", GFX_DIM);
@@ -693,18 +800,18 @@ fn render_pattern_default(s: &EngineState, mods: u8) {
     } else if p_alt {
         // Alt only: channel cycle (U/D), pattern cycle (L/R)
         draw_legend_item(0, 0, "", GFX_DIM);
-        draw_legend_item(1, 1, "CHANNEL", GFX_YELLOW);
-        draw_legend_item(2, 2, "PATTERN", GFX_RED);
+        draw_legend_item(1, 1, "CHANNEL", GFX_AXIS_UD);
+        draw_legend_item(2, 2, "PATTERN", GFX_AXIS_LR);
     } else if p_shift {
         // Shift only: camera scroll octave/beat
-        draw_legend_item(0, 0, "ENABLE", GFX_BLUE);
-        draw_legend_item(1, 1, "OCTAVE", GFX_YELLOW);
-        draw_legend_item(2, 2, "BEAT", GFX_RED);
+        draw_legend_item(0, 0, "ENABLE", GFX_AXIS_GRID);
+        draw_legend_item(1, 1, "OCTAVE", GFX_AXIS_UD);
+        draw_legend_item(2, 2, "BEAT", GFX_AXIS_LR);
     } else {
         // No modifiers: grid=ENABLE, arrows=move camera
-        draw_legend_item(0, 0, "ENABLE", GFX_BLUE);
-        draw_legend_item(1, 1, "CAM", GFX_YELLOW);
-        draw_legend_item(2, 2, "CAM", GFX_RED);
+        draw_legend_item(0, 0, "ENABLE", GFX_AXIS_GRID);
+        draw_legend_item(1, 1, "CAM", GFX_AXIS_UD);
+        draw_legend_item(2, 2, "CAM", GFX_AXIS_LR);
     }
 }
 
@@ -723,8 +830,35 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     let eg = EditGroup::from_mods(meta, alt, shift);
     let em = &EDIT_META[eg as u8 as usize];
 
+    // Every combo that has a figure draws it instead of the field list: a
+    // square well, and the two values it edits filling the foot of the panel.
+    // Inversion and the Cmd+Alt combos have no figure yet, so they keep the
+    // rows.
+    match eg {
+        EditGroup::Move => {
+            let nn = get_note_display(ev.row, is_drum, s);
+            let pos = tick_to_beat_display(ev.position);
+            let mut posbuf = FmtBuf::<16>::new();
+            let _ = write!(posbuf, "BAR {}", pos.as_str());
+            let len = ticks_to_canonical_name(ev.length);
+            let style = *ARP_STYLE_NAMES.get(ev.arp_style as usize).unwrap_or(&"CHD");
+            let mut stk = FmtBuf::<8>::new();
+            let _ = write!(stk, "{}", ev.chord_amount);
+            let mut rpt = FmtBuf::<8>::new();
+            let _ = write!(rpt, "{}", ev.repeat_amount);
+            crate::oled_widgets::draw_note_map(
+                nn.as_str(), posbuf.as_str(), len.as_str(), style, stk.as_str(), rpt.as_str(),
+            );
+            return;
+        }
+        EditGroup::Stack => return crate::oled_widgets::screen_stack(ev),
+        EditGroup::Spacing => return crate::oled_widgets::screen_spacing(s, ev),
+        EditGroup::Arp => return crate::oled_widgets::screen_arp(ev),
+        EditGroup::Voicing => return crate::oled_widgets::screen_voicing(ev),
+        _ => {}
+    }
+
     let note_name = get_note_display(ev.row, is_drum, s);
-    let col2_x = PAD_X + HALF_W + 6;
 
     // ---- Row 0: [extended name] (stack name) — ticker for long text ----
     {
@@ -769,9 +903,9 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
             }
         }
         // Shift up/down = inversion, Alt+Shift up/down = voicing — both affect row 0
-        let row0_color = if em.ud_rows & 1 != 0 { GFX_YELLOW } else { GFX_VALUE };
-        draw_marquee(0, PAD_X, CONTENT_RIGHT, ROW_Y5[0], &display_str, row0_color,
-                     &FONT_AA_SMALL_BOLD, TICKER_PAUSE_FRAMES);
+        let row0_color = if em.ud_rows & 1 != 0 { GFX_AXIS_UD } else { GFX_VALUE };
+        let hint = if em.ud_rows & 1 != 0 { em.ud_label } else { "" };
+        draw_banner(&display_str, 0, hint, row0_color);
     }
 
     // Color rules: yellow = up/down edits this, red = left/right edits this
@@ -794,24 +928,22 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     };
     // Left/right column colors for rows with two values (U/D edits left, L/R edits right)
     let row_ud_color = |row: u8| -> u16 {
-        if em.ud_rows & (1 << row) != 0 { GFX_YELLOW } else { GFX_VALUE }
+        if em.ud_rows & (1 << row) != 0 { GFX_AXIS_UD } else { GFX_VALUE }
     };
     let row_lr_color = |row: u8| -> u16 {
-        if em.lr_rows & (1 << row) != 0 { GFX_RED } else { GFX_VALUE }
+        if em.lr_rows & (1 << row) != 0 { GFX_AXIS_LR } else { GFX_VALUE }
     };
 
-    gfx_aa_text(PAD_X, ROW_Y5[1], "NOTE", GFX_LABEL, &FONT_AA_SMALL);
     // Highlighted when U/D edits it, incl. Shift+U/D octave move on single notes
     let note_color = if row_ud_color(1) != GFX_VALUE
         || (shift && !meta && !alt && ev.chord_amount <= 1)
     {
-        GFX_YELLOW
+        GFX_AXIS_UD
     } else {
         GFX_VALUE
     };
-    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[1], &note_display, note_color, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(col2_x, ROW_Y5[1], "LEN", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], &length_str, row_lr_color(1), &FONT_AA_SMALL_BOLD);
+    draw_row_two_col(ROW_Y5[1], "NOTE", &note_display, note_color,
+                     "LEN", &length_str, row_lr_color(1));
 
     // ---- Row 2: RPT [amount]  SPC [space] ----
     // Cmd: L/R edits RPT amount (highlight RPT only)
@@ -819,57 +951,45 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
     let mut rpt_amt_str = FmtBuf::<8>::new();
     let _ = write!(rpt_amt_str, "{}", ev.repeat_amount);
     let rpt_space_str = ticks_to_canonical_name(ev.repeat_space);
-    let rpt_color = if eg == EditGroup::Stack { GFX_RED } else { GFX_VALUE };
-    let spc_color = if eg == EditGroup::Spacing { GFX_RED } else { GFX_VALUE };
-    gfx_aa_text(PAD_X, ROW_Y5[2], "RPT", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[2], &rpt_amt_str, rpt_color, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(col2_x, ROW_Y5[2], "SPC", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[2], &rpt_space_str, spc_color, &FONT_AA_SMALL_BOLD);
+    let rpt_color = if eg == EditGroup::Stack { GFX_AXIS_LR } else { GFX_VALUE };
+    let spc_color = if eg == EditGroup::Spacing { GFX_AXIS_LR } else { GFX_VALUE };
+    draw_row_two_col(ROW_Y5[2], "RPT", &rpt_amt_str, rpt_color,
+                     "SPC", &rpt_space_str, spc_color);
 
     // ---- Row 3: STK [amount]  SPC [space] ----
-    gfx_aa_text(PAD_X, ROW_Y5[3], "STK", GFX_LABEL, &FONT_AA_SMALL);
     if ev.chord_amount > 1 {
         let mut ca_str = FmtBuf::<4>::new();
         let _ = write!(ca_str, "{}", ev.chord_amount);
         let mut cs_str = FmtBuf::<4>::new();
         let _ = write!(cs_str, "{}", ev.chord_space);
-        gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[3], &ca_str, row_ud_color(3), &FONT_AA_SMALL_BOLD);
-        gfx_aa_text(col2_x, ROW_Y5[3], "SPC", GFX_LABEL, &FONT_AA_SMALL);
-        gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[3], &cs_str, row_ud_color(3), &FONT_AA_SMALL_BOLD);
+        draw_row_two_col(ROW_Y5[3], "STK", &ca_str, row_ud_color(3),
+                         "SPC", &cs_str, row_ud_color(3));
     } else {
-        gfx_aa_text_right(PAD_X + HALF_W - 4, ROW_Y5[3], "1", row_ud_color(3), &FONT_AA_SMALL_BOLD);
+        draw_field(PAD_X, HALF_W - 5, ROW_Y5[3], "STK", "1", row_ud_color(3));
     }
 
-    // ---- Row 4: ARP [style] / [offset] ----
-    gfx_aa_text(PAD_X, ROW_Y5[4], "ARP", GFX_LABEL, &FONT_AA_SMALL);
+    // ---- Row 4: ARP [style] / [offset or voices] ----
     let style_name = *ARP_STYLE_NAMES.get(ev.arp_style as usize).unwrap_or(&"CHD");
-    if eg == EditGroup::Voicing {
-        // Alt+Shift: show voices count
-        let mut voices_str = FmtBuf::<4>::new();
-        let _ = write!(voices_str, "{}", ev.arp_voices);
-        draw_segs_right(CONTENT_RIGHT, ROW_Y5[4], &[
-            TextSeg { text: style_name, color: row_ud_color(4) },
-            TextSeg { text: " / ", color: GFX_VALUE },
-            TextSeg { text: &voices_str, color: row_lr_color(4) },
-        ], &FONT_AA_SMALL_BOLD);
+    let mut arp_str = FmtBuf::<24>::new();
+    let arp_color = if eg == EditGroup::Voicing {
+        let _ = write!(arp_str, "{} / {}", style_name, ev.arp_voices);
+        row_lr_color(4)
     } else if ev.arp_offset != 0 {
-        let mut offset_str = FmtBuf::<8>::new();
-        let _ = write!(offset_str, "{}{}", if ev.arp_offset > 0 { "+" } else { "" }, ev.arp_offset);
-        draw_segs_right(CONTENT_RIGHT, ROW_Y5[4], &[
-            TextSeg { text: style_name, color: row_ud_color(4) },
-            TextSeg { text: " / ", color: GFX_VALUE },
-            TextSeg { text: &offset_str, color: row_lr_color(4) },
-        ], &FONT_AA_SMALL_BOLD);
+        let sign = if ev.arp_offset > 0 { "+" } else { "" };
+        let _ = write!(arp_str, "{} / {}{}", style_name, sign, ev.arp_offset);
+        row_lr_color(4)
     } else {
-        gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[4], style_name, row_ud_color(4), &FONT_AA_SMALL_BOLD);
-    }
+        arp_str.push_str(style_name);
+        row_ud_color(4)
+    };
+    draw_field(PAD_X, CONTENT_W, ROW_Y5[4], "ARP", &arp_str, arp_color);
 
     // ---- Bottom legend (from EditMeta) ----
     // Override inversion label for single notes
     let ud_label = if eg == EditGroup::Inversion && ev.chord_amount <= 1 { "OCTAVE" } else { em.ud_label };
-    draw_legend_item(0, 0, em.grid_label, GFX_BLUE);
-    draw_legend_item(1, 1, ud_label, GFX_YELLOW);
-    draw_legend_item(2, 2, em.lr_label, GFX_RED);
+    draw_legend_item(0, 0, em.grid_label, GFX_AXIS_GRID);
+    draw_legend_item(1, 1, ud_label, GFX_AXIS_UD);
+    draw_legend_item(2, 2, em.lr_label, GFX_AXIS_LR);
 }
 
 fn render_modify(s: &EngineState, mods: u8) {
@@ -907,7 +1027,7 @@ fn render_modify(s: &EngineState, mods: u8) {
             display_str.push_str("SINGLE NOTE");
         }
         draw_marquee(0, PAD_X, CONTENT_RIGHT, ROW_Y5[0], &display_str, GFX_VALUE,
-                     &FONT_AA_SMALL_BOLD, TICKER_PAUSE_FRAMES);
+                     &FONT_VALUE, TICKER_PAUSE_FRAMES);
 
         // ---- Row 1: MODE label + all sub-mode labels in cycle order ----
         draw_mode_row(ROW_Y5[1], sub_mode, !m_meta, Some(&ev.sub_mode_handles));
@@ -915,45 +1035,45 @@ fn render_modify(s: &EngineState, mods: u8) {
         // ---- Row 2: LOOP [CNT/RST/FIL] — all modes shown, current highlighted ----
         {
             static LOOP_DISPLAY_LABELS: [&str; 3] = ["CNT", "RST", "FIL"];
-            gfx_aa_text(PAD_X, ROW_Y5[2], "LOOP", GFX_LABEL, &FONT_AA_SMALL);
-            let mut x = PAD_X + gfx_aa_text_width("LOOP ", &FONT_AA_SMALL);
+            gfx_text(PAD_X, ROW_Y5[2], "LOOP", GFX_LABEL, &FONT_SMALL);
+            let mut x = PAD_X + gfx_text_width("LOOP ", &FONT_SMALL);
             for (i, &label) in LOOP_DISPLAY_LABELS.iter().enumerate() {
                 let color = if i == loop_mode_val as usize {
-                    if m_meta { GFX_YELLOW } else { GFX_VALUE }
+                    if m_meta { GFX_AXIS_UD } else { GFX_VALUE }
                 } else {
                     GFX_DIM
                 };
-                gfx_aa_text(x, ROW_Y5[2], label, color, &FONT_AA_SMALL_BOLD);
-                x += gfx_aa_text_width(label, &FONT_AA_SMALL_BOLD) + 4;
+                gfx_text(x, ROW_Y5[2], label, color, &FONT_VALUE);
+                x += gfx_text_width(label, &FONT_VALUE) + 4;
             }
         }
 
         // ---- Row 3: LEN [n]  STAY [n] ----
         let mut len_str = FmtBuf::<4>::new();
         let _ = write!(len_str, "{}", arr_len);
-        let len_color = if !m_meta { GFX_RED } else { GFX_VALUE };
+        let len_color = if !m_meta { GFX_AXIS_LR } else { GFX_VALUE };
         let mut stay_str = FmtBuf::<4>::new();
         let _ = write!(stay_str, "{}", stay_val);
-        let stay_color = if m_meta { GFX_RED } else { GFX_VALUE };
+        let stay_color = if m_meta { GFX_AXIS_LR } else { GFX_VALUE };
         draw_row_two_col(ROW_Y5[3], "LEN", &len_str, len_color, "STAY", &stay_str, stay_color);
 
         // Legend
         if m_meta {
             draw_legend_item(0, 0, "", GFX_DIM);
-            draw_legend_item(1, 1, "LOOP", GFX_YELLOW);
-            draw_legend_item(2, 2, "STAY", GFX_RED);
+            draw_legend_item(1, 1, "LOOP", GFX_AXIS_UD);
+            draw_legend_item(2, 2, "STAY", GFX_AXIS_LR);
         } else {
             draw_legend_item(0, 0, "", GFX_DIM);
-            draw_legend_item(1, 1, "MODE", GFX_YELLOW);
-            draw_legend_item(2, 2, "LENGTH", GFX_RED);
+            draw_legend_item(1, 1, "MODE", GFX_AXIS_UD);
+            draw_legend_item(2, 2, "LENGTH", GFX_AXIS_LR);
         }
     } else {
         // No note selected — show MODE label + sub-mode labels in cycle order
         draw_mode_row(ROW_Y5[0], sub_mode, !m_meta, None);
-        gfx_aa_text(PAD_X, ROW_Y5[1], "SELECT A NOTE", GFX_DIM, &FONT_AA_SMALL);
+        gfx_text(PAD_X, ROW_Y5[1], "SELECT A NOTE", GFX_INK, &FONT_MEDIUM);
 
         draw_legend_item(0, 0, "", GFX_DIM);
-        draw_legend_item(1, 1, if !m_meta { "MODE" } else { "" }, if !m_meta { GFX_YELLOW } else { GFX_DIM });
+        draw_legend_item(1, 1, if !m_meta { "MODE" } else { "" }, if !m_meta { GFX_AXIS_UD } else { GFX_DIM });
         draw_legend_item(2, 2, "", GFX_DIM);
     }
 }
@@ -982,9 +1102,8 @@ fn render_sound(s: &EngineState, mods: u8) {
 
     // ---- Row 1: PAGE label + all page names in cycle order, current highlighted ----
     {
-        gfx_aa_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_AA_SMALL);
         let label = SOUND_PAGE_LABELS[(page as usize).min(SOUND_PAGE_LABELS.len() - 1)];
-        gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], label, GFX_YELLOW, &FONT_AA_SMALL_BOLD);
+        draw_row(ROW_Y5[1], "PAGE", label, GFX_AXIS_UD);
     }
 
     // ---- Rows 2-3: params of the current page ----
@@ -992,15 +1111,11 @@ fn render_sound(s: &EngineState, mods: u8) {
     let draw_param = |slot: usize, param: usize| {
         // Two params per row: slots 0/2 left column, 1/3 right column
         let y = ROW_Y5[2 + slot / 2];
-        let (x_label, x_right) = if slot % 2 == 0 {
-            (PAD_X, PAD_X + HALF_W - 6)
-        } else {
-            (PAD_X + HALF_W + 4, CONTENT_RIGHT)
-        };
+        let x = if slot % 2 == 0 { PAD_X } else { PAD_X + HALF_W + 5 };
         let value = format_param_value(param, patch_vals[param]);
-        let color = if focused == Some(param) { GFX_YELLOW } else { GFX_VALUE };
-        gfx_aa_text(x_label, y, param_label(param), GFX_LABEL, &FONT_AA_SMALL);
-        gfx_aa_text_right(x_right, y, &value, color, &FONT_AA_SMALL_BOLD);
+        let color = // left/right edits the focused parameter, so it takes that axis
+            if focused == Some(param) { GFX_AXIS_LR } else { GFX_VALUE };
+        draw_field(x, HALF_W - 5, y, param_label(param), &value, color);
     };
 
     match page {
@@ -1008,17 +1123,10 @@ fn render_sound(s: &EngineState, mods: u8) {
             // Preset name, amber when the patch has local edits
             let preset_idx = (s.sound_presets[ch] as usize).min(arp3_synth::patch::NUM_PRESETS - 1);
             let edited = s.sound_edited[ch] != 0;
-            let name_color = if edited { GFX_YELLOW } else { GFX_VALUE };
-            gfx_aa_text(PAD_X, ROW_Y5[2], "PATCH", GFX_LABEL, &FONT_AA_SMALL);
-            gfx_aa_text_right(
-                CONTENT_RIGHT,
-                ROW_Y5[2],
-                arp3_synth::patch::PRESETS[preset_idx].name,
-                name_color,
-                &FONT_AA_SMALL_BOLD,
-            );
+            let name_color = if edited { GFX_AXIS_UD } else { GFX_VALUE };
+            draw_row(ROW_Y5[2], "PATCH", arp3_synth::patch::PRESETS[preset_idx].name, name_color);
             if edited {
-                draw_row(ROW_Y5[3], "STATE", "EDITED", GFX_RED);
+                draw_row(ROW_Y5[3], "STATE", "EDITED", GFX_ALERT);
             }
         }
         PAGE_OSC1 => draw_param(0, arp3_synth::patch::P_WAVE1),
@@ -1056,8 +1164,8 @@ fn render_sound(s: &EngineState, mods: u8) {
 
     // ---- Legend ----
     draw_legend_item(0, 0, "", GFX_DIM);
-    draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
-    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+    draw_legend_item(1, 1, "PAGE", GFX_AXIS_UD);
+    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_AXIS_LR);
 }
 
 /// Sound mode on a drum channel: a drum-synth kit page.
@@ -1080,35 +1188,31 @@ fn render_sound_drumsynth(s: &EngineState, mods: u8) {
     draw_row(ROW_Y5[0], "SOUND", &hdr, GFX_VALUE);
 
     // ---- Row 1: instrument (page) name, kit-aware ----
-    gfx_aa_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text_right(
+    gfx_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_SMALL);
+    gfx_text_right(
         CONTENT_RIGHT,
         ROW_Y5[1],
         drum_page_label(page, kit),
-        GFX_YELLOW,
-        &FONT_AA_SMALL_BOLD,
+        GFX_AXIS_UD,
+        &FONT_VALUE,
     );
 
     // ---- Rows 2-3 ----
     if page == PAGE_DKIT {
         let name = KIT_LABELS[(kit as usize).min(NUM_KITS - 1)];
-        draw_row(ROW_Y5[2], "KIT", name, GFX_YELLOW);
+        draw_row(ROW_Y5[2], "KIT", name, GFX_AXIS_UD);
     } else if page == PAGE_DFOLD {
         // Focused instrument's fold amount
         if let Some(param) = drum_focused_param(s) {
             let mut fbuf = FmtBuf::<12>::new();
             let _ = write!(fbuf, "{}%", dp[param]);
-            draw_row(ROW_Y5[2], drum_param_label(param), &fbuf, GFX_YELLOW);
+            draw_row(ROW_Y5[2], drum_param_label(param), &fbuf, GFX_AXIS_UD);
         }
     } else {
         let focused = drum_focused_param(s);
         for (i, &param) in drum_page_faders(page, kit).iter().enumerate().take(4) {
             let y = ROW_Y5[2 + i / 2];
-            let (x_label, x_right) = if i % 2 == 0 {
-                (PAD_X, PAD_X + HALF_W - 6)
-            } else {
-                (PAD_X + HALF_W + 4, CONTENT_RIGHT)
-            };
+            let x = if i % 2 == 0 { PAD_X } else { PAD_X + HALF_W + 5 };
             let mut val = FmtBuf::<12>::new();
             if param == arp3_synth::drums::DP_BD_TUNE || param == arp3_synth::drums::DPF_BD_TUNE {
                 // BD tune reads in Hz, same mapping the DSP uses
@@ -1116,16 +1220,16 @@ fn render_sound_drumsynth(s: &EngineState, mods: u8) {
             } else {
                 let _ = write!(val, "{}%", dp[param]);
             }
-            let color = if focused == Some(param) { GFX_YELLOW } else { GFX_VALUE };
-            gfx_aa_text(x_label, y, drum_param_label(param), GFX_LABEL, &FONT_AA_SMALL);
-            gfx_aa_text_right(x_right, y, &val, color, &FONT_AA_SMALL_BOLD);
+            let color = // left/right edits the focused parameter, so it takes that axis
+            if focused == Some(param) { GFX_AXIS_LR } else { GFX_VALUE };
+            draw_field(x, HALF_W - 5, y, drum_param_label(param), &val, color);
         }
     }
 
     // ---- Legend ----
     draw_legend_item(0, 0, "", GFX_DIM);
-    draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
-    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+    draw_legend_item(1, 1, "PAGE", GFX_AXIS_UD);
+    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_AXIS_LR);
 }
 
 /// Sound mode on a drum channel: the sampler pages.
@@ -1145,22 +1249,17 @@ fn render_sound_sampler(s: &EngineState, mods: u8) {
 
     // ---- Row 1: page name ----
     {
-        gfx_aa_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_AA_SMALL);
+        gfx_text(PAD_X, ROW_Y5[1], "PAGE", GFX_LABEL, &FONT_SMALL);
         let label = SOUND_PAGE_LABELS[(page as usize).min(SOUND_PAGE_LABELS.len() - 1)];
-        gfx_aa_text_right(CONTENT_RIGHT, ROW_Y5[1], label, GFX_YELLOW, &FONT_AA_SMALL_BOLD);
+        gfx_text_right(CONTENT_RIGHT, ROW_Y5[1], label, GFX_AXIS_UD, &FONT_VALUE);
     }
 
     // Two params per row on rows 2-3: slots 0/2 left column, 1/3 right column
     let draw_pair = |slot_idx: usize, label: &str, value: &str, hot: bool| {
         let y = ROW_Y5[2 + slot_idx / 2];
-        let (x_label, x_right) = if slot_idx % 2 == 0 {
-            (PAD_X, PAD_X + HALF_W - 6)
-        } else {
-            (PAD_X + HALF_W + 4, CONTENT_RIGHT)
-        };
-        let color = if hot { GFX_YELLOW } else { GFX_VALUE };
-        gfx_aa_text(x_label, y, label, GFX_LABEL, &FONT_AA_SMALL);
-        gfx_aa_text_right(x_right, y, value, color, &FONT_AA_SMALL_BOLD);
+        let x = if slot_idx % 2 == 0 { PAD_X } else { PAD_X + HALF_W + 5 };
+        let color = if hot { GFX_AXIS_LR } else { GFX_VALUE };
+        draw_field(x, HALF_W - 5, y, label, value, color);
     };
 
     // Slot param value → display text
@@ -1237,15 +1336,15 @@ fn render_sound_sampler(s: &EngineState, mods: u8) {
                 let mode = fmt_slot_param(SP_MODE);
                 mbuf.push_str(mode.as_str());
                 mbuf.push_str(if sp[SP_TAPE] != 0 { " TAPE" } else { " GRAIN" });
-                gfx_aa_text(PAD_X + 36, ROW_Y5[1], &mbuf, GFX_DIM, &FONT_AA_SMALL);
+                gfx_text(PAD_X + 36, ROW_Y5[1], &mbuf, GFX_DIM, &FONT_SMALL);
             }
         }
     }
 
     // ---- Legend ----
     draw_legend_item(0, 0, "", GFX_DIM);
-    draw_legend_item(1, 1, "PAGE", GFX_YELLOW);
-    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_RED);
+    draw_legend_item(1, 1, "PAGE", GFX_AXIS_UD);
+    draw_legend_item(2, 2, if shift { "FINE" } else { "EDIT" }, GFX_AXIS_LR);
 }
 
 fn slot_param_label(param: usize) -> &'static str {
@@ -1274,12 +1373,9 @@ fn render_channel(s: &EngineState) {
     let mut pat_buf = FmtBuf::<4>::new();
     let _ = write!(pat_buf, "{}", pat + 1);
 
-    gfx_aa_text(PAD_X, ROW_Y[0], "MODE", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text(PAD_X + 50, ROW_Y[0], "CHANNEL", GFX_VALUE, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(PAD_X, ROW_Y[1], "SELECT", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text(PAD_X + 64, ROW_Y[1], &ch_buf, GFX_VALUE, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(PAD_X, ROW_Y[2], "PAT", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text(PAD_X + 50, ROW_Y[2], &pat_buf, GFX_VALUE, &FONT_AA_SMALL_BOLD);
+    draw_row(ROW_Y[0], "MODE", "CHANNEL", GFX_VALUE);
+    draw_row(ROW_Y[1], "SELECT", &ch_buf, GFX_VALUE);
+    draw_row(ROW_Y[2], "PAT", &pat_buf, GFX_VALUE);
 }
 
 fn render_loop(s: &EngineState, mods: u8) {
@@ -1291,23 +1387,18 @@ fn render_loop(s: &EngineState, mods: u8) {
     let l_shift = (mods & MOD_SHIFT) != 0;
     let l_meta = (mods & MOD_META) != 0;
 
-    gfx_aa_text(PAD_X, ROW_Y[0], "MODE", GFX_LABEL, &FONT_AA_SMALL);
-    gfx_aa_text(PAD_X + 50, ROW_Y[0], "LOOP", GFX_VALUE, &FONT_AA_SMALL_BOLD);
+    draw_row(ROW_Y[0], "MODE", "LOOP", GFX_VALUE);
 
     let s_buf = tick_to_beat_display(loop_start);
     let e_buf = tick_to_beat_display(loop_end - s.zoom);
 
+    // Start and end each get their own well so the live one can be filled
     let editing_start = l_meta;
-    let sx = PAD_X;
-    gfx_aa_text(sx, ROW_Y[1], "LOOP ", GFX_LABEL, &FONT_AA_SMALL);
-    let lx = sx + gfx_aa_text_width("LOOP ", &FONT_AA_SMALL);
-    let s_color = if editing_start { GFX_YELLOW } else { GFX_VALUE };
-    let e_color = if !editing_start { GFX_YELLOW } else { GFX_VALUE };
-    gfx_aa_text(lx, ROW_Y[1], &s_buf, s_color, &FONT_AA_SMALL_BOLD);
-    let sw = gfx_aa_text_width(&s_buf, &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(lx + sw, ROW_Y[1], "-", GFX_DIM, &FONT_AA_SMALL_BOLD);
-    let dw = gfx_aa_text_width("-", &FONT_AA_SMALL_BOLD);
-    gfx_aa_text(lx + sw + dw, ROW_Y[1], &e_buf, e_color, &FONT_AA_SMALL_BOLD);
+    let col_w = HALF_W - 5;
+    let start_color = if editing_start { GFX_AXIS_UD } else { GFX_VALUE };
+    let end_color = if editing_start { GFX_VALUE } else { GFX_AXIS_UD };
+    draw_field(PAD_X, col_w, ROW_Y[1], "FROM", s_buf.as_str(), start_color);
+    draw_field(PAD_X + HALF_W + 5, col_w, ROW_Y[1], "TO", e_buf.as_str(), end_color);
 
     let step_str = if l_shift { "+/- 0.1" } else { "+/- 1" };
     if editing_start {
@@ -1396,9 +1487,19 @@ pub fn modifier_hint(s: &EngineState, held: u8, key: u8) -> &'static str {
 
 pub fn oled_render(s: &EngineState, modifiers: u8) {
     FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
-    gfx_clear(GFX_BLACK);
+    gfx_clear(GFX_GROUND);
 
-    match UiMode::from_u8(s.ui_mode) {
+    let mode = UiMode::from_u8(s.ui_mode);
+    draw_titlebar(s, match mode {
+        UiMode::Pattern if s.selected_event_idx >= 0 => "NOTE",
+        UiMode::Pattern => "PATTERN",
+        UiMode::Channel => "CHANNEL",
+        UiMode::Loop => "LOOP",
+        UiMode::Modify => "MODIFY",
+        UiMode::Sound => "SOUND",
+    });
+
+    match mode {
         UiMode::Pattern if s.selected_event_idx >= 0 => render_pattern_selected(s, modifiers),
         UiMode::Pattern => render_pattern_default(s, modifiers),
         UiMode::Channel => render_channel(s),

@@ -1,121 +1,220 @@
-// build.rs — Pre-rasterize IBM Plex Mono at multiple sizes using fontdue
-// Generates oled_fonts_gen.rs with const glyph coverage data for anti-aliased rendering
+// build.rs — Parse Spleen BDF bitmap fonts into packed 1-bit glyph tables.
+//
+// The panel this UI targets (JDI LPM027M128C, 400x240, 1 bit per channel) has
+// no intermediate tones, so anti-aliased coverage has nowhere to land: a vector
+// stem rendered at ~50% across two columns thresholds to nothing and the glyph
+// loses strokes. Spleen is drawn on the pixel grid at each size, so the BDF
+// already contains exactly the bits we blit — no rasterizer, no hinting, and
+// no coverage byte per pixel.
 
-use fontdue::{Font, FontSettings};
 use std::env;
 use std::fs;
 use std::path::Path;
 
-// Font sizes to rasterize (in pixels)
-const SIZES: &[(u8, &str, &str)] = &[
-    (11, "SMALL", "Regular"),      // labels (CH, PAT, LOOP, KEY, SCALE)
-    (11, "SMALL_BOLD", "Bold"),    // values at same size, bold weight
-    (14, "MEDIUM", "Bold"),        // larger values
-    (18, "LARGE", "Bold"),         // emphasized values
-    (24, "COF", "Bold"),           // circle of fifths key letter
-    (40, "XLARGE", "Bold"),        // dial note letter
+// (bdf file stem, generated const name)
+const FONTS: &[(&str, &str)] = &[
+    ("spleen-5x8", "SPLEEN_5X8"),     // field labels
+    ("spleen-8x16", "SPLEEN_8X16"),   // values, buttons, title bar
+    ("spleen-12x24", "SPLEEN_12X24"), // emphasized values
+    ("spleen-16x32", "SPLEEN_16X32"), // hero readouts (key letter)
 ];
 
-// ASCII range to rasterize
 const FIRST_CHAR: u8 = 0x20; // space
-const LAST_CHAR: u8 = 0x7E;  // tilde
+const LAST_CHAR: u8 = 0x7E; // tilde
+
+struct Glyph {
+    encoding: i32,
+    dwidth: i16,
+    bbx: (i16, i16, i16, i16), // w, h, x_off, y_off (baseline-relative)
+    rows: Vec<Vec<u8>>,
+}
+
+struct Bdf {
+    ascent: i16,
+    line_height: i16,
+    glyphs: Vec<Glyph>,
+}
+
+fn parse_bdf(src: &str) -> Bdf {
+    let mut ascent: Option<i16> = None;
+    let mut descent: Option<i16> = None;
+    let mut fbb: (i16, i16) = (0, 0); // height, y_off
+    let mut glyphs = Vec::new();
+
+    let mut cur: Option<Glyph> = None;
+    let mut in_bitmap = false;
+
+    for line in src.lines() {
+        let line = line.trim_end();
+        if let Some(rest) = line.strip_prefix("FONTBOUNDINGBOX ") {
+            let v = parse_ints(rest);
+            if v.len() >= 4 {
+                fbb = (v[1], v[3]);
+            }
+        } else if let Some(rest) = line.strip_prefix("FONT_ASCENT ") {
+            ascent = parse_ints(rest).first().copied();
+        } else if let Some(rest) = line.strip_prefix("FONT_DESCENT ") {
+            descent = parse_ints(rest).first().copied();
+        } else if line.starts_with("STARTCHAR") {
+            cur = Some(Glyph {
+                encoding: -1,
+                dwidth: 0,
+                bbx: (0, 0, 0, 0),
+                rows: Vec::new(),
+            });
+            in_bitmap = false;
+        } else if let Some(rest) = line.strip_prefix("ENCODING ") {
+            if let Some(g) = cur.as_mut() {
+                // Codepoints run past i16, so encodings get their own parse.
+                g.encoding = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|t| t.parse::<i32>().ok())
+                    .unwrap_or(-1);
+            }
+        } else if let Some(rest) = line.strip_prefix("DWIDTH ") {
+            if let Some(g) = cur.as_mut() {
+                g.dwidth = parse_ints(rest).first().copied().unwrap_or(0);
+            }
+        } else if let Some(rest) = line.strip_prefix("BBX ") {
+            if let Some(g) = cur.as_mut() {
+                let v = parse_ints(rest);
+                if v.len() >= 4 {
+                    g.bbx = (v[0], v[1], v[2], v[3]);
+                }
+            }
+        } else if line == "BITMAP" {
+            in_bitmap = true;
+        } else if line == "ENDCHAR" {
+            if let Some(g) = cur.take() {
+                if g.encoding >= 0 {
+                    glyphs.push(g);
+                }
+            }
+            in_bitmap = false;
+        } else if in_bitmap && !line.is_empty() {
+            if let Some(g) = cur.as_mut() {
+                g.rows.push(hex_row(line.trim()));
+            }
+        }
+    }
+
+    // BDF FONT_ASCENT is optional; fall back to the font bounding box.
+    let ascent = ascent.unwrap_or(fbb.0 + fbb.1);
+    let descent = descent.unwrap_or(-fbb.1);
+    Bdf {
+        ascent,
+        line_height: ascent + descent,
+        glyphs,
+    }
+}
+
+fn parse_ints(s: &str) -> Vec<i16> {
+    s.split_whitespace()
+        .filter_map(|t| t.parse::<i16>().ok())
+        .collect()
+}
+
+fn hex_row(s: &str) -> Vec<u8> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        let hi = (bytes[i] as char).to_digit(16).unwrap_or(0) as u8;
+        let lo = (bytes[i + 1] as char).to_digit(16).unwrap_or(0) as u8;
+        out.push((hi << 4) | lo);
+        i += 2;
+    }
+    out
+}
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("oled_fonts_gen.rs");
-
     let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
-    let regular_data = fs::read(assets.join("IBMPlexMono-Regular.ttf")).expect("Regular font");
-    let bold_data = fs::read(assets.join("IBMPlexMono-Bold.ttf")).expect("Bold font");
-
-    let regular = Font::from_bytes(regular_data.as_slice(), FontSettings::default()).unwrap();
-    let bold = Font::from_bytes(bold_data.as_slice(), FontSettings::default()).unwrap();
 
     let mut out = String::new();
     out.push_str("// Auto-generated by build.rs — do not edit\n");
-    out.push_str("// IBM Plex Mono pre-rasterized glyph data with coverage (alpha) values\n\n");
-    out.push_str("use crate::oled_gfx::AAGlyph;\n\n");
+    out.push_str("// Spleen bitmap fonts, packed 1 bit per pixel, row-major MSB first.\n");
+    out.push_str("// Spleen is (c) 2018-2026 Frederic Cambus, BSD-2-Clause; see assets/SPLEEN-LICENSE.\n\n");
+    out.push_str("use crate::oled_gfx::{BitFont, BitGlyph};\n\n");
 
-    for &(size, name, weight) in SIZES {
-        let font = match weight {
-            "Bold" => &bold,
-            _ => &regular,
-        };
-        generate_font_data(&mut out, font, size, name);
+    for &(stem, name) in FONTS {
+        let path = assets.join(format!("{stem}.bdf"));
+        let src = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        generate_font(&mut out, &parse_bdf(&src), name);
+        println!("cargo:rerun-if-changed=assets/{stem}.bdf");
     }
 
     fs::write(&dest_path, out).unwrap();
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=assets/IBMPlexMono-Regular.ttf");
-    println!("cargo:rerun-if-changed=assets/IBMPlexMono-Bold.ttf");
 }
 
-fn generate_font_data(out: &mut String, font: &Font, size: u8, name: &str) {
-    let px = size as f32;
-
-    // Collect all glyph bitmaps
-    let mut all_coverage: Vec<u8> = Vec::new();
-    let mut glyphs: Vec<(u16, u8, u8, u8, i8, i8)> = Vec::new(); // offset, w, h, x_advance, x_off, y_off
-
-    // Get line metrics for baseline
-    let line_metrics = font.horizontal_line_metrics(px).unwrap();
-    let ascent = line_metrics.ascent.round() as i16;
+fn generate_font(out: &mut String, bdf: &Bdf, name: &str) {
+    let mut bits: Vec<u8> = Vec::new();
+    // offset, w, h, x_advance, x_offset, y_offset
+    let mut glyphs: Vec<(u16, u8, u8, u8, i8, i8)> = Vec::new();
 
     for ch in FIRST_CHAR..=LAST_CHAR {
-        let (metrics, bitmap) = font.rasterize(ch as char, px);
+        let g = bdf.glyphs.iter().find(|g| g.encoding == ch as i32);
+        let offset = bits.len() as u16;
 
-        let offset = all_coverage.len() as u16;
-        let w = metrics.width as u8;
-        let h = metrics.height as u8;
-        let x_advance = metrics.advance_width.round() as u8;
-        // fontdue: xmin = left bearing, ymin = descent below baseline
-        let x_offset = metrics.xmin as i8;
-        // Convert fontdue's ymin to top-relative y_offset
-        // fontdue ymin = pixels below baseline (positive = above)
-        let y_offset = (-(metrics.ymin as i16) - (metrics.height as i16) + ascent) as i8;
+        let Some(g) = g else {
+            glyphs.push((offset, 0, 0, 0, 0, 0));
+            continue;
+        };
 
-        all_coverage.extend_from_slice(&bitmap);
-        glyphs.push((offset, w, h, x_advance, x_offset, y_offset));
+        let (bw, bh, bx, by) = g.bbx;
+        let stride = ((bw + 7) / 8) as usize;
+        for row in 0..bh as usize {
+            match g.rows.get(row) {
+                Some(r) => {
+                    for b in 0..stride {
+                        bits.push(r.get(b).copied().unwrap_or(0));
+                    }
+                }
+                None => bits.extend(std::iter::repeat(0).take(stride)),
+            }
+        }
+
+        // Glyph origin is the baseline; the renderer works from the line top,
+        // so fold the ascent in here and keep the hot path free of it.
+        let y_offset = bdf.ascent - by - bh;
+        glyphs.push((
+            offset,
+            bw as u8,
+            bh as u8,
+            g.dwidth as u8,
+            bx as i8,
+            y_offset as i8,
+        ));
     }
 
-    // Write coverage data
     out.push_str(&format!(
-        "static FONT_{}_COVERAGE: [u8; {}] = [\n    ",
-        name,
-        all_coverage.len()
+        "pub static {name}_BITS: [u8; {}] = [",
+        bits.len()
     ));
-    for (i, &b) in all_coverage.iter().enumerate() {
-        out.push_str(&format!("0x{:02X},", b));
-        if (i + 1) % 20 == 0 {
+    for (i, b) in bits.iter().enumerate() {
+        if i % 16 == 0 {
             out.push_str("\n    ");
         }
+        out.push_str(&format!("0x{b:02X},"));
     }
     out.push_str("\n];\n\n");
 
-    // Write glyph table
-    let glyph_count = glyphs.len();
     out.push_str(&format!(
-        "static FONT_{}_GLYPHS: [AAGlyph; {}] = [\n",
-        name, glyph_count
+        "pub static {name}_GLYPHS: [BitGlyph; {}] = [\n",
+        glyphs.len()
     ));
-    for (offset, w, h, x_advance, x_off, y_off) in &glyphs {
+    for (offset, w, h, adv, xo, yo) in &glyphs {
         out.push_str(&format!(
-            "    AAGlyph {{ coverage_offset: {}, width: {}, height: {}, x_advance: {}, x_offset: {}, y_offset: {} }},\n",
-            offset, w, h, x_advance, x_off, y_off
+            "    BitGlyph {{ offset: {offset}, width: {w}, height: {h}, x_advance: {adv}, x_offset: {xo}, y_offset: {yo} }},\n"
         ));
     }
     out.push_str("];\n\n");
 
-    // Write font struct
     out.push_str(&format!(
-        "pub static FONT_AA_{}: crate::oled_gfx::AAFont = crate::oled_gfx::AAFont {{\n",
-        name
+        "pub static {name}: BitFont = BitFont {{\n    bits: &{name}_BITS,\n    glyphs: &{name}_GLYPHS,\n    first: {},\n    last: {},\n    y_advance: {},\n}};\n\n",
+        FIRST_CHAR, LAST_CHAR, bdf.line_height
     ));
-    out.push_str(&format!("    coverage: &FONT_{}_COVERAGE,\n", name));
-    out.push_str(&format!("    glyphs: &FONT_{}_GLYPHS,\n", name));
-    out.push_str(&format!("    first: 0x{:02X},\n", FIRST_CHAR));
-    out.push_str(&format!("    last: 0x{:02X},\n", LAST_CHAR));
-    let y_advance = (px * 1.3).round() as u8;
-    out.push_str(&format!("    y_advance: {},\n", y_advance));
-    out.push_str("};\n\n");
 }
