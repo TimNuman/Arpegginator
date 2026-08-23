@@ -117,7 +117,7 @@ fn arrow_head(x: f32, y: f32, ux: f32, uy: f32, len: f32, half_w: f32, col: u16)
 /// One move in the path: a straight shaft on the fixed stair, and a head turned
 /// to face the target. The shaft runs the whole way and the notes are laid over
 /// it, so the ratio stays exact instead of being bent by a clearance trim.
-fn arrow_to(x0: i16, y0: i16, x1: i16, y1: i16, col: u16) {
+fn arrow_to(x0: i16, y0: i16, x1: i16, y1: i16, clear: i16, head: i16, half: i16, col: u16) {
     let dx = (x1 - x0) as f32;
     let dy = (y1 - y0) as f32;
     let d = sqrtf(dx * dx + dy * dy);
@@ -125,9 +125,9 @@ fn arrow_to(x0: i16, y0: i16, x1: i16, y1: i16, col: u16) {
         return;
     }
     let (ux, uy) = (dx / d, dy / d);
-    const CLEAR: f32 = 15.0;
+    let c = clear as f32;
     stair_line(x0, y0, x1, y1, 3, col);
-    arrow_head(x1 as f32 - ux * CLEAR, y1 as f32 - uy * CLEAR, ux, uy, 9.0, 5.0, col);
+    arrow_head(x1 as f32 - ux * c, y1 as f32 - uy * c, ux, uy, head as f32, half as f32, col);
 }
 
 // ============ Figures ============
@@ -187,19 +187,22 @@ fn fig_stack(stack: i16, repeat: i16) {
 /// the first column, one magenta dot per sixteenth along the bottom row: the gap
 /// is built out of the value rather than drawn to a length and then labelled.
 fn fig_spacing(stack_notes: i16, blocks: i16, per_col: i16) {
-    const DOT: i16 = 3;
-    const PITCH: i16 = 9;
-    const PAD: i16 = (PITCH - DOT) / 2;
-    const BLK: i16 = 4;
-    const BLK_GAP_Y: i16 = 1;
-    const COL_PITCH: i16 = 8;
     const BW: i16 = 42;
     const BH: i16 = 22;
     const ROWS: i16 = 3;
     const COLS: i16 = 2;
+    const BLK_GAP_Y: i16 = 1;
     let cols = (blocks + per_col - 1) / per_col;
-    let stack_gap = stack_notes * PITCH;
-    let repeat_gap = cols * COL_PITCH + 6;
+    // Both rulers are the gaps they measure, so both have to give when the
+    // count outgrows the well: the dot pitch and the column pitch shrink
+    // rather than the ruler running past the frame.
+    let pitch = (134 / (ROWS - 1) / stack_notes.max(1)).clamp(3, 9);
+    let dot = (pitch - 6).clamp(2, 3);
+    let pad = (pitch - dot) / 2;
+    let col_pitch = ((116 - 6) / cols.max(1)).clamp(3, 8);
+    let blk = (col_pitch - 4).clamp(2, 4);
+    let stack_gap = stack_notes * pitch;
+    let repeat_gap = cols * col_pitch + 6;
     let grid_w = COLS * BW + repeat_gap;
     let grid_h = ROWS * BH + (ROWS - 1) * stack_gap;
     let ox = CX - grid_w / 2;
@@ -215,16 +218,16 @@ fn fig_spacing(stack_notes: i16, blocks: i16, per_col: i16) {
     (0..ROWS - 1).for_each(|r| {
         let top = by(r + 1) + BH;
         (0..stack_notes).for_each(|d| {
-            gfx_fill_rect(sx, top + d * PITCH + PAD, DOT, DOT, GFX_AXIS_UD);
+            gfx_fill_rect(sx, top + d * pitch + pad, dot, dot, GFX_AXIS_UD);
         });
     });
     let ry = by(0) + BH / 2;
     (0..cols).for_each(|c| {
         let n = (blocks - c * per_col).min(per_col);
-        let h = n * BLK + (n - 1) * BLK_GAP_Y;
-        let x = bx(0) + BW + 3 + c * COL_PITCH;
+        let h = n * blk + (n - 1) * BLK_GAP_Y;
+        let x = bx(0) + BW + 3 + c * col_pitch;
         (0..n).for_each(|b| {
-            gfx_fill_rect(x, ry - h / 2 + b * (BLK + BLK_GAP_Y), BLK, BLK, GFX_AXIS_LR);
+            gfx_fill_rect(x, ry - h / 2 + b * (blk + BLK_GAP_Y), blk, blk, GFX_AXIS_LR);
         });
     });
     (0..ROWS).for_each(|r| {
@@ -287,41 +290,64 @@ fn arp_path(style: u8, voices: i16, out: &mut [i16; 20]) -> usize {
 /// parameter, not a join between two marks.
 fn fig_arp(style: u8, voices: i16, offset: i16) {
     let lanes = voices.max(2).min(8);
-    // The step is half the lane whatever the chord size, so a one-lane move
-    // always lands on 2:1 — the ratio survives the figure being squeezed.
-    let lane = (190 / (lanes - 1)).min(56) & !1;
-    let step_w = lane / 2;
     let mut buf = [0i16; 20];
     let len = arp_path(style, lanes, &mut buf);
 
+    // The band the figure gets: the well, less its rules and the strip the
+    // caption is knocked out of. Everything below is fitted into it — the
+    // lanes, the clearance around the top and bottom notes, and the offset
+    // row when there is one — so nothing ever crosses the frame.
+    const BAND_TOP: i16 = SQ_Y + 3;
+    const BAND: i16 = SQ_S - 15;
+    let off_h: i16 = if offset != 0 { 37 } else { 0 };
+    // The step is half the lane whatever the chord size, so a one-lane move
+    // always lands on 2:1 — the ratio survives the figure being squeezed.
+    let mut lane = ((BAND - 12 - off_h) / (lanes - 1)).min(56) & !1;
+    let (mut nr, mut hr, mut used);
+    loop {
+        nr = (lane / 10).clamp(2, 5);
+        hr = nr + 4;
+        used = 2 * hr + (lanes - 1) * lane + off_h;
+        if used <= BAND || lane <= 12 {
+            break;
+        }
+        lane -= 2;
+    }
+    let step_w = lane / 2;
+    let clear = hr + 5;
+    let head = (lane / 6).clamp(4, 9);
+    let half = (lane / 11).clamp(2, 5);
+
     let lx = SQ_X + 22;
     let lw = SQ_S - 44;
-    // The lanes ride high enough to leave the offset its own row underneath.
-    let oy = CY - (lanes - 1) * lane / 2 - 20;
+    let oy = BAND_TOP + (BAND - used) / 2 + hr;
     (0..lanes).for_each(|i| {
         gfx_dither_rect(lx, oy + (lanes - 1 - i) * lane, lw, 1, 8, GFX_INK, GFX_GROUND);
     });
 
+    // The note, its clearance and the arrow all scale with the lane. At eight
+    // lanes a fixed 19 px halo would reach into the arrow leaving the note
+    // before it and eat the shaft.
     let py = |n: i16| oy + (lanes - 1 - n) * lane;
     if len == 0 {
         // A chord: every tone on one column, sounding together.
-        (0..lanes).for_each(|i| gfx_fill_rect(CX - 5, py(i) - 5, 11, 11, GFX_INK));
+        (0..lanes).for_each(|i| gfx_fill_rect(CX - nr, py(i) - nr, 2 * nr + 1, 2 * nr + 1, GFX_INK));
         return;
     }
     let span = (len as i16 - 1) * step_w;
     let px = |i: usize| CX - span / 2 + i as i16 * step_w;
 
     (1..len).for_each(|i| {
-        arrow_to(px(i - 1), py(buf[i - 1]), px(i), py(buf[i]), GFX_AXIS_UD);
+        arrow_to(px(i - 1), py(buf[i - 1]), px(i), py(buf[i]), clear, head, half, GFX_AXIS_UD);
     });
     // The clearance is punched afterwards, as ground around each note, so the
     // shaft's ratio is never bent by a trim.
     (0..len).for_each(|i| {
-        gfx_fill_rect(px(i) - 9, py(buf[i]) - 9, 19, 19, GFX_GROUND);
-        gfx_fill_rect(px(i) - 5, py(buf[i]) - 5, 11, 11, GFX_INK);
+        gfx_fill_rect(px(i) - hr, py(buf[i]) - hr, 2 * hr + 1, 2 * hr + 1, GFX_GROUND);
+        gfx_fill_rect(px(i) - nr, py(buf[i]) - nr, 2 * nr + 1, 2 * nr + 1, GFX_INK);
     });
 
-    draw_offset(py(0) + (lane / 2).max(22), offset);
+    draw_offset(py(0) + hr + 18, offset);
 }
 
 /// The offset is a rotation: how many places the path starts along from the
@@ -483,8 +509,8 @@ pub fn screen_spacing(ev: &NoteEvent) {
     } else {
         ((t / SIXTYFOURTH) as i16, 4)
     };
-    let blocks = blocks.max(1).min(40);
-    let notes = (ev.chord_space as i16).max(1).min(8);
+    let blocks = blocks.max(1).min(96);
+    let notes = (ev.chord_space as i16).max(1);
     fig_spacing(notes, blocks, per_col);
     let mut a = FmtBuf::<8>::new();
     let _ = write!(a, "{}", ev.chord_space);
