@@ -118,7 +118,8 @@ interface TransportKeyProps {
   width?: number;
   /** Let the cap grow into the run it sits in, rather than sizing to `width`. */
   grow?: boolean;
-  children: React.ReactNode;
+  /** Blank is legitimate: the space bar carries no legend, like every other. */
+  children?: React.ReactNode;
 }
 
 /** Same moulded cap as the hold-keys — these are switches on the case too. */
@@ -481,19 +482,14 @@ export const Grid = memo(
             </Box>
             {/* Space bar: the case-side twin of the keyboard's, and the same
               switch as the transport keys — so it goes inert under external
-              sync for the same reason they do. */}
+              sync for the same reason they do. Unlegended, like a space bar:
+              what it does is the one thing nobody needs told. */}
             <TransportKey
               onPress={isPlaying ? onStop : onPlay}
               disabled={isPlaying && isExternalPlayback}
               width={3 * dims.pitch + dims.capW}
               grow
-            >
-              {isPlaying && !isExternalPlayback ? (
-                <PauseIcon sx={{ fontSize: px(7) }} />
-              ) : (
-                <PlayArrowIcon sx={{ fontSize: px(7) }} />
-              )}
-            </TransportKey>
+            />
             <TouchStrip
               orientation="horizontal"
               strip={1}
