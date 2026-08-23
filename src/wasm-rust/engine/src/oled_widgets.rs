@@ -132,33 +132,52 @@ fn arrow_to(x0: i16, y0: i16, x1: i16, y1: i16, col: u16) {
 
 // ============ Figures ============
 
+/// The largest block and gap that fit `count` of them in `avail`, never bigger
+/// than the reference pair. Counts here are real values a player can reach —
+/// eight in a stack, sixty-four repeats — so the figure has to keep answering
+/// past the point where the reference size stops fitting.
+fn fit(count: i16, ref_b: i16, ref_g: i16, avail: i16) -> (i16, i16) {
+    let need = count * ref_b + (count - 1) * ref_g;
+    if need <= avail {
+        return (ref_b, ref_g);
+    }
+    let g = (ref_g * avail / need).max(1);
+    let b = ((avail - (count - 1) * g) / count).max(2).min(ref_b);
+    (b, g)
+}
+
+
 /// Cmd — U/D stacks notes, L/R repeats them. No axes and no arrows: the blocks
 /// are the axes. The column the stack grows up is yellow, the row the repeats
 /// run along is magenta, and the block they share is a 50% checker of the two —
 /// the only way a panel with no blending can say "and".
 fn fig_stack(stack: i16, repeat: i16) {
-    const BW: i16 = 34;
-    const BH: i16 = 24;
-    const GX: i16 = 10;
-    const GY: i16 = 9;
-    let grid_w = repeat * BW + (repeat - 1) * GX;
-    let grid_h = stack * BH + (stack - 1) * GY;
+    const AVAIL: i16 = 200;
+    let (bw, gx) = fit(repeat, 34, 10, AVAIL);
+    let (bh, gy) = fit(stack, 24, 9, AVAIL);
+    let grid_w = repeat * bw + (repeat - 1) * gx;
+    let grid_h = stack * bh + (stack - 1) * gy;
     let ox = CX - grid_w / 2;
     let oy = CY + grid_h / 2;
+    // Below about seven pixels a block is all frame, so the frame goes and the
+    // fills carry the reading on their own.
+    let framed = bw >= 7 && bh >= 7;
     (0..stack).for_each(|r| {
         (0..repeat).for_each(|k| {
-            let x = ox + k * (BW + GX);
-            let y = oy - (r + 1) * BH - r * GY;
+            let x = ox + k * (bw + gx);
+            let y = oy - (r + 1) * bh - r * gy;
             if r == 0 && k == 0 {
-                gfx_dither_rect(x, y, BW, BH, 8, GFX_AXIS_UD, GFX_AXIS_LR);
+                gfx_dither_rect(x, y, bw, bh, 8, GFX_AXIS_UD, GFX_AXIS_LR);
             } else if k == 0 {
-                gfx_fill_rect(x, y, BW, BH, GFX_AXIS_UD);
+                gfx_fill_rect(x, y, bw, bh, GFX_AXIS_UD);
             } else if r == 0 {
-                gfx_fill_rect(x, y, BW, BH, GFX_AXIS_LR);
+                gfx_fill_rect(x, y, bw, bh, GFX_AXIS_LR);
             } else {
-                gfx_dither_rect(x, y, BW, BH, 8, GFX_INK, GFX_GROUND);
+                gfx_dither_rect(x, y, bw, bh, 8, GFX_INK, GFX_GROUND);
             }
-            gfx_frame(x, y, BW, BH, GFX_INK);
+            if framed {
+                gfx_frame(x, y, bw, bh, GFX_INK);
+            }
         });
     });
 }
@@ -218,13 +237,13 @@ fn fig_spacing(stack_notes: i16, blocks: i16, per_col: i16) {
 
 /// Which lane each event visits. Chord styles sound every tone at once, so they
 /// draw as one column and the caller skips the arrows.
-fn arp_path(style: u8, voices: i16, out: &mut [i16; 12]) -> usize {
-    let n = voices.max(2).min(6);
-    let up = |out: &mut [i16; 12]| {
+fn arp_path(style: u8, voices: i16, out: &mut [i16; 20]) -> usize {
+    let n = voices.max(2).min(8);
+    let up = |out: &mut [i16; 20]| {
         (0..n).for_each(|i| out[i as usize] = i);
         n as usize
     };
-    let down = |out: &mut [i16; 12]| {
+    let down = |out: &mut [i16; 20]| {
         (0..n).for_each(|i| out[i as usize] = n - 1 - i);
         n as usize
     };
@@ -267,28 +286,30 @@ fn arp_path(style: u8, voices: i16, out: &mut [i16; 12]) -> usize {
 /// because the style is what the yellow encoder shapes: the arrows are the
 /// parameter, not a join between two marks.
 fn fig_arp(style: u8, voices: i16, offset: i16) {
-    const STEP_W: i16 = 28;
-    const LANE: i16 = 2 * STEP_W; // a one-lane move lands on 2:1 exactly
-    let lanes = voices.max(2).min(4);
-    let mut buf = [0i16; 12];
+    let lanes = voices.max(2).min(8);
+    // The step is half the lane whatever the chord size, so a one-lane move
+    // always lands on 2:1 — the ratio survives the figure being squeezed.
+    let lane = (190 / (lanes - 1)).min(56) & !1;
+    let step_w = lane / 2;
+    let mut buf = [0i16; 20];
     let len = arp_path(style, lanes, &mut buf);
 
     let lx = SQ_X + 22;
     let lw = SQ_S - 44;
     // The lanes ride high enough to leave the offset its own row underneath.
-    let oy = CY - (lanes - 1) * LANE / 2 - 20;
+    let oy = CY - (lanes - 1) * lane / 2 - 20;
     (0..lanes).for_each(|i| {
-        gfx_dither_rect(lx, oy + (lanes - 1 - i) * LANE, lw, 1, 8, GFX_INK, GFX_GROUND);
+        gfx_dither_rect(lx, oy + (lanes - 1 - i) * lane, lw, 1, 8, GFX_INK, GFX_GROUND);
     });
 
-    let py = |n: i16| oy + (lanes - 1 - n) * LANE;
+    let py = |n: i16| oy + (lanes - 1 - n) * lane;
     if len == 0 {
         // A chord: every tone on one column, sounding together.
         (0..lanes).for_each(|i| gfx_fill_rect(CX - 5, py(i) - 5, 11, 11, GFX_INK));
         return;
     }
-    let span = (len as i16 - 1) * STEP_W;
-    let px = |i: usize| CX - span / 2 + i as i16 * STEP_W;
+    let span = (len as i16 - 1) * step_w;
+    let px = |i: usize| CX - span / 2 + i as i16 * step_w;
 
     (1..len).for_each(|i| {
         arrow_to(px(i - 1), py(buf[i - 1]), px(i), py(buf[i]), GFX_AXIS_UD);
@@ -300,7 +321,7 @@ fn fig_arp(style: u8, voices: i16, offset: i16) {
         gfx_fill_rect(px(i) - 5, py(buf[i]) - 5, 11, 11, GFX_INK);
     });
 
-    draw_offset(py(0) + 30, offset);
+    draw_offset(py(0) + (lane / 2).max(22), offset);
 }
 
 /// The offset is a rotation: how many places the path starts along from the
@@ -329,28 +350,29 @@ fn draw_offset(y: i16, offset: i16) {
 /// solid and carry a magenta marker; tones in the chord but not played dither.
 fn fig_voicing(total: i16, voices: i16) {
     const BW: i16 = 118;
-    let n = total.max(2).min(5);
-    let lane = if n <= 4 { 42 } else { 34 };
+    let n = total.max(2).min(8);
+    let (bh, gap) = fit(n, 20, 22, 190);
+    let lane = bh + gap;
     let ox = SQ_X + 52;
-    let oy = CY - ((n - 1) * lane + 20) / 2;
+    let oy = CY - ((n - 1) * lane + bh) / 2;
     (0..n).for_each(|i| {
         let y = oy + (n - 1 - i) * lane;
         let on = i < voices;
         if on {
-            gfx_fill_rect(ox, y, BW, 20, GFX_INK);
+            gfx_fill_rect(ox, y, BW, bh, GFX_INK);
         } else {
-            gfx_dither_rect(ox, y, BW, 20, 6, GFX_INK, GFX_GROUND);
+            gfx_dither_rect(ox, y, BW, bh, 6, GFX_INK, GFX_GROUND);
         }
-        gfx_frame(ox, y, BW, 20, GFX_INK);
+        gfx_frame(ox, y, BW, bh, GFX_INK);
         if on {
-            gfx_fill_rect(ox - 18, y + 6, 10, 8, GFX_AXIS_LR);
+            gfx_fill_rect(ox - 18, y + bh / 2 - 4, 10, 8, GFX_AXIS_LR);
         }
     });
     // The axis brackets the tones and no further: a rule that runs past the part
     // it measures reads as a second thing on the screen.
     let ax = ox - 30;
     let top = oy - 16;
-    let h = (n - 1) * lane + 52;
+    let h = (n - 1) * lane + bh + 32;
     gfx_vline(ax, top, h, GFX_INK);
     (0..=3).for_each(|t| gfx_hline(ax - 5, top + 8 + t * (h - 16) / 3, 6, GFX_INK));
 }
@@ -438,8 +460,8 @@ pub fn draw_note_map(note: &str, pos: &str, len: &str, arp: &str, stk: &str, rpt
 // ============ Screens ============
 
 pub fn screen_stack(ev: &NoteEvent) {
-    let stack = (ev.chord_amount as i16).max(1).min(6);
-    let repeat = (ev.repeat_amount as i16).max(1).min(5);
+    let stack = (ev.chord_amount as i16).clamp(1, MAX_CHORD_SIZE as i16);
+    let repeat = (ev.repeat_amount as i16).clamp(1, 64);
     fig_stack(stack, repeat);
     let mut a = FmtBuf::<8>::new();
     let _ = write!(a, "{}", ev.chord_amount);
