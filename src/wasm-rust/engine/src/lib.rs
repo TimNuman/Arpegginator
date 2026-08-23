@@ -16,6 +16,7 @@ pub mod oled_gfx;
 pub mod oled_fonts;
 pub mod oled_display;
 pub mod oled_screen;
+pub mod oled_widgets;
 pub mod engine_strip;
 pub mod engine_drums;
 pub mod engine_sound;

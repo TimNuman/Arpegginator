@@ -247,7 +247,7 @@ fn ticks_to_musical_name(ticks: i32, zoom: i32) -> FmtBuf<16> {
     buf
 }
 
-fn ticks_to_canonical_name(ticks: i32) -> FmtBuf<16> {
+pub(crate) fn ticks_to_canonical_name(ticks: i32) -> FmtBuf<16> {
     let mut buf = FmtBuf::<16>::new();
     if let Some(trip) = lookup_triplet(ticks) {
         buf.push_str(trip);
@@ -327,7 +327,7 @@ fn chord_name_upper(s: &EngineState, ev: &NoteEvent) -> FmtBuf<64> {
 // ============ Sub-mode / loop mode labels ============
 
 static SUB_MODE_LABELS: [&str; 7] = ["VEL", "HIT", "TIME", "FLAM", "MOD", "INV", "WHL"];
-static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
+pub(crate) static ARP_STYLE_NAMES: [&str; 15] = ["CHD", "UP", "DN", "U/D", "D/U", "C.UP", "C.DN", "C.U/D", "C.D/U", "E1M1", "Z.UP", "Z.DN", "Z.U/D", "Z.D/U", "RND"];
 static INTERVAL_NAMES: [&str; 12] = [
     "UNISON", "MIN 2ND", "2ND", "MIN 3RD", "3RD", "4TH",
     "TRITONE", "5TH", "MIN 6TH", "6TH", "MIN 7TH", "7TH",
@@ -493,7 +493,7 @@ fn draw_row_tickered(y: i16, label: &str, value: &str, val_color: u16, ticker_sl
 }
 
 /// Draw a two-column row (row 0: CH xx | PAT yy)
-fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
+pub(crate) fn draw_row_two_col(y: i16, label1: &str, val1: &str, val1_color: u16,
                     label2: &str, val2: &str, val2_color: u16) {
     let col_w = HALF_W - 5;
     draw_field(PAD_X, col_w, y, label1, val1, val1_color);
@@ -829,6 +829,34 @@ fn render_pattern_selected(s: &EngineState, mods: u8) {
 
     let eg = EditGroup::from_mods(meta, alt, shift);
     let em = &EDIT_META[eg as u8 as usize];
+
+    // Every combo that has a figure draws it instead of the field list: a
+    // square well, and the two values it edits filling the foot of the panel.
+    // Inversion and the Cmd+Alt combos have no figure yet, so they keep the
+    // rows.
+    match eg {
+        EditGroup::Move => {
+            let nn = get_note_display(ev.row, is_drum, s);
+            let pos = tick_to_beat_display(ev.position);
+            let mut posbuf = FmtBuf::<16>::new();
+            let _ = write!(posbuf, "BAR {}", pos.as_str());
+            let len = ticks_to_canonical_name(ev.length);
+            let style = *ARP_STYLE_NAMES.get(ev.arp_style as usize).unwrap_or(&"CHD");
+            let mut stk = FmtBuf::<8>::new();
+            let _ = write!(stk, "{}", ev.chord_amount);
+            let mut rpt = FmtBuf::<8>::new();
+            let _ = write!(rpt, "{}", ev.repeat_amount);
+            crate::oled_widgets::draw_note_map(
+                nn.as_str(), posbuf.as_str(), len.as_str(), style, stk.as_str(), rpt.as_str(),
+            );
+            return;
+        }
+        EditGroup::Stack => return crate::oled_widgets::screen_stack(ev),
+        EditGroup::Spacing => return crate::oled_widgets::screen_spacing(ev),
+        EditGroup::Arp => return crate::oled_widgets::screen_arp(ev),
+        EditGroup::Voicing => return crate::oled_widgets::screen_voicing(ev),
+        _ => {}
+    }
 
     let note_name = get_note_display(ev.row, is_drum, s);
 
