@@ -351,71 +351,38 @@ fn fig_spacing(intervals: [&str; 2], ticks: i32) {
     });
 }
 
-/// Which lane each event visits. Chord styles sound every tone at once, so they
-/// draw as one column and the caller skips the arrows.
-fn arp_path(style: u8, voices: i16, out: &mut [i16; 20]) -> usize {
-    let n = voices.max(2).min(8);
-    let up = |out: &mut [i16; 20]| {
-        (0..n).for_each(|i| out[i as usize] = i);
-        n as usize
-    };
-    let down = |out: &mut [i16; 20]| {
-        (0..n).for_each(|i| out[i as usize] = n - 1 - i);
-        n as usize
-    };
-    match style {
-        // CHD: everything at once, no path
-        ARP_CHORD => 0,
-        // DN, C.DN, Z.DN
-        2 | 6 | 11 => down(out),
-        // U/D, C.U/D, Z.U/D, E1M1
-        3 | 7 | 12 | 9 => {
-            let mut len = up(out);
-            (1..n - 1).rev().for_each(|i| {
-                out[len] = i;
-                len += 1;
-            });
-            len
-        }
-        // D/U, C.D/U, Z.D/U
-        4 | 8 | 13 => {
-            let mut len = down(out);
-            (1..n - 1).for_each(|i| {
-                out[len] = i;
-                len += 1;
-            });
-            len
-        }
-        // RND: a fixed scatter, so the figure is stable while you read it
-        14 => {
-            let seq = [2, 0, 3, 1, 2, 0];
-            (0..6).for_each(|i| out[i] = seq[i] % n);
-            6
-        }
-        // UP, C.UP, Z.UP and anything unrecognised
-        _ => up(out),
-    }
-}
-
 /// Alt — U/D picks the style, L/R the offset. One lane per chord tone, one node
 /// per event, and each move a straight arrow on a fixed 2:1 stair. Yellow,
 /// because the style is what the yellow encoder shapes: the arrows are the
 /// parameter, not a join between two marks.
 fn fig_arp(style: u8, voices: i16, offset: i16) {
     let lanes = voices.max(2).min(8);
-    let mut buf = [0i16; 20];
-    let len = arp_path(style, lanes, &mut buf);
+    // The path is not re-derived here — it is asked of the same function that
+    // decides which chord tone sounds on each repeat. So the figure is what
+    // will play: every style exactly, the chord variants that strum the whole
+    // chord on their first step, and the offset, which is a rotation of the
+    // sequence and shows up as one.
+    let cycle = get_arp_cycle_length(style, lanes as u8) as usize;
+    let mut buf = [0i16; 32];
+    let mut len = cycle.min(buf.len());
+    (0..len).for_each(|r| {
+        let idx = get_arp_chord_index(style, lanes as u8, r as u16, offset as i8);
+        buf[r] = if idx == 255 { -1 } else { idx as i16 };
+    });
 
     // The band the figure gets: the well, less its rules and the strip the
-    // caption is knocked out of. Everything below is fitted into it — the
-    // lanes, the clearance around the top and bottom notes, and the offset
-    // row when there is one — so nothing ever crosses the frame.
+    // caption is knocked out of. Everything is fitted into it — the lanes, the
+    // clearance around the top and bottom notes, and the offset row when there
+    // is one — so nothing ever crosses the frame.
     const BAND_TOP: i16 = SQ_Y + 3;
     const BAND: i16 = SQ_S - 15;
+    const AVAIL_W: i16 = SQ_S - 44;
     let off_h: i16 = if offset != 0 { 37 } else { 0 };
     // The step is half the lane whatever the chord size, so a one-lane move
     // always lands on 2:1 — the ratio survives the figure being squeezed.
-    let mut lane = ((BAND - 12 - off_h) / (lanes - 1)).min(56) & !1;
+    let vert = (BAND - 12 - off_h) / (lanes - 1);
+    let horiz = if len > 1 { 2 * AVAIL_W / (len as i16 - 1) } else { 56 };
+    let mut lane = vert.min(horiz).min(56).max(20) & !1;
     let (mut nr, mut hr, mut used);
     loop {
         nr = (lane / 10).clamp(2, 5);
@@ -427,6 +394,11 @@ fn fig_arp(style: u8, voices: i16, offset: i16) {
         lane -= 2;
     }
     let step_w = lane / 2;
+    // A cycle too long for the width is shown as far as it fits; it repeats, so
+    // the character is all in the first turn of it anyway.
+    if len > 1 && (len as i16 - 1) * step_w > AVAIL_W {
+        len = (AVAIL_W / step_w + 1) as usize;
+    }
     let clear = hr + 5;
     let head = (lane / 6).clamp(4, 9);
     let half = (lane / 11).clamp(2, 5);
@@ -438,26 +410,27 @@ fn fig_arp(style: u8, voices: i16, offset: i16) {
         gfx_dither_rect(lx, oy + (lanes - 1 - i) * lane, lw, 1, 8, GFX_INK, GFX_GROUND);
     });
 
-    // The note, its clearance and the arrow all scale with the lane. At eight
-    // lanes a fixed 19 px halo would reach into the arrow leaving the note
-    // before it and eat the shaft.
     let py = |n: i16| oy + (lanes - 1 - n) * lane;
-    if len == 0 {
-        // A chord: every tone on one column, sounding together.
-        (0..lanes).for_each(|i| gfx_fill_rect(CX - nr, py(i) - nr, 2 * nr + 1, 2 * nr + 1, GFX_INK));
-        return;
-    }
     let span = (len as i16 - 1) * step_w;
     let px = |i: usize| CX - span / 2 + i as i16 * step_w;
+    let node = |x: i16, y: i16| {
+        gfx_fill_rect(x - hr, y - hr, 2 * hr + 1, 2 * hr + 1, GFX_GROUND);
+        gfx_fill_rect(x - nr, y - nr, 2 * nr + 1, 2 * nr + 1, GFX_INK);
+    };
 
+    // An arrow only joins two single tones. A step that sounds the whole chord
+    // has no one place to point at, so it is drawn as the column it is.
     (1..len).for_each(|i| {
-        arrow_to(px(i - 1), py(buf[i - 1]), px(i), py(buf[i]), clear, head, half, GFX_AXIS_UD);
+        if buf[i - 1] >= 0 && buf[i] >= 0 {
+            arrow_to(px(i - 1), py(buf[i - 1]), px(i), py(buf[i]), clear, head, half, GFX_AXIS_UD);
+        }
     });
-    // The clearance is punched afterwards, as ground around each note, so the
-    // shaft's ratio is never bent by a trim.
     (0..len).for_each(|i| {
-        gfx_fill_rect(px(i) - hr, py(buf[i]) - hr, 2 * hr + 1, 2 * hr + 1, GFX_GROUND);
-        gfx_fill_rect(px(i) - nr, py(buf[i]) - nr, 2 * nr + 1, 2 * nr + 1, GFX_INK);
+        if buf[i] < 0 {
+            (0..lanes).for_each(|l| node(px(i), py(l)));
+        } else {
+            node(px(i), py(buf[i]));
+        }
     });
 
     draw_offset(py(0) + hr + 18, offset);
